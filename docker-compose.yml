@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fitness
+    ports: ["5432:5432"]
+    volumes: [db-data:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  backend:
+    build: ./apps/backend
+    env_file: ./apps/backend/.env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.local
+      DATABASE_URL: postgres://postgres:postgres@db:5432/fitness
+    volumes:
+      - ./apps/backend:/app
+    ports: ["8080:8080"]
+    depends_on: [db]
+
+volumes:
+  db-data:
