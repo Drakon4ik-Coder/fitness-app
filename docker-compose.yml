@@ -12,7 +12,9 @@ services:
     ports: ["6379:6379"]
 
   backend:
-    build: ./apps/backend
+    build:
+      context: ./apps/backend
+      target: dev 
     env_file: ./apps/backend/.env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.local

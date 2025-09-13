@@ -39,3 +39,4 @@ djangorestframework-stubs = "^3.16.2"
 [tool.ruff.per-file-ignores]
 "config/settings/local.py" = ["F403", "F405"]
 "config/settings/prod.py" = ["F403", "F405"]
+"config/settings/test.py" = ["F403", "F405"]
