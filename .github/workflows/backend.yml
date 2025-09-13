@@ -32,7 +32,7 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
       - name: Install deps
-        run: poetry install --no-interaction
+        run: poetry install --no-interaction --no-root
       - name: Lint (ruff) & format check
         run: poetry run ruff --output-format=github .
       - name: Type check (mypy)
