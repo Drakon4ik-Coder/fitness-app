@@ -1,0 +1,41 @@
+name: Backend CI
+on:
+  push:
+    paths: ["apps/backend/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["apps/backend/**", ".github/workflows/backend.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fitness
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/fitness
+      DJANGO_SECRET_KEY: ci-secret
+      DJANGO_SETTINGS_MODULE: config.settings.base
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install deps
+        run: poetry install --no-interaction
+      - name: Lint (ruff) & format check
+        run: poetry run ruff --output-format=github .
+      - name: Type check (mypy)
+        run: poetry run mypy .
+      - name: Test
+        run: poetry run pytest --maxfail=1 --disable-warnings -q
