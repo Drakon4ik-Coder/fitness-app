@@ -1,7 +1,7 @@
 from django.test import Client
 
 
-def test_health():
+def test_health() -> None:
     c = Client()
     resp = c.get("/health/")
     assert resp.status_code == 200
