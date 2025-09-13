@@ -48,3 +48,12 @@ djangorestframework-stubs = "^3.16.2"
 python_version = "3.12"
 plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 strict = true
+mypy_path = "."
+
+# Third-party libs without types
+[[tool.mypy.overrides]]
+module = ["environ", "environ.*"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
