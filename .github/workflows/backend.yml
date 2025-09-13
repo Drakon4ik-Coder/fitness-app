@@ -33,8 +33,10 @@ jobs:
         run: pip install poetry
       - name: Install deps
         run: poetry install --no-interaction --no-root
-      - name: Lint (ruff) & format check
-        run: poetry run ruff --output-format=github .
+      - name: Lint (Ruff)
+        run: poetry run ruff check --output-format=github .
+      - name: Format (Ruff)
+        run: poetry run ruff format --check .
       - name: Type check (mypy)
         run: poetry run mypy .
       - name: Test
