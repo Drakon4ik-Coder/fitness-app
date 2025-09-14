@@ -6,7 +6,10 @@ services:
     plan: free                     # for staging; upgrade to starter/standard for prod
     region: frankfurt              # EU region
     healthCheckPath: /health/      # our Django health endpoint
-    preDeployCommand: python manage.py migrate --noinput   # run DB migrations before release
+    dockerCommand: >
+      sh -lc 'python manage.py migrate --noinput &&
+              exec gunicorn config.wsgi:application
+              --bind 0.0.0.0:${PORT:-8000} --workers 3 --timeout 60'
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod
