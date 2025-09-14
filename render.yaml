@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: fitness-backend
+    runtime: docker
+    rootDir: apps/backend          # monorepo: build from backend subdir
+    plan: free                     # for staging; upgrade to starter/standard for prod
+    region: frankfurt              # EU region
+    healthCheckPath: /health/      # our Django health endpoint
+    preDeployCommand: python manage.py migrate --noinput   # run DB migrations before release
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: SECRET_KEY
+        sync: false                # set in dashboard during first apply
+      - key: ALLOWED_HOSTS
+        # include your onrender.com hostname after first deploy, or set via Dashboard
+        value: .onrender.com,localhost,127.0.0.1
+      - key: CSRF_TRUSTED_ORIGINS
+        # will adjust after first deploy e.g. https://fitness-backend.onrender.com
+        value: https://fitness-backend.onrender.com
+      - key: SENTRY_DSN
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fitness-pg
+          property: connectionString
+
+databases:
+  - name: fitness-pg
+    plan: free                     # Postgres free (dev/testing)
+    region: frankfurt

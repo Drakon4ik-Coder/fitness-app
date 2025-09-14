@@ -19,7 +19,7 @@ COPY . /app
 RUN chown -R appuser:appuser /app
 USER appuser
 ENV DJANGO_SETTINGS_MODULE=config.settings.prod
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8080", "--workers", "2"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:${PORT}", "--workers", "3", "--timeout", "60"]
 
 # dev/test
 FROM base AS dev
