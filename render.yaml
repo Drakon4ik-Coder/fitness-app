@@ -2,27 +2,24 @@ services:
   - type: web
     name: fitness-backend
     runtime: docker
-    rootDir: apps/backend          # monorepo: build from backend subdir
-    plan: free                     # for staging; upgrade to starter/standard for prod
-    region: frankfurt              # EU region
-    healthCheckPath: /health/      # our Django health endpoint
+    dockerfilePath: apps/backend/Dockerfile
+    dockerContext: apps/backend
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health/
+
     dockerCommand: >
-      sh -lc 'python manage.py migrate --noinput &&
-              exec gunicorn config.wsgi:application
-              --bind 0.0.0.0:${PORT:-8000} --workers 3 --timeout 60'
+      python manage.py migrate --noinput &&
+      exec gunicorn config.wsgi:application
+      --bind 0.0.0.0:$PORT --workers 3 --timeout 60
+
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.prod
-      - key: SECRET_KEY
-        sync: false                # set in dashboard during first apply
-      - key: ALLOWED_HOSTS
-        # include your onrender.com hostname after first deploy, or set via Dashboard
-        value: .onrender.com,localhost,127.0.0.1
-      - key: CSRF_TRUSTED_ORIGINS
-        # will adjust after first deploy e.g. https://fitness-backend.onrender.com
-        value: https://fitness-backend.onrender.com
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
       - key: SENTRY_DSN
-        sync: false
+        sync: false           # set via dashboard if you want Sentry
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: LOG_LEVEL
@@ -34,5 +31,5 @@ services:
 
 databases:
   - name: fitness-pg
-    plan: free                     # Postgres free (dev/testing)
+    plan: free
     region: frankfurt
