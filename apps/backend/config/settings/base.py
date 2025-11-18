@@ -108,4 +108,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
 }
 
-sentry_sdk.init(dsn=env("SENTRY_DSN", default=None), traces_sample_rate=0.1)
+SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=0.1,
+    )

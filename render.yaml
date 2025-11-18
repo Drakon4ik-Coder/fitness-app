@@ -19,7 +19,7 @@ services:
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: SENTRY_DSN
-        sync: false           # set via dashboard if you want Sentry
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: LOG_LEVEL
