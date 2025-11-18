@@ -19,7 +19,11 @@ COPY . /app
 RUN chown -R appuser:appuser /app
 USER appuser
 ENV DJANGO_SETTINGS_MODULE=config.settings.prod
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "60"]
+# Add entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+# Let the entrypoint do migrations + start gunicorn
+CMD ["/entrypoint.sh"]
 
 # dev/test
 FROM base AS dev
