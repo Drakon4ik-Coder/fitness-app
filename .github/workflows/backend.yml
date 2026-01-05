@@ -1,9 +1,9 @@
 name: Backend CI
 on:
   push:
-    paths: ["apps/backend/**", ".github/workflows/backend.yml"]
+    paths: ["apps/backend/**", "contracts/openapi.yaml", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["apps/backend/**", ".github/workflows/backend.yml"]
+    paths: ["apps/backend/**", "contracts/openapi.yaml", ".github/workflows/backend.yml"]
 
 jobs:
   test:
@@ -32,7 +32,11 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
       - name: Install deps
-        run: poetry install --no-interaction --no-root
+        run: poetry install --no-interaction --no-root --sync
+      - name: Export OpenAPI schema
+        run: ./scripts/export_openapi.sh
+      - name: Check OpenAPI contract is up to date
+        run: git diff --exit-code ../../contracts/openapi.yaml
       - name: Lint (Ruff)
         run: poetry run ruff check --output-format=github .
       - name: Format (Ruff)
