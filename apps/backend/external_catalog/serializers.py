@@ -41,9 +41,7 @@ class ExternalFoodItemIngestSerializer(serializers.Serializer):
         )
         brands = product.get("brands") or ""
         ingredients_text = (
-            product.get("ingredients_text")
-            or product.get("ingredients_text_en")
-            or ""
+            product.get("ingredients_text") or product.get("ingredients_text_en") or ""
         )
         image_url = product.get("image_url") or product.get("image_front_url") or ""
         nutriments_json = product.get("nutriments") or None

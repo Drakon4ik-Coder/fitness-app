@@ -40,7 +40,7 @@ mypy = "^1.18.1"
 django-stubs = "^5.2.4"
 djangorestframework-stubs = "^3.16.2"
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "config/settings/local.py" = ["F403", "F405"]
 "config/settings/prod.py" = ["F403", "F405"]
 "config/settings/test.py" = ["F403", "F405"]
