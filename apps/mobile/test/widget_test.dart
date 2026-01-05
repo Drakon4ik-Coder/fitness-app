@@ -5,6 +5,7 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,7 +19,8 @@ void main() {
     await tester.pumpWidget(const FitnessApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Sign in'), findsWidgets);
+    expect(find.widgetWithText(ElevatedButton, 'Sign in'), findsOneWidget);
     expect(find.text('Create account'), findsOneWidget);
   });
 }
