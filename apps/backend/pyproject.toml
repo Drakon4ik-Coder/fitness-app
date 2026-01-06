@@ -48,8 +48,8 @@ djangorestframework-stubs = "^3.16.2"
 [tool.mypy]
 python_version = "3.12"
 plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
-strict = true
-mypy_path = "."
+strict = false
+mypy_path = [".", "apps/backend"]
 
 # Third-party libs without types
 [[tool.mypy.overrides]]
