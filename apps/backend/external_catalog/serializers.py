@@ -1,12 +1,23 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from django.utils import timezone
 from rest_framework import serializers
 
 from external_catalog.models import ExternalFoodItemCache
 
+if TYPE_CHECKING:
+    ExternalFoodItemCacheSerializerBase: TypeAlias = serializers.ModelSerializer[
+        ExternalFoodItemCache
+    ]
+    ExternalFoodItemIngestSerializerBase: TypeAlias = serializers.Serializer[
+        ExternalFoodItemCache
+    ]
+else:
+    ExternalFoodItemCacheSerializerBase = serializers.ModelSerializer
+    ExternalFoodItemIngestSerializerBase = serializers.Serializer
 
-class ExternalFoodItemCacheSerializer(serializers.ModelSerializer):
+
+class ExternalFoodItemCacheSerializer(ExternalFoodItemCacheSerializerBase):
     class Meta:
         model = ExternalFoodItemCache
         fields = (
@@ -24,7 +35,7 @@ class ExternalFoodItemCacheSerializer(serializers.ModelSerializer):
         )
 
 
-class ExternalFoodItemIngestSerializer(serializers.Serializer):
+class ExternalFoodItemIngestSerializer(ExternalFoodItemIngestSerializerBase):
     barcode = serializers.CharField(max_length=64)
     raw_json = serializers.JSONField()
 
