@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, cast
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractBaseUser
@@ -8,8 +8,17 @@ from preferences.models import UserPreferences
 
 User = get_user_model()
 
+if TYPE_CHECKING:
+    UserModelSerializerBase: TypeAlias = serializers.ModelSerializer[AbstractBaseUser]
+else:
+    UserModelSerializerBase = serializers.ModelSerializer
 
-class UserRegistrationSerializer(serializers.ModelSerializer):
+
+class UserManagerProtocol(Protocol):
+    def create_user(self, **kwargs: Any) -> AbstractBaseUser: ...
+
+
+class UserRegistrationSerializer(UserModelSerializerBase):
     password = serializers.CharField(write_only=True, min_length=8)
 
     class Meta:
@@ -21,12 +30,13 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> AbstractBaseUser:
         password = validated_data.pop("password")
-        user = User.objects.create_user(password=password, **validated_data)
+        manager = cast(UserManagerProtocol, User.objects)
+        user = manager.create_user(password=password, **validated_data)
         UserPreferences.objects.get_or_create(user=user)
         return user
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(UserModelSerializerBase):
     class Meta:
         model = User
         fields = ("id", "username", "email", "first_name", "last_name")
