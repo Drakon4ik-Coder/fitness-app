@@ -1,17 +1,10 @@
-from typing import TYPE_CHECKING, TypeAlias
-
 from django.contrib import admin
 
 from external_catalog.models import ExternalFoodItemCache
 
-if TYPE_CHECKING:
-    ExternalFoodItemCacheAdminBase: TypeAlias = admin.ModelAdmin[ExternalFoodItemCache]
-else:
-    ExternalFoodItemCacheAdminBase = admin.ModelAdmin
-
 
 @admin.register(ExternalFoodItemCache)
-class ExternalFoodItemCacheAdmin(ExternalFoodItemCacheAdminBase):
+class ExternalFoodItemCacheAdmin(admin.ModelAdmin):
     list_display = (
         "barcode",
         "source",
