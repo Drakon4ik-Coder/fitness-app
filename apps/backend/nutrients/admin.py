@@ -7,3 +7,4 @@ from nutrients.models import NutrientDefinition
 class NutrientDefinitionAdmin(admin.ModelAdmin):
     list_display = ("key", "display_name", "unit", "is_user_defined", "owner")
     search_fields = ("key", "display_name", "owner__username", "owner__email")
+    list_select_related = ("owner",)
