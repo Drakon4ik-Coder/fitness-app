@@ -7,14 +7,16 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:fitness_app/main.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   testWidgets('Shows sign-in when no token is stored',
       (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
 
     await tester.pumpWidget(const FitnessApp());
     await tester.pumpAndSettle();
