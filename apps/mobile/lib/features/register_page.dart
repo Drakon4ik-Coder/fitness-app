@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/auth_service.dart';
-import '../core/environment.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({
@@ -90,11 +89,6 @@ class _RegisterPageState extends State<RegisterPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'API: ${EnvironmentConfig.apiBaseUrl}',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
               TextFormField(
                 controller: _usernameController,
                 textInputAction: TextInputAction.next,

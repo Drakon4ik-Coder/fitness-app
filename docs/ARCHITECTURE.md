@@ -53,8 +53,8 @@ A global fitness platform combining nutrition tracking, recipes/meal planning, p
 - realtime: training-together (later)
 
 ## Open Food Facts integration (hybrid)
-- OFF enforces rate limits; read product queries are limited and search queries are stricter. Requests from users directly apply limits per user. :contentReference[oaicite:4]{index=4}
-- Mobile sets custom User-Agent per OFF guidance. :contentReference[oaicite:5]{index=5}
+- OFF enforces rate limits; read product queries are limited and search queries are stricter. Requests from users directly apply limits per user.
+- Mobile sets custom User-Agent per OFF guidance.
 - Flow:
   1) Mobile requests backend cache by barcode
   2) If missing, mobile calls OFF product endpoint
