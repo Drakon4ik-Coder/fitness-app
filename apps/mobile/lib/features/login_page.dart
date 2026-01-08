@@ -4,6 +4,8 @@ import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
 import '../core/environment.dart';
 import 'register_page.dart';
+import '../ui_components/ui_components.dart';
+import '../ui_system/tokens.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -80,90 +82,77 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
+    return AppScaffold(
       appBar: AppBar(
         title: const Text('Sign in'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'API: ${EnvironmentConfig.apiBaseUrl}',
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _usernameController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Enter your username.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: true,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => _submit(),
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Enter your password.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _submit,
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Sign in'),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: _isLoading
-                    ? null
-                    : () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => RegisterPage(
-                              authService: widget.authService,
-                            ),
+      scrollable: true,
+      body: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'API: ${EnvironmentConfig.apiBaseUrl}',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            AppFormField(
+              controller: _usernameController,
+              label: 'Username',
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.username],
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Enter your username.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppFormField(
+              controller: _passwordController,
+              label: 'Password',
+              obscureText: true,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              autofillHints: const [AutofillHints.password],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Enter your password.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppPrimaryButton(
+              onPressed: _isLoading ? null : _submit,
+              isLoading: _isLoading,
+              child: const Text('Sign in'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => RegisterPage(
+                            authService: widget.authService,
                           ),
-                        );
-                      },
-                child: const Text('Create account'),
+                        ),
+                      );
+                    },
+              child: const Text('Create account'),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              InlineBanner(
+                message: _errorMessage!,
+                tone: InlineBannerTone.error,
               ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _errorMessage!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.error,
-                  ),
-                ),
-              ],
             ],
-          ),
+          ],
         ),
       ),
     );

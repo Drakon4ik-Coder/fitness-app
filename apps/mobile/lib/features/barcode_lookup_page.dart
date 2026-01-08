@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../core/environment.dart';
+import '../ui_components/ui_components.dart';
+import '../ui_system/tokens.dart';
 
 class BarcodeLookupPage extends StatefulWidget {
   const BarcodeLookupPage({
@@ -26,6 +28,7 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
 
   bool _isLoading = false;
   String? _message;
+  InlineBannerTone? _messageTone;
   Map<String, dynamic>? _item;
 
   @override
@@ -67,6 +70,7 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
     if (barcode.isEmpty) {
       setState(() {
         _message = 'Enter a barcode to look up.';
+        _messageTone = InlineBannerTone.error;
         _item = null;
       });
       return;
@@ -75,6 +79,7 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
     setState(() {
       _isLoading = true;
       _message = null;
+      _messageTone = null;
       _item = null;
     });
 
@@ -92,8 +97,10 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
       final statusCode = error.response?.statusCode;
       final data = error.response?.data;
       String message;
+      InlineBannerTone tone;
       if (statusCode == 404 && data is Map && data['fetch_external'] == true) {
         message = 'Fetch from OFF (coming next)';
+        tone = InlineBannerTone.info;
       } else if (statusCode == 401) {
         await widget.onLogout();
         if (!mounted) {
@@ -105,12 +112,14 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
         return;
       } else {
         message = 'Lookup failed. Please try again.';
+        tone = InlineBannerTone.error;
       }
       if (!mounted) {
         return;
       }
       setState(() {
         _message = message;
+        _messageTone = tone;
         _isLoading = false;
       });
     } catch (_) {
@@ -119,6 +128,7 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
       }
       setState(() {
         _message = 'Lookup failed. Please try again.';
+        _messageTone = InlineBannerTone.error;
         _isLoading = false;
       });
     }
@@ -131,7 +141,7 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
     final brands = _item?['brands'] as String?;
     final ingredients = _item?['ingredients_text'] as String?;
 
-    return Scaffold(
+    return AppScaffold(
       appBar: AppBar(
         title: const Text('Barcode Lookup'),
         actions: [
@@ -142,67 +152,61 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'API: ${EnvironmentConfig.apiBaseUrl}',
-              style: theme.textTheme.bodySmall,
+      scrollable: true,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'API: ${EnvironmentConfig.apiBaseUrl}',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppTextField(
+            controller: _controller,
+            label: 'Barcode',
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _lookup(),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppPrimaryButton(
+            onPressed: _isLoading ? null : _lookup,
+            isLoading: _isLoading,
+            child: const Text('Lookup'),
+          ),
+          if (_message != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            InlineBanner(
+              message: _message!,
+              tone: _messageTone ?? InlineBannerTone.info,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _controller,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _lookup(),
-              decoration: const InputDecoration(
-                labelText: 'Barcode',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _lookup,
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Lookup'),
-            ),
-            if (_message != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _message!,
-                style: theme.textTheme.bodyMedium,
-              ),
-            ],
-            if (_item != null) ...[
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView(
+          ],
+          if (_item != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       name?.isNotEmpty == true ? name! : 'Unnamed item',
                       style: theme.textTheme.titleLarge,
                     ),
                     if (brands?.isNotEmpty == true) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                       Text('Brands: $brands'),
                     ],
                     if (ingredients?.isNotEmpty == true) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                       Text('Ingredients: $ingredients'),
                     ],
                   ],
                 ),
               ),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

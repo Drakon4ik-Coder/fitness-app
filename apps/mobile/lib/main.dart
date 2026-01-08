@@ -4,6 +4,7 @@ import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'features/barcode_lookup_page.dart';
 import 'features/login_page.dart';
+import 'ui_system/app_theme.dart';
 
 void main() {
   runApp(const FitnessApp());
@@ -16,10 +17,7 @@ class FitnessApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Fitness App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
       home: const AuthGate(),
     );
   }
