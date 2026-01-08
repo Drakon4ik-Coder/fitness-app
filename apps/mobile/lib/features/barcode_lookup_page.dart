@@ -22,6 +22,7 @@ class BarcodeLookupPage extends StatefulWidget {
 class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
   final TextEditingController _controller = TextEditingController();
   late final Dio _dio;
+  late final bool _ownsDio;
 
   bool _isLoading = false;
   String? _message;
@@ -30,13 +31,18 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.dio ??
-        Dio(
-          BaseOptions(
-            baseUrl: EnvironmentConfig.apiBaseUrl,
-            headers: {'Authorization': 'Bearer ${widget.accessToken}'},
-          ),
-        );
+    if (widget.dio != null) {
+      _dio = widget.dio!;
+      _ownsDio = false;
+    } else {
+      _dio = Dio(
+        BaseOptions(
+          baseUrl: EnvironmentConfig.apiBaseUrl,
+          headers: {'Authorization': 'Bearer ${widget.accessToken}'},
+        ),
+      );
+      _ownsDio = true;
+    }
   }
 
   @override
@@ -50,7 +56,9 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
   @override
   void dispose() {
     _controller.dispose();
-    _dio.close();
+    if (_ownsDio) {
+      _dio.close();
+    }
     super.dispose();
   }
 
