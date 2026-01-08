@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/tokens.dart';
+import 'nutrition_scan_page.dart';
 
 class AddFoodSheet extends StatefulWidget {
   const AddFoodSheet({super.key});
@@ -38,6 +39,15 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     setState(() {
       _selectedResultIndex = index;
     });
+  }
+
+  void _openScanPage() {
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const NutritionScanPage(),
+      ),
+    );
   }
 
   @override
@@ -108,11 +118,21 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.lg),
-                      AppTextField(
-                        controller: _searchController,
-                        label: 'Search foods',
-                        textInputAction: TextInputAction.search,
-                        suffixIcon: const Icon(Icons.search),
+                      Row(
+                        children: [
+                          _ScanButton(
+                            onPressed: _openScanPage,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: AppTextField(
+                              controller: _searchController,
+                              label: 'Search foods',
+                              textInputAction: TextInputAction.search,
+                              suffixIcon: const Icon(Icons.search),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: AppSpacing.md),
                       Wrap(
@@ -195,6 +215,43 @@ class _FilterChip extends StatelessWidget {
         color: scheme.outline.withOpacity(0.3),
       ),
       showCheckmark: false,
+    );
+  }
+}
+
+class _ScanButton extends StatelessWidget {
+  const _ScanButton({
+    required this.onPressed,
+  });
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Semantics(
+      button: true,
+      label: 'Scan barcode',
+      child: Tooltip(
+        message: 'Scan barcode',
+        child: SizedBox(
+          height: 56,
+          width: 56,
+          child: Material(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              onTap: onPressed,
+              child: Icon(
+                Icons.qr_code_scanner,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
