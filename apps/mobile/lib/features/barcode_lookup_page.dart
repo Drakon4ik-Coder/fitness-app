@@ -8,10 +8,12 @@ class BarcodeLookupPage extends StatefulWidget {
     super.key,
     required this.accessToken,
     required this.onLogout,
+    this.dio,
   });
 
   final String accessToken;
   final Future<void> Function() onLogout;
+  final Dio? dio;
 
   @override
   State<BarcodeLookupPage> createState() => _BarcodeLookupPageState();
@@ -28,12 +30,13 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
   @override
   void initState() {
     super.initState();
-    _dio = Dio(
-      BaseOptions(
-        baseUrl: EnvironmentConfig.apiBaseUrl,
-        headers: {'Authorization': 'Bearer ${widget.accessToken}'},
-      ),
-    );
+    _dio = widget.dio ??
+        Dio(
+          BaseOptions(
+            baseUrl: EnvironmentConfig.apiBaseUrl,
+            headers: {'Authorization': 'Bearer ${widget.accessToken}'},
+          ),
+        );
   }
 
   @override
