@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../core/environment.dart';
+import 'nutrition/nutrition_today_page.dart';
 import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
 
@@ -206,6 +207,18 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
               ),
             ),
           ],
+          const SizedBox(height: AppSpacing.lg),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const NutritionTodayPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.restaurant_menu),
+            label: const Text('Go to Nutrition Today'),
+          ),
         ],
       ),
     );
