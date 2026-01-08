@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../core/auth_service.dart';
+import '../ui_components/ui_components.dart';
+import '../ui_system/tokens.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({
@@ -76,94 +78,77 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
+    return AppScaffold(
       appBar: AppBar(
         title: const Text('Create account'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _usernameController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Enter a username.';
-                  }
+      scrollable: true,
+      body: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppFormField(
+              controller: _usernameController,
+              label: 'Username',
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.username],
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Enter a username.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppFormField(
+              controller: _emailController,
+              label: 'Email (optional)',
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.email],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
                   return null;
-                },
+                }
+                if (!value.contains('@')) {
+                  return 'Enter a valid email.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppFormField(
+              controller: _passwordController,
+              label: 'Password',
+              obscureText: true,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              autofillHints: const [AutofillHints.newPassword],
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Enter a password.';
+                }
+                if (value.length < 8) {
+                  return 'Password must be at least 8 characters.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppPrimaryButton(
+              onPressed: _isLoading ? null : _submit,
+              isLoading: _isLoading,
+              child: const Text('Create account'),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              InlineBanner(
+                message: _errorMessage!,
+                tone: InlineBannerTone.error,
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _emailController,
-                textInputAction: TextInputAction.next,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Email (optional)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return null;
-                  }
-                  if (!value.contains('@')) {
-                    return 'Enter a valid email.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: true,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => _submit(),
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Enter a password.';
-                  }
-                  if (value.length < 8) {
-                    return 'Password must be at least 8 characters.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _submit,
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Create account'),
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  _errorMessage!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.error,
-                  ),
-                ),
-              ],
             ],
-          ),
+          ],
         ),
       ),
     );
