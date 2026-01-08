@@ -21,7 +21,7 @@ cat > "$HOOK_PATH" <<'EOF'
 #!/usr/bin/env sh
 set -e
 
-## fitness-app pre-push hook: run make check
+# fitness-app pre-push hook: run make check
 echo "==> pre-push: make check"
 make check
 EOF
