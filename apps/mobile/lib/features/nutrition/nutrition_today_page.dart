@@ -5,10 +5,22 @@ import 'package:flutter/material.dart';
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_sheet.dart';
-import 'nutrition_scan_page.dart';
 
-class NutritionTodayPage extends StatelessWidget {
+class NutritionTodayPage extends StatefulWidget {
   const NutritionTodayPage({super.key});
+
+  @override
+  State<NutritionTodayPage> createState() => _NutritionTodayPageState();
+}
+
+class _NutritionTodayPageState extends State<NutritionTodayPage> {
+  late DateTime _selectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDate = DateUtils.dateOnly(DateTime.now());
+  }
 
   void _openAddFoodSheet(BuildContext context) {
     showModalBottomSheet<void>(
@@ -20,14 +32,6 @@ class NutritionTodayPage extends StatelessWidget {
     );
   }
 
-  void _openScanPage(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const NutritionScanPage(),
-      ),
-    );
-  }
-
   void _showItemDetails(BuildContext context, _MealItem item) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -36,50 +40,105 @@ class NutritionTodayPage extends StatelessWidget {
     );
   }
 
+  void _shiftDay(int offset) {
+    setState(() {
+      _selectedDate =
+          DateUtils.dateOnly(_selectedDate.add(Duration(days: offset)));
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime? selected = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(_selectedDate.year - 5, 1, 1),
+      lastDate: DateTime(_selectedDate.year + 5, 12, 31),
+    );
+
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedDate = DateUtils.dateOnly(selected);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final localizations = MaterialLocalizations.of(context);
+    final today = DateUtils.dateOnly(DateTime.now());
+    final bool isToday = DateUtils.isSameDay(_selectedDate, today);
+    final String formattedDate = localizations.formatMediumDate(_selectedDate);
+    final String dateLabel = isToday ? 'Today' : formattedDate;
     final int kcalLeft = math.max(0, _dailyGoalKcal - _eatenKcal + _burnedKcal);
     final double ringProgress =
         math.min(1.0, _eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
 
     return AppScaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Today',
-              style: theme.textTheme.titleLarge,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              _mockDate,
-              style: theme.textTheme.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-        toolbarHeight: 72,
-        actions: [
-          IconButton(
-            tooltip: 'Calendar',
-            onPressed: () {},
-            icon: const Icon(Icons.calendar_today_outlined),
-          ),
-          IconButton(
-            tooltip: 'Scan',
-            onPressed: () => _openScanPage(context),
-            icon: const Icon(Icons.qr_code_scanner),
-          ),
-        ],
-      ),
       scrollable: true,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Previous day',
+                constraints:
+                    const BoxConstraints(minWidth: 48, minHeight: 48),
+                onPressed: () => _shiftDay(-1),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: 'Select date',
+                  value: isToday ? 'Today, $formattedDate' : formattedDate,
+                  child: TextButton(
+                    onPressed: _pickDate,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          dateLabel,
+                          style: theme.textTheme.titleMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                        if (isToday) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            formattedDate,
+                            style: theme.textTheme.bodySmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Next day',
+                constraints:
+                    const BoxConstraints(minWidth: 48, minHeight: 48),
+                onPressed: () => _shiftDay(1),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -432,7 +491,6 @@ class _MealItemRow extends StatelessWidget {
   }
 }
 
-const String _mockDate = 'Tue, Sep 12';
 const int _dailyGoalKcal = 2200;
 const int _eatenKcal = 1450;
 const int _burnedKcal = 320;
