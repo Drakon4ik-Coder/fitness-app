@@ -9,10 +9,14 @@ class AppTheme {
 
   static ThemeData _buildTheme(Brightness brightness) {
     const seedColor = Color(0xFF2E7D32);
-    const warmSurface = Color(0xFFF6F1EB);
-    const warmSurfaceVariant = Color(0xFFECE3D9);
+    const warmSurface = Color(0xFFF7F2EC);
+    const warmSurfaceVariant = Color(0xFFE9DED1);
+    const warmOutline = Color(0xFFD2C6B8);
+    const warmOutlineVariant = Color(0xFFE0D6CA);
     const darkSurface = Color(0xFF1D1B18);
-    const darkSurfaceVariant = Color(0xFF2B2722);
+    const darkSurfaceVariant = Color(0xFF2A2622);
+    const darkOutline = Color(0xFF4A433D);
+    const darkOutlineVariant = Color(0xFF3A352F);
 
     final base = ColorScheme.fromSeed(
       seedColor: seedColor,
@@ -21,12 +25,16 @@ class AppTheme {
     final surface = brightness == Brightness.light ? warmSurface : darkSurface;
     final surfaceContainerHighest =
         brightness == Brightness.light ? warmSurfaceVariant : darkSurfaceVariant;
+    final outline = brightness == Brightness.light ? warmOutline : darkOutline;
+    final outlineVariant = brightness == Brightness.light
+        ? warmOutlineVariant
+        : darkOutlineVariant;
     final surfaceContainerLow =
-        Color.lerp(surface, surfaceContainerHighest, 0.24)!;
+        Color.lerp(surface, surfaceContainerHighest, 0.3)!;
     final surfaceContainer =
-        Color.lerp(surface, surfaceContainerHighest, 0.48)!;
+        Color.lerp(surface, surfaceContainerHighest, 0.6)!;
     final surfaceContainerHigh =
-        Color.lerp(surface, surfaceContainerHighest, 0.72)!;
+        Color.lerp(surface, surfaceContainerHighest, 0.8)!;
     final colorScheme = base.copyWith(
       surface: surface,
       surfaceContainerLowest: surface,
@@ -34,6 +42,9 @@ class AppTheme {
       surfaceContainer: surfaceContainer,
       surfaceContainerHigh: surfaceContainerHigh,
       surfaceContainerHighest: surfaceContainerHighest,
+      outline: outline,
+      outlineVariant: outlineVariant,
+      surfaceTint: surface,
     );
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -80,14 +91,19 @@ class AppTheme {
           ),
         ),
       ),
+      dividerTheme: DividerThemeData(
+        color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+        thickness: 1,
+      ),
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: 1,
         color: colorScheme.surfaceContainer,
         margin: EdgeInsets.zero,
+        surfaceTintColor: colorScheme.surface,
         shape: RoundedRectangleBorder(
           borderRadius: AppRadius.card,
           side: BorderSide(
-            color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+            color: colorScheme.outlineVariant.withValues(alpha: 0.35),
           ),
         ),
       ),

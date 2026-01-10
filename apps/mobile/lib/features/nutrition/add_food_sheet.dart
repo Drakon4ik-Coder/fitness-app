@@ -90,6 +90,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: SegmentedButton<MealType>(
+                          showSelectedIcon: false,
                           segments: const [
                             ButtonSegment(
                               value: MealType.breakfast,
