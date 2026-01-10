@@ -89,6 +89,8 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final int kcalLeft = math.max(0, _dailyGoalKcal - _eatenKcal + _burnedKcal);
     final double ringProgress =
         math.min(1.0, _eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
+    final neutralTrack =
+        theme.colorScheme.outlineVariant.withValues(alpha: 0.4);
 
     return AppScaffold(
       body: Column(
@@ -192,9 +194,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                         child: CircularProgressIndicator(
                                           value: ringProgress,
                                           strokeWidth: 10,
-                                          backgroundColor: theme
-                                              .colorScheme
-                                              .surfaceContainerHighest,
+                                          backgroundColor: neutralTrack,
                                         ),
                                       ),
                                       Padding(
@@ -209,7 +209,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                                 '$kcalLeft',
                                                 style: theme
                                                     .textTheme.titleLarge
-                                                    ?.copyWith(height: 1.0),
+                                                    ?.copyWith(
+                                                  height: 1.0,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                                 textAlign: TextAlign.center,
                                                 maxLines: 1,
                                               ),
@@ -219,7 +222,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                               'kcal left',
                                               style: theme
                                                   .textTheme.bodySmall
-                                                  ?.copyWith(height: 1.1),
+                                                  ?.copyWith(
+                                                height: 1.1,
+                                                color: theme
+                                                    .colorScheme.onSurfaceVariant,
+                                              ),
                                               textAlign: TextAlign.center,
                                             ),
                                           ],
@@ -289,9 +296,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                               child: _MacroTile(
                                 macro: macro,
                                 color: theme.colorScheme.primary,
-                                trackColor: theme
-                                    .colorScheme.outlineVariant
-                                    .withValues(alpha: 0.3),
+                                trackColor: neutralTrack,
                                 onTap: macro.type == MacroType.other
                                     ? () => _openMacroDetails(context)
                                     : null,
@@ -343,12 +348,19 @@ class _SummaryStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final valueStyle = theme.textTheme.titleLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
           label,
-          style: theme.textTheme.bodySmall,
+          style: secondaryStyle,
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -356,12 +368,12 @@ class _SummaryStat extends StatelessWidget {
         const SizedBox(height: AppSpacing.xs),
         Text(
           '$value',
-          style: theme.textTheme.titleLarge,
+          style: valueStyle,
           textAlign: TextAlign.center,
         ),
         Text(
           helper,
-          style: theme.textTheme.bodySmall,
+          style: secondaryStyle,
           textAlign: TextAlign.center,
         ),
       ],
@@ -392,7 +404,9 @@ class _MacroTile extends StatelessWidget {
         Expanded(
           child: Text(
             macro.label,
-            style: theme.textTheme.labelLarge,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -402,7 +416,7 @@ class _MacroTile extends StatelessWidget {
           Icon(
             Icons.chevron_right,
             size: 18,
-            color: theme.colorScheme.onSurfaceVariant,
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
           ),
         ],
       ],
@@ -417,16 +431,18 @@ class _MacroTile extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Text(
             '${macro.current} / ${macro.goal} g',
-            style: theme.textTheme.bodySmall,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.xs),
           ClipRRect(
             borderRadius: BorderRadius.circular(AppRadius.sm),
             child: LinearProgressIndicator(
               value: progress,
-              minHeight: 6,
+              minHeight: 5,
               color: color,
               backgroundColor: trackColor,
             ),
@@ -493,8 +509,11 @@ class _MealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dividerColor =
-        theme.colorScheme.outlineVariant.withValues(alpha: 0.5);
+    final dividerColor = theme.dividerTheme.color ??
+        theme.colorScheme.outlineVariant.withValues(alpha: 0.4);
+    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
 
     return Card(
       child: Padding(
@@ -518,13 +537,15 @@ class _MealCard extends StatelessWidget {
                   children: [
                     Text(
                       '${meal.totalKcal} kcal',
-                      style: theme.textTheme.titleSmall,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
                       meal.time,
-                      style: theme.textTheme.bodySmall,
+                      style: secondaryStyle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -558,6 +579,9 @@ class _MealItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasImage = item.image != null;
+    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
 
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -577,7 +601,7 @@ class _MealItemRow extends StatelessWidget {
                 hasImage
                     ? Icons.image_outlined
                     : item.icon ?? Icons.restaurant,
-                color: theme.colorScheme.onSurfaceVariant,
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
               ),
             ),
             const SizedBox(width: AppSpacing.md),
@@ -593,7 +617,7 @@ class _MealItemRow extends StatelessWidget {
                   ),
                   Text(
                     item.amount,
-                    style: theme.textTheme.bodySmall,
+                    style: secondaryStyle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -606,11 +630,13 @@ class _MealItemRow extends StatelessWidget {
               children: [
                 Text(
                   '${item.kcal} kcal',
-                  style: theme.textTheme.bodyMedium,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 Icon(
                   Icons.chevron_right,
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                 ),
               ],
             ),
