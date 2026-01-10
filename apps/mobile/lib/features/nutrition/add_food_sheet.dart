@@ -212,7 +212,7 @@ class _FilterChip extends StatelessWidget {
       onSelected: (_) => onSelected(),
       selectedColor: scheme.primaryContainer,
       side: BorderSide(
-        color: scheme.outline.withOpacity(0.3),
+        color: scheme.outline.withValues(alpha: 0.3),
       ),
       showCheckmark: false,
     );
@@ -272,7 +272,7 @@ class _FoodResultTile extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final background = isSelected
-        ? scheme.primaryContainer.withOpacity(0.6)
+        ? scheme.primaryContainer.withValues(alpha: 0.6)
         : scheme.surfaceContainerHighest;
 
     return InkWell(
@@ -284,8 +284,8 @@ class _FoodResultTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
             color: isSelected
-                ? scheme.primary.withOpacity(0.4)
-                : scheme.outline.withOpacity(0.2),
+                ? scheme.primary.withValues(alpha: 0.4)
+                : scheme.outline.withValues(alpha: 0.2),
           ),
         ),
         child: Padding(
