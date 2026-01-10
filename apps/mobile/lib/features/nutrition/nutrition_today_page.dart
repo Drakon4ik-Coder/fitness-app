@@ -151,7 +151,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -254,18 +254,13 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.md),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.md),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Macros',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
                   LayoutBuilder(
                     builder: (context, constraints) {
                       const double gap = AppSpacing.md;
@@ -310,7 +305,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
           const AppSection(title: 'Meals'),
           const SizedBox(height: AppSpacing.sm),
           Expanded(
