@@ -174,7 +174,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                             LayoutBuilder(
                               builder: (context, constraints) {
                                 final textScale =
-                                    MediaQuery.textScaleFactorOf(context);
+                                    MediaQuery.textScalerOf(context).scale(1.0);
                                 final baseSize = 150.0;
                                 final scaledSize =
                                     baseSize * (1 + (textScale - 1) * 0.25);
@@ -270,7 +270,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                     builder: (context, constraints) {
                       const double gap = AppSpacing.md;
                       final textScale =
-                          MediaQuery.textScaleFactorOf(context);
+                          MediaQuery.textScalerOf(context).scale(1.0);
                       final minTileWidth =
                           140 * math.min(textScale, 1.4);
                       int columns = 3;
@@ -296,7 +296,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                 color: theme.colorScheme.primary,
                                 trackColor: theme
                                     .colorScheme.outlineVariant
-                                    .withOpacity(0.3),
+                                    .withValues(alpha: 0.3),
                                 onTap: macro.type == MacroType.other
                                     ? () => _openMacroDetails(context)
                                     : null,
@@ -498,7 +498,8 @@ class _MealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dividerColor = theme.colorScheme.outlineVariant.withOpacity(0.5);
+    final dividerColor =
+        theme.colorScheme.outlineVariant.withValues(alpha: 0.5);
 
     return Card(
       child: Padding(

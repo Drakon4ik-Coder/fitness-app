@@ -87,7 +87,7 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: AppRadius.card,
           side: BorderSide(
-            color: colorScheme.outlineVariant.withOpacity(0.6),
+            color: colorScheme.outlineVariant.withValues(alpha: 0.6),
           ),
         ),
       ),
