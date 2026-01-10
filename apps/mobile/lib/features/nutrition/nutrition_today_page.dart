@@ -32,6 +32,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     );
   }
 
+  void _openMacroDetails(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const _MacroDetailsPage(),
+      ),
+    );
+  }
+
   void _showItemDetails(BuildContext context, _MealItem item) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -41,18 +49,24 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   void _shiftDay(int offset) {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final nextDate =
+        DateUtils.dateOnly(_selectedDate.add(Duration(days: offset)));
+    if (nextDate.isAfter(today)) {
+      return;
+    }
     setState(() {
-      _selectedDate =
-          DateUtils.dateOnly(_selectedDate.add(Duration(days: offset)));
+      _selectedDate = nextDate;
     });
   }
 
   Future<void> _pickDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
     final DateTime? selected = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(_selectedDate.year - 5, 1, 1),
-      lastDate: DateTime(_selectedDate.year + 5, 12, 31),
+      lastDate: today,
     );
 
     if (selected == null || !mounted) {
@@ -77,7 +91,6 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         math.min(1.0, _eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
 
     return AppScaffold(
-      scrollable: true,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -133,7 +146,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                 tooltip: 'Next day',
                 constraints:
                     const BoxConstraints(minWidth: 48, minHeight: 48),
-                onPressed: () => _shiftDay(1),
+                onPressed: isToday ? null : () => _shiftDay(1),
                 icon: const Icon(Icons.chevron_right),
               ),
             ],
@@ -155,36 +168,67 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         ),
                       ),
                       Expanded(
-                        flex: 2,
+                        flex: 3,
                         child: Column(
                           children: [
-                            SizedBox(
-                              height: 96,
-                              width: 96,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  CircularProgressIndicator(
-                                    value: ringProgress,
-                                    strokeWidth: 10,
-                                    backgroundColor: theme
-                                        .colorScheme.surfaceContainerHighest,
-                                  ),
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final textScale =
+                                    MediaQuery.textScaleFactorOf(context);
+                                final baseSize = 150.0;
+                                final scaledSize =
+                                    baseSize * (1 + (textScale - 1) * 0.25);
+                                final size = math.min(
+                                  constraints.maxWidth,
+                                  math.max(140.0, scaledSize),
+                                );
+                                return SizedBox(
+                                  height: size,
+                                  width: size,
+                                  child: Stack(
+                                    alignment: Alignment.center,
                                     children: [
-                                      Text(
-                                        '$kcalLeft',
-                                        style: theme.textTheme.titleLarge,
+                                      SizedBox.expand(
+                                        child: CircularProgressIndicator(
+                                          value: ringProgress,
+                                          strokeWidth: 10,
+                                          backgroundColor: theme
+                                              .colorScheme
+                                              .surfaceContainerHighest,
+                                        ),
                                       ),
-                                      Text(
-                                        'kcal left',
-                                        style: theme.textTheme.bodySmall,
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: AppSpacing.sm),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: Text(
+                                                '$kcalLeft',
+                                                style: theme
+                                                    .textTheme.titleLarge
+                                                    ?.copyWith(height: 1.0),
+                                                textAlign: TextAlign.center,
+                                                maxLines: 1,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'kcal left',
+                                              style: theme
+                                                  .textTheme.bodySmall
+                                                  ?.copyWith(height: 1.1),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ],
                                   ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
                             const SizedBox(height: AppSpacing.md),
                             SizedBox(
@@ -210,10 +254,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.sm),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -222,29 +266,66 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                     style: theme.textTheme.titleMedium,
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  for (int i = 0; i < _macroSummaries.length; i++) ...[
-                    _MacroRow(macro: _macroSummaries[i]),
-                    if (i != _macroSummaries.length - 1)
-                      const SizedBox(height: AppSpacing.md),
-                  ],
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      const double gap = AppSpacing.md;
+                      final textScale =
+                          MediaQuery.textScaleFactorOf(context);
+                      final minTileWidth =
+                          140 * math.min(textScale, 1.4);
+                      int columns = 3;
+                      if (constraints.maxWidth <
+                          minTileWidth * 3 + gap * 2) {
+                        columns = 2;
+                      }
+                      if (constraints.maxWidth < minTileWidth * 2 + gap) {
+                        columns = 1;
+                      }
+                      final tileWidth = (constraints.maxWidth -
+                              gap * (columns - 1)) /
+                          columns;
+                      return Wrap(
+                        spacing: gap,
+                        runSpacing: gap,
+                        children: [
+                          for (final macro in _macroSummaries)
+                            SizedBox(
+                              width: tileWidth,
+                              child: _MacroTile(
+                                macro: macro,
+                                color: theme.colorScheme.primary,
+                                trackColor: theme
+                                    .colorScheme.outlineVariant
+                                    .withOpacity(0.3),
+                                onTap: macro.type == MacroType.other
+                                    ? () => _openMacroDetails(context)
+                                    : null,
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
-          AppSection(
-            title: 'Meals',
-            child: Column(
-              children: [
-                for (int i = 0; i < _mealSummaries.length; i++) ...[
-                  _MealCard(
-                    meal: _mealSummaries[i],
-                    onItemTap: (item) => _showItemDetails(context, item),
-                  ),
-                  if (i != _mealSummaries.length - 1)
-                    const SizedBox(height: AppSpacing.md),
-                ],
-              ],
+          const AppSection(title: 'Meals'),
+          const SizedBox(height: AppSpacing.sm),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+              itemCount: _mealSummaries.length,
+              separatorBuilder: (context, index) =>
+                  const SizedBox(height: AppSpacing.md),
+              itemBuilder: (context, index) {
+                final meal = _mealSummaries[index];
+                return _MealCard(
+                  meal: meal,
+                  onItemTap: (item) => _showItemDetails(context, item),
+                );
+              },
             ),
           ),
         ],
@@ -293,61 +374,114 @@ class _SummaryStat extends StatelessWidget {
   }
 }
 
-class _MacroRow extends StatelessWidget {
-  const _MacroRow({required this.macro});
+class _MacroTile extends StatelessWidget {
+  const _MacroTile({
+    required this.macro,
+    required this.color,
+    required this.trackColor,
+    this.onTap,
+  });
 
   final _MacroSummary macro;
-
-  Color _macroColor(ThemeData theme, MacroType type) {
-    final scheme = theme.colorScheme;
-    switch (type) {
-      case MacroType.carbs:
-        return scheme.tertiary;
-      case MacroType.fat:
-        return scheme.secondary;
-      case MacroType.protein:
-        return scheme.primary;
-    }
-  }
+  final Color color;
+  final Color trackColor;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final progress = math.min(1.0, macro.current / macro.goal).toDouble();
-    final color = _macroColor(theme, macro.type);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final label = Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                macro.label,
-                style: theme.textTheme.titleSmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text(
-              '${macro.current} / ${macro.goal} g',
-              style: theme.textTheme.bodySmall,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 8,
-            color: color,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        Expanded(
+          child: Text(
+            macro.label,
+            style: theme.textTheme.labelLarge,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
+        if (onTap != null) ...[
+          const SizedBox(width: AppSpacing.xs),
+          Icon(
+            Icons.chevron_right,
+            size: 18,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ],
       ],
+    );
+
+    final content = Padding(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          label,
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '${macro.current} / ${macro.goal} g',
+            style: theme.textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              color: color,
+              backgroundColor: trackColor,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (onTap == null) {
+      return content;
+    }
+
+    return Semantics(
+      button: true,
+      label: 'View all macros',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: onTap,
+        child: content,
+      ),
+    );
+  }
+}
+
+class _MacroDetailsPage extends StatelessWidget {
+  const _MacroDetailsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return AppScaffold(
+      appBar: AppBar(
+        title: const Text('Macros'),
+      ),
+      scrollable: true,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Macro details coming soon.',
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'This page will show all macro progress bars.',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -495,7 +629,7 @@ const int _dailyGoalKcal = 2200;
 const int _eatenKcal = 1450;
 const int _burnedKcal = 320;
 
-enum MacroType { carbs, fat, protein }
+enum MacroType { carbs, fat, protein, other }
 
 class _MacroSummary {
   const _MacroSummary({
@@ -560,6 +694,12 @@ const List<_MacroSummary> _macroSummaries = [
     label: 'Protein',
     current: 110,
     goal: 150,
+  ),
+  _MacroSummary(
+    type: MacroType.other,
+    label: 'Other',
+    current: 45,
+    goal: 100,
   ),
 ];
 

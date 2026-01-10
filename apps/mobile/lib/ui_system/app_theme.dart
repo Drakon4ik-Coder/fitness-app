@@ -21,8 +21,18 @@ class AppTheme {
     final surface = brightness == Brightness.light ? warmSurface : darkSurface;
     final surfaceContainerHighest =
         brightness == Brightness.light ? warmSurfaceVariant : darkSurfaceVariant;
+    final surfaceContainerLow =
+        Color.lerp(surface, surfaceContainerHighest, 0.24)!;
+    final surfaceContainer =
+        Color.lerp(surface, surfaceContainerHighest, 0.48)!;
+    final surfaceContainerHigh =
+        Color.lerp(surface, surfaceContainerHighest, 0.72)!;
     final colorScheme = base.copyWith(
       surface: surface,
+      surfaceContainerLowest: surface,
+      surfaceContainerLow: surfaceContainerLow,
+      surfaceContainer: surfaceContainer,
+      surfaceContainerHigh: surfaceContainerHigh,
       surfaceContainerHighest: surfaceContainerHighest,
     );
     final inputBorder = OutlineInputBorder(
@@ -33,7 +43,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: colorScheme.surface,
+      scaffoldBackgroundColor: colorScheme.surfaceContainerLowest,
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colorScheme.surfaceContainerHighest,
@@ -72,8 +82,14 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         elevation: 0,
+        color: colorScheme.surfaceContainer,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: AppRadius.card),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.card,
+          side: BorderSide(
+            color: colorScheme.outlineVariant.withOpacity(0.6),
+          ),
+        ),
       ),
     );
   }
