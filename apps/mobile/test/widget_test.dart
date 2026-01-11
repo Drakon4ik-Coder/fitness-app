@@ -26,14 +26,14 @@ void main() {
     expect(find.text('Create account'), findsOneWidget);
   });
 
-  testWidgets('Shows barcode lookup when token exists',
+  testWidgets('Shows nutrition today when token exists',
       (WidgetTester tester) async {
     FlutterSecureStorage.setMockInitialValues({'access_token': 'token'});
 
     await tester.pumpWidget(const FitnessApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Barcode Lookup'), findsOneWidget);
+    expect(find.text('Today'), findsOneWidget);
     expect(find.byIcon(Icons.logout), findsOneWidget);
   });
 }
