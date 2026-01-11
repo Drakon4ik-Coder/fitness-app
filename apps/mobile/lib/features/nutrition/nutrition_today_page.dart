@@ -5,9 +5,29 @@ import 'package:flutter/material.dart';
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_sheet.dart';
+import 'data/api_exceptions.dart';
+import 'data/food_local_db.dart';
+import 'data/foods_api_service.dart';
+import 'data/nutrition_api_service.dart';
+import 'data/off_client.dart';
 
 class NutritionTodayPage extends StatefulWidget {
-  const NutritionTodayPage({super.key});
+  const NutritionTodayPage({
+    super.key,
+    required this.accessToken,
+    required this.onLogout,
+    this.localDb,
+    this.foodsApi,
+    this.nutritionApi,
+    this.offClient,
+  });
+
+  final String accessToken;
+  final Future<void> Function() onLogout;
+  final FoodLocalDb? localDb;
+  final FoodsApiService? foodsApi;
+  final NutritionApiService? nutritionApi;
+  final OffClient? offClient;
 
   @override
   State<NutritionTodayPage> createState() => _NutritionTodayPageState();
@@ -15,21 +35,100 @@ class NutritionTodayPage extends StatefulWidget {
 
 class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late DateTime _selectedDate;
+  late final FoodLocalDb _localDb;
+  late final bool _ownsLocalDb;
+  late final FoodsApiService _foodsApi;
+  late final NutritionApiService _nutritionApi;
+  late final OffClient _offClient;
+
+  NutritionDayLog? _dayLog;
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     _selectedDate = DateUtils.dateOnly(DateTime.now());
+    _ownsLocalDb = widget.localDb == null;
+    _localDb = widget.localDb ?? FoodLocalDb();
+    _foodsApi =
+        widget.foodsApi ?? FoodsApiService(accessToken: widget.accessToken);
+    _nutritionApi = widget.nutritionApi ??
+        NutritionApiService(accessToken: widget.accessToken);
+    _offClient = widget.offClient ?? OffClient();
+    _loadDay();
   }
 
-  void _openAddFoodSheet(BuildContext context) {
-    showModalBottomSheet<void>(
+  @override
+  void didUpdateWidget(covariant NutritionTodayPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.accessToken != widget.accessToken) {
+      _foodsApi.updateToken(widget.accessToken);
+      _nutritionApi.updateToken(widget.accessToken);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsLocalDb) {
+      _localDb.close();
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadDay() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final dayLog = await _nutritionApi.fetchDay(_selectedDate);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _dayLog = dayLog;
+        _isLoading = false;
+      });
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _errorMessage = error.message;
+      });
+    }
+  }
+
+  Future<void> _openAddFoodSheet(BuildContext context) async {
+    final bool? added = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       useSafeArea: true,
-      builder: (_) => const AddFoodSheet(),
+      builder: (_) => AddFoodSheet(
+        localDb: _localDb,
+        foodsApi: _foodsApi,
+        nutritionApi: _nutritionApi,
+        offClient: _offClient,
+        onLogout: widget.onLogout,
+        selectedDate: _selectedDate,
+      ),
     );
+    if (added == true) {
+      await _loadDay();
+    }
   }
 
   void _openMacroDetails(BuildContext context) {
@@ -58,6 +157,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     setState(() {
       _selectedDate = nextDate;
     });
+    _loadDay();
   }
 
   Future<void> _pickDate() async {
@@ -76,6 +176,94 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     setState(() {
       _selectedDate = DateUtils.dateOnly(selected);
     });
+    _loadDay();
+  }
+
+  List<_MacroSummary> _buildMacroSummaries(NutritionTotals? totals) {
+    final carbs = totals?.carbsG.round() ?? 0;
+    final fat = totals?.fatG.round() ?? 0;
+    final protein = totals?.proteinG.round() ?? 0;
+    return [
+      _MacroSummary(
+        type: MacroType.carbs,
+        label: 'Carbs',
+        current: carbs,
+        goal: _carbGoalG,
+      ),
+      _MacroSummary(
+        type: MacroType.fat,
+        label: 'Fat',
+        current: fat,
+        goal: _fatGoalG,
+      ),
+      _MacroSummary(
+        type: MacroType.protein,
+        label: 'Protein',
+        current: protein,
+        goal: _proteinGoalG,
+      ),
+      _MacroSummary(
+        type: MacroType.other,
+        label: 'Other',
+        current: 0,
+        goal: _otherGoalG,
+      ),
+    ];
+  }
+
+  List<_MealSummary> _buildMealSummaries(BuildContext context) {
+    final Map<String, List<NutritionEntry>> meals = _dayLog?.meals ?? {};
+    final localizations = MaterialLocalizations.of(context);
+    final order = <String, IconData>{
+      'breakfast': Icons.breakfast_dining,
+      'lunch': Icons.lunch_dining,
+      'dinner': Icons.dinner_dining,
+      'snacks': Icons.emoji_food_beverage,
+    };
+    final labels = <String, String>{
+      'breakfast': 'Breakfast',
+      'lunch': 'Lunch',
+      'dinner': 'Dinner',
+      'snacks': 'Snacks',
+    };
+
+    final summaries = <_MealSummary>[];
+    for (final entry in order.entries) {
+      final mealType = entry.key;
+      final icon = entry.value;
+      final entries = meals[mealType] ?? [];
+      final items = entries
+          .map(
+            (mealEntry) => _MealItem(
+              name: mealEntry.foodItem.name,
+              kcal: mealEntry.kcal.round(),
+              amount: _formatQuantity(mealEntry.quantityG),
+              icon: icon,
+              image: mealEntry.foodItem.imageUrl,
+            ),
+          )
+          .toList();
+      final timeLabel = entries.isEmpty
+          ? 'No entries'
+          : localizations.formatTimeOfDay(
+              TimeOfDay.fromDateTime(entries.first.consumedAt),
+            );
+      summaries.add(
+        _MealSummary(
+          name: labels[mealType] ?? mealType,
+          time: timeLabel,
+          items: items,
+        ),
+      );
+    }
+    return summaries;
+  }
+
+  String _formatQuantity(double quantityG) {
+    if (quantityG == quantityG.roundToDouble()) {
+      return '${quantityG.toInt()} g';
+    }
+    return '${quantityG.toStringAsFixed(1)} g';
   }
 
   @override
@@ -86,15 +274,34 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final bool isToday = DateUtils.isSameDay(_selectedDate, today);
     final String formattedDate = localizations.formatMediumDate(_selectedDate);
     final String dateLabel = isToday ? 'Today' : formattedDate;
-    final int kcalLeft = math.max(0, _dailyGoalKcal - _eatenKcal + _burnedKcal);
+    final totals = _dayLog?.totals;
+    final eatenKcal = totals?.kcal.round() ?? 0;
+    final burnedKcal = _burnedKcal;
+    final int kcalLeft =
+        math.max(0, _dailyGoalKcal - eatenKcal + burnedKcal);
     final double ringProgress =
-        math.min(1.0, _eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
+        math.min(1.0, eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
     final neutralTrack =
         theme.colorScheme.outlineVariant.withValues(alpha: 0.4);
+    final macroSummaries = _buildMacroSummaries(totals);
+    final mealSummaries = _buildMealSummaries(context);
+
+    final List<Widget> mealCards = [];
+    for (int i = 0; i < mealSummaries.length; i++) {
+      mealCards.add(
+        _MealCard(
+          meal: mealSummaries[i],
+          onItemTap: (item) => _showItemDetails(context, item),
+        ),
+      );
+      if (i != mealSummaries.length - 1) {
+        mealCards.add(const SizedBox(height: AppSpacing.md));
+      }
+    }
 
     return AppScaffold(
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: ListView(
+        padding: EdgeInsets.zero,
         children: [
           Row(
             children: [
@@ -151,8 +358,29 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                 onPressed: isToday ? null : () => _shiftDay(1),
                 icon: const Icon(Icons.chevron_right),
               ),
+              IconButton(
+                tooltip: 'Sign out',
+                constraints:
+                    const BoxConstraints(minWidth: 48, minHeight: 48),
+                onPressed: _isLoading ? null : () => widget.onLogout(),
+                icon: const Icon(Icons.logout),
+              ),
             ],
           ),
+          if (_isLoading) ...[
+            const SizedBox(height: AppSpacing.sm),
+            LinearProgressIndicator(
+              minHeight: 2,
+              color: theme.colorScheme.primary,
+            ),
+          ],
+          if (_errorMessage != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            InlineBanner(
+              message: _errorMessage!,
+              tone: InlineBannerTone.error,
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Card(
             child: Padding(
@@ -165,7 +393,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                       Expanded(
                         child: _SummaryStat(
                           label: 'Eaten',
-                          value: _eatenKcal,
+                          value: eatenKcal,
                           helper: 'kcal',
                         ),
                       ),
@@ -251,7 +479,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                       Expanded(
                         child: _SummaryStat(
                           label: 'Burned',
-                          value: _burnedKcal,
+                          value: burnedKcal,
                           helper: 'kcal',
                         ),
                       ),
@@ -290,7 +518,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         spacing: gap,
                         runSpacing: gap,
                         children: [
-                          for (final macro in _macroSummaries)
+                          for (final macro in macroSummaries)
                             SizedBox(
                               width: tileWidth,
                               child: _MacroTile(
@@ -313,21 +541,8 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           const SizedBox(height: AppSpacing.md),
           const AppSection(title: 'Meals'),
           const SizedBox(height: AppSpacing.sm),
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-              itemCount: _mealSummaries.length,
-              separatorBuilder: (context, index) =>
-                  const SizedBox(height: AppSpacing.md),
-              itemBuilder: (context, index) {
-                final meal = _mealSummaries[index];
-                return _MealCard(
-                  meal: meal,
-                  onItemTap: (item) => _showItemDetails(context, item),
-                );
-              },
-            ),
-          ),
+          ...mealCards,
+          const SizedBox(height: AppSpacing.lg),
         ],
       ),
     );
@@ -648,8 +863,11 @@ class _MealItemRow extends StatelessWidget {
 }
 
 const int _dailyGoalKcal = 2200;
-const int _eatenKcal = 1450;
-const int _burnedKcal = 320;
+const int _burnedKcal = 0;
+const int _carbGoalG = 260;
+const int _fatGoalG = 70;
+const int _proteinGoalG = 150;
+const int _otherGoalG = 100;
 
 enum MacroType { carbs, fat, protein, other }
 
@@ -697,108 +915,3 @@ class _MealSummary {
   int get totalKcal =>
       items.fold<int>(0, (total, item) => total + item.kcal);
 }
-
-const List<_MacroSummary> _macroSummaries = [
-  _MacroSummary(
-    type: MacroType.carbs,
-    label: 'Carbs',
-    current: 180,
-    goal: 260,
-  ),
-  _MacroSummary(
-    type: MacroType.fat,
-    label: 'Fat',
-    current: 62,
-    goal: 70,
-  ),
-  _MacroSummary(
-    type: MacroType.protein,
-    label: 'Protein',
-    current: 110,
-    goal: 150,
-  ),
-  _MacroSummary(
-    type: MacroType.other,
-    label: 'Other',
-    current: 45,
-    goal: 100,
-  ),
-];
-
-const List<_MealSummary> _mealSummaries = [
-  _MealSummary(
-    name: 'Breakfast',
-    time: '8:10 AM',
-    items: [
-      _MealItem(
-        name: 'Greek yogurt',
-        kcal: 180,
-        amount: '200 g',
-        icon: Icons.breakfast_dining,
-        image: 'assets/foods/yogurt.png',
-      ),
-      _MealItem(
-        name: 'Blueberries',
-        kcal: 85,
-        amount: '120 g',
-        icon: Icons.local_grocery_store,
-      ),
-    ],
-  ),
-  _MealSummary(
-    name: 'Lunch',
-    time: '12:35 PM',
-    items: [
-      _MealItem(
-        name: 'Chicken salad wrap',
-        kcal: 420,
-        amount: '1 wrap',
-        icon: Icons.lunch_dining,
-        image: 'assets/foods/wrap.png',
-      ),
-      _MealItem(
-        name: 'Sparkling water',
-        kcal: 0,
-        amount: '330 ml',
-        icon: Icons.local_drink,
-      ),
-    ],
-  ),
-  _MealSummary(
-    name: 'Dinner',
-    time: '7:05 PM',
-    items: [
-      _MealItem(
-        name: 'Salmon bowl',
-        kcal: 520,
-        amount: '1 bowl',
-        icon: Icons.dinner_dining,
-        image: 'assets/foods/salmon.png',
-      ),
-      _MealItem(
-        name: 'Roasted veggies',
-        kcal: 160,
-        amount: '180 g',
-        icon: Icons.eco_outlined,
-      ),
-    ],
-  ),
-  _MealSummary(
-    name: 'Snacks',
-    time: '4:20 PM',
-    items: [
-      _MealItem(
-        name: 'Protein bar',
-        kcal: 220,
-        amount: '1 bar',
-        icon: Icons.emoji_food_beverage,
-      ),
-      _MealItem(
-        name: 'Iced latte',
-        kcal: 140,
-        amount: '12 oz',
-        icon: Icons.local_cafe,
-      ),
-    ],
-  ),
-];
