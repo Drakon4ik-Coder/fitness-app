@@ -24,8 +24,9 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "accounts",
     "preferences",
+    "foods",
+    "nutrition",
     "nutrients",
-    "external_catalog",
 ]
 
 MIDDLEWARE = [
