@@ -40,8 +40,8 @@ A global fitness platform combining nutrition tracking, recipes/meal planning, p
 - accounts: auth + profile
 - preferences: units, goals, dietary prefs, allergies
 - nutrients: NutrientDefinition + units + user custom nutrients
+- foods: FoodItem catalog + OFF ingest cache
 - nutrition: meal log + food entries + daily totals
-- external_catalog: Open Food Facts cache + imported datasets
 - recipes: recipes + ingredients + ratings
 - meal_plans: weekly plans + planned meals
 - inventory: pantry/fridge + expiry + (later) inventory events
@@ -56,9 +56,9 @@ A global fitness platform combining nutrition tracking, recipes/meal planning, p
 - OFF enforces rate limits; read product queries are limited and search queries are stricter. Requests from users directly apply limits per user.
 - Mobile sets custom User-Agent per OFF guidance.
 - Flow:
-  1) Mobile requests backend cache by barcode
-  2) If missing, mobile calls OFF product endpoint
-  3) Mobile POSTs response to backend for caching + normalization
+  1) Mobile searches local cache and backend typeahead.
+  2) On explicit search or barcode scan, mobile calls OFF product/search endpoints.
+  3) Mobile POSTs normalized payload + raw OFF JSON to backend for storage.
 
 ## Moderation (single reusable pipeline)
 - Submission: (type: recipe/product/exercise/forum_post), status: pending/approved/rejected

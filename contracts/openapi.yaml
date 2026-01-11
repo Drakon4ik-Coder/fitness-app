@@ -243,22 +243,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenObtainPair'
           description: ''
-  /api/v1/external/off/ingest:
+  /api/v1/foods/ingest:
     post:
-      operationId: v1_external_off_ingest_create
+      operationId: v1_foods_ingest_create
       tags:
       - v1
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ExternalFoodItemIngest'
+              $ref: '#/components/schemas/FoodItemIngest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/ExternalFoodItemIngest'
+              $ref: '#/components/schemas/FoodItemIngest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ExternalFoodItemIngest'
+              $ref: '#/components/schemas/FoodItemIngest'
         required: true
       security:
       - jwtAuth: []
@@ -267,17 +267,26 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExternalFoodItemCache'
+                $ref: '#/components/schemas/FoodItem'
           description: ''
-  /api/v1/foods/barcode/{barcode}:
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+  /api/v1/foods/typeahead:
     get:
-      operationId: v1_foods_barcode_retrieve
+      operationId: v1_foods_typeahead_list
       parameters:
-      - in: path
-        name: barcode
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Max number of items to return (1-50).
+      - in: query
+        name: q
         schema:
           type: string
-        required: true
+        description: Search query for name/brands.
       tags:
       - v1
       security:
@@ -287,54 +296,356 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExternalFoodItemCache'
+                type: array
+                items:
+                  $ref: '#/components/schemas/FoodItemCompact'
           description: ''
+        '401':
+          description: Unauthorized
+  /api/v1/nutrition/day:
+    get:
+      operationId: v1_nutrition_day_retrieve
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+        description: Date in YYYY-MM-DD format (defaults to today).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NutritionDay'
+          description: ''
+        '400':
+          description: Invalid date
+        '401':
+          description: Unauthorized
+  /api/v1/nutrition/entries:
+    post:
+      operationId: v1_nutrition_entries_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MealEntryCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MealEntryCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MealEntryCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntry'
+          description: ''
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
 components:
   schemas:
-    ExternalFoodItemCache:
+    FoodItem:
       type: object
       properties:
+        id:
+          type: integer
+          readOnly: true
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          default: openfoodfacts
+        external_id:
+          type: string
+          maxLength: 128
         barcode:
           type: string
           maxLength: 64
-        source:
-          $ref: '#/components/schemas/SourceEnum'
-        normalized_name:
+        name:
           type: string
           maxLength: 255
         brands:
           type: string
           maxLength: 255
-        nutriments_json:
-          nullable: true
-        ingredients_text:
-          type: string
         image_url:
           type: string
           format: uri
           maxLength: 200
-        image_urls:
+        kcal_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
           nullable: true
-        last_fetched_at:
+        protein_g_100g:
           type: string
-          format: date-time
-        language:
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        carbs_g_100g:
           type: string
-          maxLength: 16
-        raw_json: {}
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fat_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        sugars_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fiber_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        salt_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        serving_size_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        raw_source_json: {}
+        nutriments_json:
+          nullable: true
       required:
       - barcode
-      - raw_json
-    ExternalFoodItemIngest:
+      - external_id
+      - id
+      - name
+      - raw_source_json
+    FoodItemCompact:
       type: object
       properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        brands:
+          type: string
+          maxLength: 255
+        kcal_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        image_url:
+          type: string
+          format: uri
+          maxLength: 200
         barcode:
           type: string
           maxLength: 64
-        raw_json: {}
       required:
       - barcode
-      - raw_json
+      - id
+      - name
+    FoodItemIngest:
+      type: object
+      properties:
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          default: openfoodfacts
+        external_id:
+          type: string
+          maxLength: 128
+        barcode:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 255
+        brands:
+          type: string
+          maxLength: 255
+        image_url:
+          type: string
+          format: uri
+        kcal_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        protein_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        carbs_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fat_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        sugars_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fiber_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        salt_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        serving_size_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        raw_source_json: {}
+        nutriments_json:
+          nullable: true
+      required:
+      - barcode
+      - external_id
+      - name
+      - raw_source_json
+    MealEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        meal_type:
+          $ref: '#/components/schemas/MealTypeEnum'
+        consumed_at:
+          type: string
+          format: date-time
+        quantity_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        food_item:
+          $ref: '#/components/schemas/FoodItemCompact'
+        kcal:
+          type: number
+          format: double
+          readOnly: true
+      required:
+      - food_item
+      - id
+      - kcal
+      - quantity_g
+    MealEntryCreate:
+      type: object
+      properties:
+        food_item_id:
+          type: integer
+        meal_type:
+          $ref: '#/components/schemas/MealTypeEnum'
+        quantity_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        consumed_at:
+          type: string
+          format: date-time
+      required:
+      - food_item_id
+      - meal_type
+      - quantity_g
+    MealTypeEnum:
+      enum:
+      - breakfast
+      - lunch
+      - dinner
+      - snacks
+      type: string
+      description: |-
+        * `breakfast` - Breakfast
+        * `lunch` - Lunch
+        * `dinner` - Dinner
+        * `snacks` - Snacks
+    NutritionDay:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        totals:
+          $ref: '#/components/schemas/NutritionTotals'
+        meals:
+          $ref: '#/components/schemas/NutritionMeals'
+      required:
+      - date
+      - meals
+      - totals
+    NutritionMeals:
+      type: object
+      properties:
+        breakfast:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealEntry'
+        lunch:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealEntry'
+        dinner:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealEntry'
+        snacks:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealEntry'
+      required:
+      - breakfast
+      - dinner
+      - lunch
+      - snacks
+    NutritionTotals:
+      type: object
+      properties:
+        kcal:
+          type: number
+          format: double
+        protein_g:
+          type: number
+          format: double
+        carbs_g:
+          type: number
+          format: double
+        fat_g:
+          type: number
+          format: double
+      required:
+      - carbs_g
+      - fat_g
+      - kcal
+      - protein_g
     SourceEnum:
       enum:
       - openfoodfacts
