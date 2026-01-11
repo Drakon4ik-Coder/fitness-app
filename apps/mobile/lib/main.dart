@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
-import 'features/barcode_lookup_page.dart';
+import 'features/nutrition/nutrition_today_page.dart';
 import 'features/login_page.dart';
 import 'ui_system/app_theme.dart';
 
@@ -92,7 +92,7 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    return BarcodeLookupPage(
+    return NutritionTodayPage(
       accessToken: _accessToken!,
       onLogout: _handleLogout,
     );

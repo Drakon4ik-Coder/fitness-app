@@ -78,61 +78,12 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
     }
 
     setState(() {
-      _isLoading = true;
-      _message = null;
-      _messageTone = null;
+      _isLoading = false;
+      _message =
+          'Legacy screen: use Add food to search online or scan barcodes.';
+      _messageTone = InlineBannerTone.info;
       _item = null;
     });
-
-    try {
-      final response = await _dio.get('/api/v1/foods/barcode/$barcode');
-      final data = response.data as Map;
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _item = Map<String, dynamic>.from(data);
-        _isLoading = false;
-      });
-    } on DioException catch (error) {
-      final statusCode = error.response?.statusCode;
-      final data = error.response?.data;
-      String message;
-      InlineBannerTone tone;
-      if (statusCode == 404 && data is Map && data['fetch_external'] == true) {
-        message = 'Fetch from OFF (coming next)';
-        tone = InlineBannerTone.info;
-      } else if (statusCode == 401) {
-        await widget.onLogout();
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      } else {
-        message = 'Lookup failed. Please try again.';
-        tone = InlineBannerTone.error;
-      }
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = message;
-        _messageTone = tone;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _message = 'Lookup failed. Please try again.';
-        _messageTone = InlineBannerTone.error;
-        _isLoading = false;
-      });
-    }
   }
 
   @override
@@ -212,7 +163,10 @@ class _BarcodeLookupPageState extends State<BarcodeLookupPage> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const NutritionTodayPage(),
+                  builder: (_) => NutritionTodayPage(
+                    accessToken: widget.accessToken,
+                    onLogout: widget.onLogout,
+                  ),
                 ),
               );
             },

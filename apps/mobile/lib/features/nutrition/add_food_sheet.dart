@@ -1,10 +1,38 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../ui_components/ui_components.dart';
 import '../../ui_system/tokens.dart';
+import 'data/api_exceptions.dart';
+import 'data/food_local_db.dart';
+import 'data/food_models.dart';
+import 'data/foods_api_service.dart';
+import 'data/nutrition_api_service.dart';
+import 'data/off_client.dart';
+import 'data/off_mapper.dart';
 import 'nutrition_scan_page.dart';
 
+const String _filterRecent = 'Recent';
+const String _filterFavorites = 'Favorites';
+
 class AddFoodSheet extends StatefulWidget {
-  const AddFoodSheet({super.key});
+  const AddFoodSheet({
+    super.key,
+    required this.localDb,
+    required this.foodsApi,
+    required this.nutritionApi,
+    required this.offClient,
+    required this.onLogout,
+    required this.selectedDate,
+  });
+
+  final FoodLocalDb localDb;
+  final FoodsApiService foodsApi;
+  final NutritionApiService nutritionApi;
+  final OffClient offClient;
+  final Future<void> Function() onLogout;
+  final DateTime selectedDate;
 
   @override
   State<AddFoodSheet> createState() => _AddFoodSheetState();
@@ -12,14 +40,147 @@ class AddFoodSheet extends StatefulWidget {
 
 class _AddFoodSheetState extends State<AddFoodSheet> {
   final TextEditingController _searchController = TextEditingController();
+  final OffMapper _offMapper = OffMapper();
+  Timer? _debounce;
+
   MealType _selectedMeal = MealType.breakfast;
-  String _selectedFilter = 'Recent';
+  String _selectedFilter = _filterRecent;
   int? _selectedResultIndex;
+
+  bool _isBackendLoading = false;
+  bool _isOffLoading = false;
+  bool _isSubmitting = false;
+  bool _ignoreSearchChange = false;
+
+  String? _message;
+  InlineBannerTone? _messageTone;
+
+  List<FoodItem> _localResults = [];
+  List<FoodItem> _backendResults = [];
+  List<FoodItem> _offResults = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_handleSearchChange);
+    _loadFilterResults();
+  }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _handleSearchChange() {
+    if (_ignoreSearchChange) {
+      return;
+    }
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      _debounce?.cancel();
+      setState(() {
+        _backendResults = [];
+        _offResults = [];
+        _selectedResultIndex = null;
+        _message = null;
+        _messageTone = null;
+        _isBackendLoading = false;
+        _isOffLoading = false;
+      });
+      _loadFilterResults();
+      return;
+    }
+
+    setState(() {
+      _offResults = [];
+      _backendResults = [];
+      _selectedResultIndex = null;
+      _message = null;
+      _messageTone = null;
+    });
+    _loadLocalSearch(query);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      _loadBackendSearch(query);
+    });
+  }
+
+  Future<void> _loadFilterResults() async {
+    final query = _searchController.text.trim();
+    if (query.isNotEmpty) {
+      return;
+    }
+    final results = _selectedFilter == _filterFavorites
+        ? await widget.localDb.fetchFavorites()
+        : await widget.localDb.fetchRecentFoods();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _localResults = results;
+      _selectedResultIndex = null;
+    });
+  }
+
+  Future<void> _loadLocalSearch(String query) async {
+    final results = await widget.localDb.searchFoods(query);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _localResults = results;
+      _selectedResultIndex = null;
+    });
+  }
+
+  Future<void> _loadBackendSearch(String query) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isBackendLoading = true;
+      _message = null;
+      _messageTone = null;
+    });
+    try {
+      final results = await widget.foodsApi.typeahead(query);
+      final stored = await widget.localDb.upsertFoods(results);
+      if (!mounted) {
+        return;
+      }
+      if (_searchController.text.trim() != query) {
+        setState(() {
+          _isBackendLoading = false;
+        });
+        return;
+      }
+      setState(() {
+        _backendResults = stored;
+        _isBackendLoading = false;
+        _selectedResultIndex = null;
+      });
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isBackendLoading = false;
+        });
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isBackendLoading = false;
+        _message = error.message;
+        _messageTone = InlineBannerTone.error;
+      });
+    }
   }
 
   void _selectMeal(MealType meal) {
@@ -29,9 +190,13 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 
   void _selectFilter(String filter) {
+    if (_selectedFilter == filter) {
+      return;
+    }
     setState(() {
       _selectedFilter = filter;
     });
+    _loadFilterResults();
   }
 
   void _selectResult(int index) {
@@ -40,13 +205,197 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     });
   }
 
-  void _openScanPage() {
+  Future<void> _openScanPage() async {
     FocusScope.of(context).unfocus();
-    Navigator.of(context).push(
+    final barcode = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => const NutritionScanPage(),
       ),
     );
+    if (barcode == null || barcode.trim().isEmpty) {
+      return;
+    }
+    await _handleBarcodeScan(barcode.trim());
+  }
+
+  Future<void> _handleBarcodeScan(String barcode) async {
+    setState(() {
+      _isOffLoading = true;
+      _message = null;
+      _messageTone = null;
+    });
+    try {
+      final response = await widget.offClient.fetchProduct(barcode);
+      if (!mounted) {
+        return;
+      }
+      if (response == null) {
+        setState(() {
+          _isOffLoading = false;
+          _message = 'No product found for that barcode.';
+          _messageTone = InlineBannerTone.info;
+        });
+        return;
+      }
+      final item = _offMapper.mapProduct(
+        product: response.product,
+        rawJson: response.rawJson,
+      );
+      final stored = await widget.localDb.upsertFood(item);
+      if (!mounted) {
+        return;
+      }
+      _ignoreSearchChange = true;
+      _searchController.text = barcode;
+      _searchController.selection = TextSelection.collapsed(
+        offset: _searchController.text.length,
+      );
+      _ignoreSearchChange = false;
+      setState(() {
+        _offResults = [stored];
+        _backendResults = [];
+        _localResults = [];
+        _isOffLoading = false;
+        _selectedResultIndex = 0;
+      });
+    } on OffException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOffLoading = false;
+        _message = error.message;
+        _messageTone = InlineBannerTone.error;
+      });
+    }
+  }
+
+  Future<void> _searchOnline() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      return;
+    }
+    setState(() {
+      _isOffLoading = true;
+      _message = null;
+      _messageTone = null;
+    });
+    try {
+      final results = await widget.offClient.searchProducts(query);
+      final items = results
+          .map(
+            (result) => _offMapper.mapProduct(
+              product: result.product,
+              rawJson: result.rawJson,
+            ),
+          )
+          .where((item) => item.barcode != null && item.barcode!.isNotEmpty)
+          .toList();
+      final stored = await widget.localDb.upsertFoods(items);
+      if (!mounted) {
+        return;
+      }
+      if (_searchController.text.trim() != query) {
+        setState(() {
+          _isOffLoading = false;
+        });
+        return;
+      }
+      setState(() {
+        _offResults = stored;
+        _isOffLoading = false;
+        _selectedResultIndex = null;
+        if (stored.isEmpty) {
+          _message = 'No OpenFoodFacts matches found.';
+          _messageTone = InlineBannerTone.info;
+        }
+      });
+    } on OffException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOffLoading = false;
+        _message = error.message;
+        _messageTone = InlineBannerTone.error;
+      });
+    }
+  }
+
+  Future<void> _addSelected(List<_FoodResult> results) async {
+    if (_selectedResultIndex == null) {
+      return;
+    }
+    final index = _selectedResultIndex!;
+    if (index < 0 || index >= results.length) {
+      return;
+    }
+    setState(() {
+      _isSubmitting = true;
+      _message = null;
+      _messageTone = null;
+    });
+
+    FoodItem selected = results[index].item;
+    try {
+      if (selected.backendId == null) {
+        final ingested = await widget.foodsApi.ingestFood(selected);
+        if (selected.localId != null && ingested.backendId != null) {
+          await widget.localDb.updateBackendId(
+            selected.localId!,
+            ingested.backendId!,
+          );
+          selected = ingested.copyWith(localId: selected.localId);
+        } else {
+          selected = await widget.localDb.upsertFood(ingested);
+        }
+      }
+      if (selected.backendId == null) {
+        throw ApiException('Unable to resolve food item id.');
+      }
+
+      final consumedAt = DateTime(
+        widget.selectedDate.year,
+        widget.selectedDate.month,
+        widget.selectedDate.day,
+        DateTime.now().hour,
+        DateTime.now().minute,
+      );
+
+      await widget.nutritionApi.createEntry(
+        foodItemId: selected.backendId!,
+        mealType: _selectedMeal.name,
+        quantityG: 100,
+        consumedAt: consumedAt,
+      );
+
+      if (selected.localId != null) {
+        await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
+      }
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _isSubmitting = false;
+        });
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSubmitting = false;
+        _message = error.message;
+        _messageTone = InlineBannerTone.error;
+      });
+    }
   }
 
   String _resultsHeading(String query) {
@@ -54,16 +403,60 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     if (trimmed.isNotEmpty) {
       return 'Search results';
     }
-    if (_selectedFilter == 'Favorites') {
+    if (_selectedFilter == _filterFavorites) {
       return 'Favorites';
     }
     return 'Recent foods';
+  }
+
+  List<_FoodResult> _buildResults(String query) {
+    final trimmed = query.trim();
+    final results = <_FoodResult>[];
+    final seenKeys = <String>{};
+
+    void addItems(List<FoodItem> items, _FoodResultOrigin origin) {
+      for (final item in items) {
+        final key = _resultKey(item);
+        if (key == null || seenKeys.contains(key)) {
+          continue;
+        }
+        seenKeys.add(key);
+        results.add(_FoodResult(item: item, origin: origin));
+      }
+    }
+
+    if (trimmed.isEmpty) {
+      addItems(_localResults, _FoodResultOrigin.local);
+      return results;
+    }
+
+    addItems(_localResults, _FoodResultOrigin.local);
+    addItems(_backendResults, _FoodResultOrigin.backend);
+    addItems(_offResults, _FoodResultOrigin.off);
+    return results;
+  }
+
+  String? _resultKey(FoodItem item) {
+    if (item.barcode != null && item.barcode!.isNotEmpty) {
+      return 'barcode:${item.barcode}';
+    }
+    if (item.backendId != null) {
+      return 'backend:${item.backendId}';
+    }
+    if (item.externalId.isNotEmpty) {
+      return 'external:${item.externalId}';
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final query = _searchController.text;
+    final results = _buildResults(query);
+    final hasQuery = query.trim().isNotEmpty;
+    final canAdd = !_isSubmitting && _selectedResultIndex != null;
 
     return DraggableScrollableSheet(
       expand: false,
@@ -78,8 +471,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
               left: AppSpacing.lg,
               right: AppSpacing.lg,
               top: AppSpacing.lg,
-              bottom:
-                  AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom,
+              bottom: AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -145,71 +537,113 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                   controller: _searchController,
                   onScan: _openScanPage,
                 ),
-                const SizedBox(height: AppSpacing.md),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.xs,
-                  children: [
-                    _FilterChip(
-                      label: 'Recent',
-                      isSelected: _selectedFilter == 'Recent',
-                      onSelected: () => _selectFilter('Recent'),
+                if (hasQuery) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: _isOffLoading ? null : _searchOnline,
+                      icon: const Icon(Icons.public),
+                      label: const Text('Search online (OpenFoodFacts)'),
                     ),
-                    _FilterChip(
-                      label: 'Favorites',
-                      isSelected: _selectedFilter == 'Favorites',
-                      onSelected: () => _selectFilter('Favorites'),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
+                if (!hasQuery) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      _FilterChip(
+                        label: _filterRecent,
+                        isSelected: _selectedFilter == _filterRecent,
+                        onSelected: () => _selectFilter(_filterRecent),
+                      ),
+                      _FilterChip(
+                        label: _filterFavorites,
+                        isSelected: _selectedFilter == _filterFavorites,
+                        onSelected: () => _selectFilter(_filterFavorites),
+                      ),
+                    ],
+                  ),
+                ],
+                if (_message != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  InlineBanner(
+                    message: _message!,
+                    tone: _messageTone ?? InlineBannerTone.info,
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(
                   child: CustomScrollView(
                     controller: scrollController,
                     slivers: [
                       SliverToBoxAdapter(
-                        child: ValueListenableBuilder<TextEditingValue>(
-                          valueListenable: _searchController,
-                          builder: (context, value, _) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _resultsHeading(value.text),
-                                  style: theme.textTheme.titleSmall,
-                                ),
-                                const SizedBox(height: AppSpacing.sm),
-                              ],
-                            );
-                          },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _resultsHeading(query),
+                              style: theme.textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            if (_isBackendLoading || _isOffLoading)
+                              LinearProgressIndicator(
+                                minHeight: 2,
+                                color: scheme.primary,
+                              ),
+                            const SizedBox(height: AppSpacing.sm),
+                          ],
                         ),
                       ),
-                      SliverGrid(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: AppSpacing.sm,
-                          crossAxisSpacing: AppSpacing.sm,
-                          childAspectRatio: 1.2,
+                      if (results.isEmpty)
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              vertical: AppSpacing.lg,
+                            ),
+                            child: Text('No foods to show yet.'),
+                          ),
+                        )
+                      else
+                        SliverGrid(
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: AppSpacing.sm,
+                            crossAxisSpacing: AppSpacing.sm,
+                            childAspectRatio: 1.2,
+                          ),
+                          delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                              final item = results[index];
+                              final bool isSelected = _selectedResultIndex == index;
+                              return _FoodResultTile(
+                                item: item,
+                                isSelected: isSelected,
+                                onTap: () => _selectResult(index),
+                              );
+                            },
+                            childCount: results.length,
+                          ),
                         ),
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                            final item = _mockResults[index];
-                            final bool isSelected =
-                                _selectedResultIndex == index;
-                            return _FoodResultTile(
-                              item: item,
-                              isSelected: isSelected,
-                              onTap: () => _selectResult(index),
-                            );
-                          },
-                          childCount: _mockResults.length,
-                        ),
-                      ),
                       const SliverToBoxAdapter(
-                        child: SizedBox(height: AppSpacing.xl),
+                        child: SizedBox(height: AppSpacing.lg),
                       ),
                     ],
+                  ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: AppPrimaryButton(
+                      onPressed:
+                          canAdd ? () => _addSelected(results) : null,
+                      isLoading: _isSubmitting,
+                      child: const Text('Add selected'),
+                    ),
                   ),
                 ),
               ],
@@ -347,6 +781,20 @@ class _SearchBarGroup extends StatelessWidget {
   }
 }
 
+enum MealType { breakfast, lunch, dinner, snacks }
+
+enum _FoodResultOrigin { local, backend, off }
+
+class _FoodResult {
+  const _FoodResult({
+    required this.item,
+    required this.origin,
+  });
+
+  final FoodItem item;
+  final _FoodResultOrigin origin;
+}
+
 class _FoodResultTile extends StatelessWidget {
   const _FoodResultTile({
     required this.item,
@@ -357,6 +805,28 @@ class _FoodResultTile extends StatelessWidget {
   final _FoodResult item;
   final bool isSelected;
   final VoidCallback onTap;
+
+  String _originLabel(_FoodResultOrigin origin) {
+    switch (origin) {
+      case _FoodResultOrigin.local:
+        return 'Saved';
+      case _FoodResultOrigin.backend:
+        return 'Backend';
+      case _FoodResultOrigin.off:
+        return 'OpenFoodFacts';
+    }
+  }
+
+  IconData _originIcon(_FoodResultOrigin origin) {
+    switch (origin) {
+      case _FoodResultOrigin.local:
+        return Icons.history;
+      case _FoodResultOrigin.backend:
+        return Icons.cloud;
+      case _FoodResultOrigin.off:
+        return Icons.public;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -373,6 +843,14 @@ class _FoodResultTile extends StatelessWidget {
     final mediaColor = isSelected
         ? scheme.surfaceContainerLowest
         : scheme.surfaceContainerLow;
+
+    final kcal = item.item.kcal100g?.round();
+    final kcalLabel = kcal == null ? 'kcal n/a' : '$kcal kcal/100g';
+    final originLabel = _originLabel(item.origin);
+    final brandLabel = item.item.brands.trim();
+    final metaLabel = brandLabel.isNotEmpty
+        ? '$brandLabel - $kcalLabel'
+        : '$originLabel - $kcalLabel';
 
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -400,14 +878,14 @@ class _FoodResultTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Icon(
-                  item.icon,
+                  _originIcon(item.origin),
                   color: contentColor,
                   size: 24,
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                item.name,
+                item.item.name,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: contentColor,
                   fontWeight: FontWeight.w600,
@@ -417,10 +895,12 @@ class _FoodResultTile extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                '${item.kcal} kcal - ${item.serving}',
+                metaLabel,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: metaColor,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -429,58 +909,3 @@ class _FoodResultTile extends StatelessWidget {
     );
   }
 }
-
-enum MealType { breakfast, lunch, dinner, snacks }
-
-class _FoodResult {
-  const _FoodResult({
-    required this.name,
-    required this.kcal,
-    required this.serving,
-    required this.icon,
-  });
-
-  final String name;
-  final int kcal;
-  final String serving;
-  final IconData icon;
-}
-
-const List<_FoodResult> _mockResults = [
-  _FoodResult(
-    name: 'Overnight oats',
-    kcal: 280,
-    serving: '1 jar',
-    icon: Icons.ramen_dining,
-  ),
-  _FoodResult(
-    name: 'Avocado toast',
-    kcal: 320,
-    serving: '2 slices',
-    icon: Icons.breakfast_dining,
-  ),
-  _FoodResult(
-    name: 'Turkey chili',
-    kcal: 410,
-    serving: '1 bowl',
-    icon: Icons.soup_kitchen,
-  ),
-  _FoodResult(
-    name: 'Poke bowl',
-    kcal: 540,
-    serving: '1 bowl',
-    icon: Icons.rice_bowl,
-  ),
-  _FoodResult(
-    name: 'Matcha latte',
-    kcal: 160,
-    serving: '12 oz',
-    icon: Icons.local_cafe,
-  ),
-  _FoodResult(
-    name: 'Trail mix',
-    kcal: 210,
-    serving: '1 pack',
-    icon: Icons.emoji_food_beverage,
-  ),
-];
