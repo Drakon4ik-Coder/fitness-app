@@ -18,5 +18,6 @@ urlpatterns = [
         name="swagger-ui",
     ),
     path("api/v1/auth/", include("accounts.urls")),
-    path("api/v1/", include("external_catalog.urls")),
+    path("api/v1/foods/", include("foods.urls")),
+    path("api/v1/nutrition/", include("nutrition.urls")),
 ]
