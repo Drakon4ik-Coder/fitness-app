@@ -680,17 +680,17 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                   child: SegmentedButton<MealType>(
                     showSelectedIcon: false,
                     style: ButtonStyle(
-                      backgroundColor: MaterialStateProperty.resolveWith(
-                        (states) => states.contains(MaterialState.selected)
+                      backgroundColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
                             ? scheme.primaryContainer
                             : scheme.surfaceContainer,
                       ),
-                      foregroundColor: MaterialStateProperty.resolveWith(
-                        (states) => states.contains(MaterialState.selected)
+                      foregroundColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
                             ? scheme.onPrimaryContainer
                             : scheme.onSurface,
                       ),
-                      side: MaterialStateProperty.all(
+                      side: WidgetStateProperty.all(
                         BorderSide(color: scheme.outlineVariant),
                       ),
                     ),
@@ -1094,7 +1094,7 @@ class _FoodResultTile extends StatelessWidget {
                             imageUrl,
                             fit: BoxFit.cover,
                             filterQuality: FilterQuality.medium,
-                            errorBuilder: (_, __, ___) =>
+                            errorBuilder: (_, _error, _stackTrace) =>
                                 const SizedBox.shrink(),
                             loadingBuilder: (context, child, progress) {
                               if (progress == null) {

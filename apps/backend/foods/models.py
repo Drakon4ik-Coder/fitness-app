@@ -15,21 +15,27 @@ class FoodItem(models.Model):
     name = models.CharField(max_length=255)
     brands = models.CharField(max_length=255, blank=True)
     image_url = models.URLField(blank=True)
-    kcal_100g = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    kcal_100g = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True
+    )
     protein_g_100g = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
     carbs_g_100g = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
-    fat_g_100g = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    fat_g_100g = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True
+    )
     sugars_g_100g = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
     fiber_g_100g = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
-    salt_g_100g = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    salt_g_100g = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True
+    )
     serving_size_g = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
