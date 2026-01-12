@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth.models import User
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -71,15 +72,15 @@ class NutritionDayView(APIView):
         else:
             target_date = timezone.localdate()
 
+        assert isinstance(request.user, User)
+        user = request.user
         entries = (
-            MealEntry.objects.filter(
-                user=request.user, consumed_at__date=target_date
-            )
+            MealEntry.objects.filter(user=user, consumed_at__date=target_date)
             .select_related("food_item")
             .order_by("consumed_at")
         )
 
-        meals = {
+        meals: dict[str, list[MealEntry]] = {
             MealEntry.MEAL_BREAKFAST: [],
             MealEntry.MEAL_LUNCH: [],
             MealEntry.MEAL_DINNER: [],

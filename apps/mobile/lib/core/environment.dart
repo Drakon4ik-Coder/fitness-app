@@ -11,6 +11,10 @@ class EnvironmentConfig {
     'OFF_USER_AGENT',
     defaultValue: 'FitnessApp/1.0',
   );
+  static const String _offCountry = String.fromEnvironment(
+    'OFF_COUNTRY',
+    defaultValue: 'en:united-kingdom',
+  );
 
   static const Map<String, String> _baseUrls = {
     'local': 'http://localhost:8000',
@@ -28,4 +32,6 @@ class EnvironmentConfig {
   static String get environmentName => _env;
 
   static String get offUserAgent => _offUserAgent;
+
+  static String get offCountry => _offCountry;
 }

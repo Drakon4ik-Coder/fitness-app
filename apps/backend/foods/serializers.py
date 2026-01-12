@@ -36,7 +36,7 @@ class FoodItemSerializer(serializers.ModelSerializer):
 
 
 class FoodItemIngestSerializer(serializers.Serializer):
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]
         choices=FoodItem.SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
     )
     external_id = serializers.CharField(max_length=128)
@@ -82,11 +82,7 @@ class FoodItemIngestSerializer(serializers.Serializer):
             source=source, external_id=external_id
         ).first()
 
-        if (
-            by_barcode
-            and by_external
-            and by_barcode.id != by_external.id
-        ):
+        if by_barcode and by_external and by_barcode.id != by_external.id:
             raise serializers.ValidationError(
                 {"barcode": "Barcode already belongs to another food item."}
             )

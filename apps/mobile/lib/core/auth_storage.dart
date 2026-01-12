@@ -4,7 +4,12 @@ import 'auth_service.dart';
 
 class AuthStorage {
   AuthStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage = storage ??
+            const FlutterSecureStorage(
+              aOptions: AndroidOptions(
+                encryptedSharedPreferences: true,
+              ),
+            );
 
   static const _accessTokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';

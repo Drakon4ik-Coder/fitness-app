@@ -24,8 +24,15 @@ class OffProductResponse {
 }
 
 class OffClient {
-  OffClient({Dio? dio, String? userAgent})
-      : _dio = dio ??
+  OffClient({
+    Dio? dio,
+    String? userAgent,
+    String? country,
+  })  : _countryTag = _normalizeCountryTag(
+          country ?? EnvironmentConfig.offCountry,
+        ),
+        _userAgent = userAgent ?? EnvironmentConfig.offUserAgent,
+        _dio = dio ??
             Dio(
               BaseOptions(
                 baseUrl: _baseUrl,
@@ -43,15 +50,33 @@ class OffClient {
     'generic_name',
     'brands',
     'serving_size',
+    'categories_tags',
     'image_url',
     'image_front_url',
+    'image_front_small_url',
     'image_ingredients_url',
     'image_nutrition_url',
     'nutriments',
     'lang',
   ];
 
+  static String _normalizeCountryTag(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return '';
+    }
+    if (normalized.startsWith('en:')) {
+      return normalized;
+    }
+    if (normalized == 'uk' || normalized == 'gb') {
+      return 'en:united-kingdom';
+    }
+    return normalized.replaceAll(' ', '-');
+  }
+
   final Dio _dio;
+  final String _countryTag;
+  final String _userAgent;
 
   Future<OffProductResponse?> fetchProduct(String barcode) async {
     try {
@@ -85,37 +110,124 @@ class OffClient {
   Future<List<OffProductResponse>> searchProducts(
     String query, {
     int pageSize = 12,
+    String? categoryTag,
   }) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v2/search',
-        queryParameters: {
-          'search_terms': query,
-          'fields': _fields.join(','),
-          'page_size': pageSize,
-        },
+      return await _searchCgi(
+        query,
+        pageSize: pageSize,
+        categoryTag: categoryTag,
       );
-      final data = response.data;
-      if (data == null) {
-        return [];
-      }
-      final products = data['products'];
-      if (products is! List) {
-        return [];
-      }
-      return products
-          .whereType<Map<String, dynamic>>()
-          .map(
-            (product) => OffProductResponse(
-              product: product,
-              rawJson: jsonEncode({'product': product}),
-            ),
-          )
-          .toList();
     } on DioException catch (error) {
-      throw OffException(error.message ?? 'Unable to search OFF.');
+      try {
+        return await _searchV2(
+          query,
+          pageSize: pageSize,
+          categoryTag: categoryTag,
+        );
+      } on DioException catch (fallbackError) {
+        throw OffException(
+          _formatDioMessage(fallbackError, 'Unable to search OFF.'),
+        );
+      }
     } catch (_) {
       throw OffException('Unable to search OFF.');
     }
+  }
+
+  Future<List<OffProductResponse>> _searchCgi(
+    String query, {
+    required int pageSize,
+    String? categoryTag,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/cgi/search.pl',
+      queryParameters: _buildSearchParams(
+        query,
+        pageSize: pageSize,
+        categoryTag: categoryTag,
+        includeCgiParams: true,
+      ),
+    );
+    return _parseSearchResponse(response.data);
+  }
+
+  Future<List<OffProductResponse>> _searchV2(
+    String query, {
+    required int pageSize,
+    String? categoryTag,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/v2/search',
+      queryParameters: _buildSearchParams(
+        query,
+        pageSize: pageSize,
+        categoryTag: categoryTag,
+        includeCgiParams: false,
+      ),
+    );
+    return _parseSearchResponse(response.data);
+  }
+
+  Map<String, dynamic> _buildSearchParams(
+    String query, {
+    required int pageSize,
+    String? categoryTag,
+    required bool includeCgiParams,
+  }) {
+    final params = <String, dynamic>{
+      'search_terms': query,
+      'lc': 'en',
+      'user_agent': _userAgent,
+      'fields': _fields.join(','),
+      'page_size': pageSize,
+    };
+    if (includeCgiParams) {
+      params['search_simple'] = 1;
+      params['action'] = 'process';
+      params['json'] = 1;
+    }
+    int tagIndex = 0;
+    void addTagFilter(String type, String tag) {
+      params['tagtype_$tagIndex'] = type;
+      params['tag_contains_$tagIndex'] = 'contains';
+      params['tag_$tagIndex'] = tag;
+      tagIndex++;
+    }
+
+    if (_countryTag.isNotEmpty) {
+      addTagFilter('countries', _countryTag);
+    }
+    if (categoryTag != null && categoryTag.trim().isNotEmpty) {
+      addTagFilter('categories', categoryTag.trim());
+    }
+    return params;
+  }
+
+  List<OffProductResponse> _parseSearchResponse(Map<String, dynamic>? data) {
+    if (data == null) {
+      return [];
+    }
+    final products = data['products'];
+    if (products is! List) {
+      return [];
+    }
+    return products
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (product) => OffProductResponse(
+            product: product,
+            rawJson: jsonEncode({'product': product}),
+          ),
+        )
+        .toList();
+  }
+
+  String _formatDioMessage(DioException error, String fallback) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == null) {
+      return fallback;
+    }
+    return '$fallback (HTTP $statusCode)';
   }
 }

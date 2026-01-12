@@ -7,6 +7,7 @@ import 'features/login_page.dart';
 import 'ui_system/app_theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const FitnessApp());
 }
 
