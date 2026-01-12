@@ -118,7 +118,7 @@ class OffClient {
         pageSize: pageSize,
         categoryTag: categoryTag,
       );
-    } on DioException catch (error) {
+    } on DioException {
       try {
         return await _searchV2(
           query,
