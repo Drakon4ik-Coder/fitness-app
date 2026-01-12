@@ -8,8 +8,10 @@ class OffMapper {
     final barcode = product['code']?.toString();
     final name = _bestName(product);
     final brands = (product['brands'] as String?)?.trim() ?? '';
-    final imageUrl =
-        product['image_url'] ?? product['image_front_url'] ?? '';
+    final imageUrl = product['image_url'] ??
+        product['image_front_url'] ??
+        product['image_front_small_url'] ??
+        '';
 
     final nutriments = product['nutriments'];
     final nutrimentsJson =
@@ -45,9 +47,17 @@ class OffMapper {
   }
 
   String _bestName(Map<String, dynamic> product) {
+    final lang = product['lang'];
+    final nameEn = product['product_name_en'];
+    if (lang is String &&
+        lang.toLowerCase() != 'en' &&
+        nameEn is String &&
+        nameEn.trim().isNotEmpty) {
+      return nameEn.trim();
+    }
     final candidates = [
-      product['product_name'],
       product['product_name_en'],
+      product['product_name'],
       product['generic_name'],
     ];
     for (final candidate in candidates) {

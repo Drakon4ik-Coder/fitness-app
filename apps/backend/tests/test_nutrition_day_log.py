@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -9,8 +9,8 @@ from foods.models import FoodItem
 from nutrition.models import MealEntry
 
 
-def _auth_client() -> tuple[APIClient, object]:
-    user = get_user_model().objects.create_user(
+def _auth_client() -> tuple[APIClient, User]:
+    user = User.objects.create_user(
         username="mealuser",
         password="Str0ngPass!word",
     )

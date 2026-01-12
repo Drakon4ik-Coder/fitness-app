@@ -34,6 +34,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Today'), findsOneWidget);
-    expect(find.byIcon(Icons.logout), findsOneWidget);
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
   });
 }

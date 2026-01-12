@@ -275,22 +275,61 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     if (query.isEmpty) {
       return;
     }
+    final queryLower = query.toLowerCase();
     setState(() {
       _isOffLoading = true;
       _message = null;
       _messageTone = null;
     });
     try {
-      final results = await widget.offClient.searchProducts(query);
-      final items = results
-          .map(
-            (result) => _offMapper.mapProduct(
-              product: result.product,
-              rawJson: result.rawJson,
-            ),
-          )
-          .where((item) => item.barcode != null && item.barcode!.isNotEmpty)
+      final baseResults = await widget.offClient.searchProducts(query);
+      List<OffProductResponse> effectiveResults = baseResults;
+      final bool hasCategoryMatch =
+          _hasCategoryMatch(baseResults, queryLower);
+      if (baseResults.isEmpty || !hasCategoryMatch) {
+        final categoryTags = _categoryTagsForQuery(queryLower);
+        for (final tag in categoryTags) {
+          try {
+            final categoryResults = await widget.offClient.searchProducts(
+              query,
+              categoryTag: tag,
+            );
+            if (categoryResults.isNotEmpty) {
+              effectiveResults = categoryResults;
+              break;
+            }
+          } catch (_) {
+            // Keep base results if category search fails.
+          }
+        }
+      }
+
+      final filteredResults = effectiveResults
+          .where((result) => _isEnglishResult(result.product))
           .toList();
+      final preferredResults =
+          filteredResults.isEmpty ? effectiveResults : filteredResults;
+      final candidates = <_OffSearchCandidate>[];
+      for (final result in preferredResults) {
+        final item = _offMapper.mapProduct(
+          product: result.product,
+          rawJson: result.rawJson,
+        );
+        if (item.barcode == null || item.barcode!.isEmpty) {
+          continue;
+        }
+        candidates.add(
+          _OffSearchCandidate(item: item, product: result.product),
+        );
+      }
+      final narrowedCandidates =
+          _preferWholeFoodCandidates(candidates, queryLower);
+      final items = narrowedCandidates.map((candidate) => candidate.item).toList();
+      items.sort(
+        (a, b) =>
+            _nameMatchScore(b.name, queryLower) -
+            _nameMatchScore(a.name, queryLower),
+      );
       final stored = await widget.localDb.upsertFoods(items);
       if (!mounted) {
         return;
@@ -433,6 +472,19 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     addItems(_localResults, _FoodResultOrigin.local);
     addItems(_backendResults, _FoodResultOrigin.backend);
     addItems(_offResults, _FoodResultOrigin.off);
+    final queryLower = trimmed.toLowerCase();
+    results.sort((a, b) {
+      final scoreA = _resultScore(a, queryLower);
+      final scoreB = _resultScore(b, queryLower);
+      if (scoreA != scoreB) {
+        return scoreB.compareTo(scoreA);
+      }
+      final lengthCompare = a.item.name.length.compareTo(b.item.name.length);
+      if (lengthCompare != 0) {
+        return lengthCompare;
+      }
+      return a.item.name.compareTo(b.item.name);
+    });
     return results;
   }
 
@@ -447,6 +499,143 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       return 'external:${item.externalId}';
     }
     return null;
+  }
+
+  bool _isEnglishResult(Map<String, dynamic> product) {
+    final lang = product['lang'];
+    if (lang is String && lang.toLowerCase() == 'en') {
+      return true;
+    }
+    final nameEn = product['product_name_en'];
+    if (nameEn is String && nameEn.trim().isNotEmpty) {
+      return true;
+    }
+    return false;
+  }
+
+  bool _hasCategoryMatch(
+    List<OffProductResponse> results,
+    String queryLower,
+  ) {
+    for (final result in results) {
+      if (_matchesCategoryQuery(result.product, queryLower)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  List<String> _categoryTagsForQuery(String queryLower) {
+    final trimmed = queryLower.trim();
+    if (trimmed.isEmpty || trimmed.contains(' ')) {
+      return const [];
+    }
+    final normalized =
+        trimmed.replaceAll(RegExp(r'[^a-z0-9]+'), '-').trim();
+    if (normalized.isEmpty) {
+      return const [];
+    }
+    final tags = <String>{'en:$normalized'};
+    if (!normalized.endsWith('s')) {
+      tags.add('en:${normalized}s');
+    }
+    return tags.toList();
+  }
+
+  List<_OffSearchCandidate> _preferWholeFoodCandidates(
+    List<_OffSearchCandidate> candidates,
+    String queryLower,
+  ) {
+    if (candidates.isEmpty || queryLower.contains(' ')) {
+      return candidates;
+    }
+    final categoryMatches = candidates
+        .where((candidate) => _matchesCategoryQuery(candidate.product, queryLower))
+        .toList();
+    if (categoryMatches.isNotEmpty) {
+      return categoryMatches;
+    }
+    final nameMatches = candidates
+        .where((candidate) => _isSimpleNameMatch(candidate.item.name, queryLower))
+        .toList();
+    if (nameMatches.isNotEmpty) {
+      return nameMatches;
+    }
+    return candidates;
+  }
+
+  bool _matchesCategoryQuery(Map<String, dynamic> product, String queryLower) {
+    final tags = product['categories_tags'];
+    if (tags is! List) {
+      return false;
+    }
+    final singular = queryLower;
+    final plural = queryLower.endsWith('s') ? queryLower : '${queryLower}s';
+    for (final tag in tags) {
+      if (tag is! String) {
+        continue;
+      }
+      final lower = tag.toLowerCase();
+      if (lower == 'en:$singular' || lower == 'en:$plural') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isSimpleNameMatch(String name, String queryLower) {
+    final normalized =
+        name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').trim();
+    if (normalized == queryLower || normalized == '${queryLower}s') {
+      return true;
+    }
+    final parts = normalized
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty || parts.length > 2) {
+      return false;
+    }
+    return parts.contains(queryLower);
+  }
+
+  int _nameMatchScore(String name, String queryLower) {
+    if (queryLower.isEmpty) {
+      return 0;
+    }
+    final nameLower = name.toLowerCase();
+    int score = 0;
+    if (nameLower == queryLower) {
+      score += 400;
+    }
+    if (nameLower.startsWith(queryLower)) {
+      score += 300;
+    }
+    final wordMatch =
+        RegExp(r'\b' + RegExp.escape(queryLower)).hasMatch(nameLower);
+    if (wordMatch) {
+      score += 200;
+    } else if (nameLower.contains(queryLower)) {
+      score += 100;
+    }
+    score -= nameLower.length;
+    return score;
+  }
+
+  int _resultScore(_FoodResult result, String queryLower) {
+    int score = _nameMatchScore(result.item.name, queryLower);
+    switch (result.origin) {
+      case _FoodResultOrigin.off:
+        score += 5;
+        break;
+      case _FoodResultOrigin.backend:
+        score += 3;
+        break;
+      case _FoodResultOrigin.local:
+        score += 1;
+        break;
+    }
+    return score;
   }
 
   @override
@@ -795,6 +984,16 @@ class _FoodResult {
   final _FoodResultOrigin origin;
 }
 
+class _OffSearchCandidate {
+  const _OffSearchCandidate({
+    required this.item,
+    required this.product,
+  });
+
+  final FoodItem item;
+  final Map<String, dynamic> product;
+}
+
 class _FoodResultTile extends StatelessWidget {
   const _FoodResultTile({
     required this.item,
@@ -851,6 +1050,9 @@ class _FoodResultTile extends StatelessWidget {
     final metaLabel = brandLabel.isNotEmpty
         ? '$brandLabel - $kcalLabel'
         : '$originLabel - $kcalLabel';
+    final imageUrl = item.item.imageUrl?.trim();
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+    const double imageSize = 56;
 
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -870,17 +1072,40 @@ class _FoodResultTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                height: 48,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: mediaColor,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ClipRRect(
                   borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                child: Icon(
-                  _originIcon(item.origin),
-                  color: contentColor,
-                  size: 24,
+                  child: SizedBox.square(
+                    dimension: imageSize,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Container(
+                          color: mediaColor,
+                          child: Icon(
+                            _originIcon(item.origin),
+                            color: contentColor,
+                            size: 24,
+                          ),
+                        ),
+                        if (hasImage)
+                          Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.medium,
+                            errorBuilder: (_, __, ___) =>
+                                const SizedBox.shrink(),
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) {
+                                return child;
+                              }
+                              return const SizedBox.shrink();
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),

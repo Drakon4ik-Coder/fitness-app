@@ -56,7 +56,6 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _nutritionApi = widget.nutritionApi ??
         NutritionApiService(accessToken: widget.accessToken);
     _offClient = widget.offClient ?? OffClient();
-    _loadDay();
   }
 
   @override
@@ -112,7 +111,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   Future<void> _openAddFoodSheet(BuildContext context) async {
-    final bool? added = await showModalBottomSheet<bool>(
+    await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -126,9 +125,6 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         selectedDate: _selectedDate,
       ),
     );
-    if (added == true) {
-      await _loadDay();
-    }
   }
 
   void _openMacroDetails(BuildContext context) {
@@ -156,8 +152,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     }
     setState(() {
       _selectedDate = nextDate;
+      _dayLog = null;
+      _errorMessage = null;
     });
-    _loadDay();
   }
 
   Future<void> _pickDate() async {
@@ -175,8 +172,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
 
     setState(() {
       _selectedDate = DateUtils.dateOnly(selected);
+      _dayLog = null;
+      _errorMessage = null;
     });
-    _loadDay();
   }
 
   List<_MacroSummary> _buildMacroSummaries(NutritionTotals? totals) {
@@ -359,11 +357,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                 icon: const Icon(Icons.chevron_right),
               ),
               IconButton(
-                tooltip: 'Sign out',
+                tooltip: 'Reload',
                 constraints:
                     const BoxConstraints(minWidth: 48, minHeight: 48),
-                onPressed: _isLoading ? null : () => widget.onLogout(),
-                icon: const Icon(Icons.logout),
+                onPressed: _isLoading ? null : _loadDay,
+                icon: const Icon(Icons.refresh),
               ),
             ],
           ),
