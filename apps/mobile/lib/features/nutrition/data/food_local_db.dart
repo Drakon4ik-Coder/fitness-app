@@ -171,6 +171,14 @@ class FoodLocalDb {
       name: incoming.name.isNotEmpty ? incoming.name : existing.name,
       brands: incoming.brands.isNotEmpty ? incoming.brands : existing.brands,
       imageUrl: incoming.imageUrl ?? existing.imageUrl,
+      offImageLargeUrl:
+          incoming.offImageLargeUrl ?? existing.offImageLargeUrl,
+      offImageSmallUrl:
+          incoming.offImageSmallUrl ?? existing.offImageSmallUrl,
+      imageSignature: incoming.imageSignature ?? existing.imageSignature,
+      contentHash: incoming.contentHash.isNotEmpty
+          ? incoming.contentHash
+          : existing.contentHash,
       kcal100g: incoming.kcal100g ?? existing.kcal100g,
       proteinG100g: incoming.proteinG100g ?? existing.proteinG100g,
       carbsG100g: incoming.carbsG100g ?? existing.carbsG100g,
@@ -191,7 +199,7 @@ class FoodLocalDb {
     final path = '${directory.path}/foods.db';
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute(
           '''
@@ -204,6 +212,10 @@ class FoodLocalDb {
             name TEXT NOT NULL,
             brands TEXT NOT NULL,
             image_url TEXT,
+            off_image_large_url TEXT,
+            off_image_small_url TEXT,
+            image_signature TEXT,
+            content_hash TEXT,
             kcal_100g REAL,
             protein_g_100g REAL,
             carbs_g_100g REAL,
@@ -229,6 +241,18 @@ class FoodLocalDb {
         await db.execute(
           'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
         );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN off_image_large_url TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN off_image_small_url TEXT',
+          );
+          await db.execute('ALTER TABLE foods ADD COLUMN image_signature TEXT');
+          await db.execute('ALTER TABLE foods ADD COLUMN content_hash TEXT');
+        }
       },
     );
   }

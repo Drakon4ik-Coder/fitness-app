@@ -53,9 +53,13 @@ class OffClient {
     'categories_tags',
     'image_url',
     'image_front_url',
+    'image_front_thumb_url',
     'image_front_small_url',
+    'image_thumb_url',
     'image_ingredients_url',
     'image_nutrition_url',
+    'selected_images',
+    'images',
     'nutriments',
     'lang',
   ];

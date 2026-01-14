@@ -36,5 +36,138 @@ void main() {
     expect(item.fiberG100g, 3);
     expect(item.saltG100g, 0.5);
     expect(item.nutrimentsJson, isNotNull);
+    expect(item.contentHash, isNotEmpty);
+  });
+
+  test('prefers selected_images front display/thumb by locale', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '1234567890123',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
+      'selected_images': {
+        'front': {
+          'display': {
+            'fr':
+                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.400.jpg',
+            'en':
+                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_en.5.400.jpg',
+          },
+          'thumb': {
+            'fr':
+                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.100.jpg',
+            'en':
+                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_en.5.100.jpg',
+          },
+        },
+      },
+      'images': {
+        'front_fr': {'rev': 11},
+        'front_en': {'rev': 5},
+      },
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+      localeLanguage: 'fr',
+    );
+
+    expect(
+      item.offImageLargeUrl,
+      'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.400.jpg',
+    );
+    expect(
+      item.offImageSmallUrl,
+      'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.100.jpg',
+    );
+    expect(item.imageSignature, 'front_fr.11');
+  });
+
+  test('falls back to image_front_url and thumb', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '123456',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
+      'image_front_url':
+          'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.400.jpg',
+      'image_front_thumb_url':
+          'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.100.jpg',
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+    );
+
+    expect(
+      item.offImageLargeUrl,
+      'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.400.jpg',
+    );
+    expect(
+      item.offImageSmallUrl,
+      'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.100.jpg',
+    );
+    expect(item.imageSignature, 'front_en.2');
+  });
+
+  test('computes image URLs from images metadata when needed', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '1234567890',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
+      'images': {
+        'front_en': {'rev': 3},
+      },
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+      localeLanguage: 'en',
+    );
+
+    expect(
+      item.offImageLargeUrl,
+      'https://images.openfoodfacts.org/images/products/000/123/456/7890/front_en.3.400.jpg',
+    );
+    expect(
+      item.offImageSmallUrl,
+      'https://images.openfoodfacts.org/images/products/000/123/456/7890/front_en.3.100.jpg',
+    );
+    expect(item.imageSignature, 'front_en.3');
+  });
+
+  test('content hash changes when image signature changes', () {
+    final mapper = OffMapper();
+    final baseProduct = {
+      'code': '1234567890',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
+      'images': {
+        'front_en': {'rev': 3},
+      },
+    };
+    final updatedProduct = {
+      ...baseProduct,
+      'images': {
+        'front_en': {'rev': 4},
+      },
+    };
+
+    final original = mapper.mapProduct(
+      product: baseProduct,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+      localeLanguage: 'en',
+    );
+    final updated = mapper.mapProduct(
+      product: updatedProduct,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+      localeLanguage: 'en',
+    );
+
+    expect(original.contentHash, isNot(updated.contentHash));
   });
 }
