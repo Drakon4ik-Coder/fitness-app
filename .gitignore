@@ -1,3 +1,4 @@
 apps/backend/.python-version
 **/.env
 **/__pycache__
+apps/backend/media

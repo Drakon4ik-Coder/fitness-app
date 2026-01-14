@@ -273,6 +273,36 @@ paths:
           description: Invalid payload
         '401':
           description: Unauthorized
+  /api/v1/foods/check:
+    post:
+      operationId: v1_foods_check_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FoodItemCheck'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FoodItemCheck'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FoodItemCheck'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoodItemCheckResponse'
+          description: ''
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
   /api/v1/foods/typeahead:
     get:
       operationId: v1_foods_typeahead_list
@@ -384,7 +414,41 @@ components:
         image_url:
           type: string
           format: uri
+        image_large_url:
+          type: string
+          format: uri
+        image_small_url:
+          type: string
+          format: uri
+        content_hash:
+          type: string
+          maxLength: 128
+        image_signature:
+          type: string
+          maxLength: 128
           maxLength: 200
+          nullable: true
+        image_small_url:
+          type: string
+          format: uri
+          nullable: true
+          nullable: true
+        image_large_url:
+          type: string
+          format: uri
+          nullable: true
+        image_small_url:
+          type: string
+          format: uri
+          nullable: true
+        content_hash:
+          type: string
+          maxLength: 128
+          nullable: true
+        image_signature:
+          type: string
+          maxLength: 128
+          nullable: true
         kcal_100g:
           type: string
           format: decimal
@@ -532,6 +596,42 @@ components:
       - external_id
       - name
       - raw_source_json
+    FoodItemCheck:
+      type: object
+      properties:
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          default: openfoodfacts
+        external_id:
+          type: string
+          maxLength: 128
+        content_hash:
+          type: string
+          maxLength: 128
+        image_signature:
+          type: string
+          maxLength: 128
+      required:
+      - content_hash
+      - external_id
+    FoodItemCheckResponse:
+      type: object
+      properties:
+        exists:
+          type: boolean
+        up_to_date:
+          type: boolean
+        food_item_id:
+          type: integer
+          nullable: true
+        images_ok:
+          type: boolean
+      required:
+      - exists
+      - food_item_id
+      - images_ok
+      - up_to_date
     MealEntry:
       type: object
       properties:
