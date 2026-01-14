@@ -243,36 +243,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenObtainPair'
           description: ''
-  /api/v1/foods/ingest:
-    post:
-      operationId: v1_foods_ingest_create
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/FoodItemIngest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/FoodItemIngest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/FoodItemIngest'
-        required: true
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FoodItem'
-          description: ''
-        '400':
-          description: Invalid payload
-        '401':
-          description: Unauthorized
   /api/v1/foods/check:
     post:
       operationId: v1_foods_check_create
@@ -298,6 +268,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FoodItemCheckResponse'
+          description: ''
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+  /api/v1/foods/ingest:
+    post:
+      operationId: v1_foods_ingest_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FoodItemIngest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FoodItemIngest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FoodItemIngest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoodItem'
           description: ''
         '400':
           description: Invalid payload
@@ -413,42 +413,16 @@ components:
           maxLength: 255
         image_url:
           type: string
-          format: uri
+          nullable: true
+          readOnly: true
         image_large_url:
           type: string
-          format: uri
+          nullable: true
+          readOnly: true
         image_small_url:
           type: string
-          format: uri
-        content_hash:
-          type: string
-          maxLength: 128
-        image_signature:
-          type: string
-          maxLength: 128
-          maxLength: 200
           nullable: true
-        image_small_url:
-          type: string
-          format: uri
-          nullable: true
-          nullable: true
-        image_large_url:
-          type: string
-          format: uri
-          nullable: true
-        image_small_url:
-          type: string
-          format: uri
-          nullable: true
-        content_hash:
-          type: string
-          maxLength: 128
-          nullable: true
-        image_signature:
-          type: string
-          maxLength: 128
-          nullable: true
+          readOnly: true
         kcal_100g:
           type: string
           format: decimal
@@ -489,6 +463,14 @@ components:
           format: decimal
           pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
           nullable: true
+        content_hash:
+          type: string
+          nullable: true
+          maxLength: 128
+        image_signature:
+          type: string
+          nullable: true
+          maxLength: 128
         raw_source_json: {}
         nutriments_json:
           nullable: true
@@ -496,8 +478,46 @@ components:
       - barcode
       - external_id
       - id
+      - image_large_url
+      - image_small_url
+      - image_url
       - name
       - raw_source_json
+    FoodItemCheck:
+      type: object
+      properties:
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          default: openfoodfacts
+        external_id:
+          type: string
+          maxLength: 128
+        content_hash:
+          type: string
+          maxLength: 128
+        image_signature:
+          type: string
+      required:
+      - content_hash
+      - external_id
+    FoodItemCheckResponse:
+      type: object
+      properties:
+        exists:
+          type: boolean
+        up_to_date:
+          type: boolean
+        food_item_id:
+          type: integer
+          nullable: true
+        images_ok:
+          type: boolean
+      required:
+      - exists
+      - food_item_id
+      - images_ok
+      - up_to_date
     FoodItemCompact:
       type: object
       properties:
@@ -517,14 +537,20 @@ components:
           nullable: true
         image_url:
           type: string
-          format: uri
-          maxLength: 200
+          nullable: true
+          readOnly: true
+        image_small_url:
+          type: string
+          nullable: true
+          readOnly: true
         barcode:
           type: string
           maxLength: 64
       required:
       - barcode
       - id
+      - image_small_url
+      - image_url
       - name
     FoodItemIngest:
       type: object
@@ -548,6 +574,18 @@ components:
         image_url:
           type: string
           format: uri
+        image_large_url:
+          type: string
+          format: uri
+        image_small_url:
+          type: string
+          format: uri
+        content_hash:
+          type: string
+          maxLength: 128
+        image_signature:
+          type: string
+          maxLength: 128
         kcal_100g:
           type: string
           format: decimal
@@ -596,42 +634,6 @@ components:
       - external_id
       - name
       - raw_source_json
-    FoodItemCheck:
-      type: object
-      properties:
-        source:
-          allOf:
-          - $ref: '#/components/schemas/SourceEnum'
-          default: openfoodfacts
-        external_id:
-          type: string
-          maxLength: 128
-        content_hash:
-          type: string
-          maxLength: 128
-        image_signature:
-          type: string
-          maxLength: 128
-      required:
-      - content_hash
-      - external_id
-    FoodItemCheckResponse:
-      type: object
-      properties:
-        exists:
-          type: boolean
-        up_to_date:
-          type: boolean
-        food_item_id:
-          type: integer
-          nullable: true
-        images_ok:
-          type: boolean
-      required:
-      - exists
-      - food_item_id
-      - images_ok
-      - up_to_date
     MealEntry:
       type: object
       properties:
