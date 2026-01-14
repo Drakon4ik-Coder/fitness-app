@@ -11,6 +11,7 @@ import 'data/foods_api_service.dart';
 import 'data/nutrition_api_service.dart';
 import 'data/off_client.dart';
 import 'data/off_mapper.dart';
+import 'data/off_rate_limiter.dart';
 import 'nutrition_scan_page.dart';
 
 const String _filterRecent = 'Recent';
@@ -42,6 +43,12 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   final TextEditingController _searchController = TextEditingController();
   final OffMapper _offMapper = OffMapper();
   Timer? _debounce;
+  Timer? _offBlockTimer;
+
+  static const Duration _scanCooldown = Duration(seconds: 3);
+  DateTime? _offBlockedUntil;
+  String? _lastScannedBarcode;
+  DateTime? _lastScannedAt;
 
   MealType _selectedMeal = MealType.breakfast;
   String _selectedFilter = _filterRecent;
@@ -69,8 +76,33 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _offBlockTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  bool get _isOffRateLimited {
+    final until = _offBlockedUntil;
+    if (until == null) {
+      return false;
+    }
+    return until.isAfter(DateTime.now());
+  }
+
+  void _applyOffLimit(OffRateLimitException error) {
+    final until = DateTime.now().add(error.retryAfter);
+    _offBlockedUntil = until;
+    _offBlockTimer?.cancel();
+    if (error.retryAfter > Duration.zero) {
+      _offBlockTimer = Timer(error.retryAfter, () {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _offBlockedUntil = null;
+        });
+      });
+    }
   }
 
   void _handleSearchChange() {
@@ -146,7 +178,6 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     });
     try {
       final results = await widget.foodsApi.typeahead(query);
-      final stored = await widget.localDb.upsertFoods(results);
       if (!mounted) {
         return;
       }
@@ -157,7 +188,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         return;
       }
       setState(() {
-        _backendResults = stored;
+        _backendResults = results;
         _isBackendLoading = false;
         _selectedResultIndex = null;
       });
@@ -219,6 +250,21 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 
   Future<void> _handleBarcodeScan(String barcode) async {
+    if (_isOffRateLimited) {
+      setState(() {
+        _message = 'OpenFoodFacts is temporarily rate limited. Try again soon.';
+        _messageTone = InlineBannerTone.info;
+      });
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastScannedBarcode == barcode &&
+        _lastScannedAt != null &&
+        now.difference(_lastScannedAt!) < _scanCooldown) {
+      return;
+    }
+    _lastScannedBarcode = barcode;
+    _lastScannedAt = now;
     setState(() {
       _isOffLoading = true;
       _message = null;
@@ -237,11 +283,12 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         });
         return;
       }
+      final locale = Localizations.localeOf(context).languageCode;
       final item = _offMapper.mapProduct(
         product: response.product,
         rawJson: response.rawJson,
+        localeLanguage: locale,
       );
-      final stored = await widget.localDb.upsertFood(item);
       if (!mounted) {
         return;
       }
@@ -252,11 +299,21 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       );
       _ignoreSearchChange = false;
       setState(() {
-        _offResults = [stored];
+        _offResults = [item];
         _backendResults = [];
         _localResults = [];
         _isOffLoading = false;
         _selectedResultIndex = 0;
+      });
+    } on OffRateLimitException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _applyOffLimit(error);
+      setState(() {
+        _isOffLoading = false;
+        _message = error.message;
+        _messageTone = InlineBannerTone.info;
       });
     } on OffException catch (error) {
       if (!mounted) {
@@ -275,6 +332,13 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     if (query.isEmpty) {
       return;
     }
+    if (_isOffRateLimited) {
+      setState(() {
+        _message = 'OpenFoodFacts is temporarily rate limited. Try again soon.';
+        _messageTone = InlineBannerTone.info;
+      });
+      return;
+    }
     final queryLower = query.toLowerCase();
     setState(() {
       _isOffLoading = true;
@@ -282,6 +346,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       _messageTone = null;
     });
     try {
+      final locale = Localizations.localeOf(context).languageCode;
       final baseResults = await widget.offClient.searchProducts(query);
       List<OffProductResponse> effectiveResults = baseResults;
       final bool hasCategoryMatch =
@@ -314,6 +379,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         final item = _offMapper.mapProduct(
           product: result.product,
           rawJson: result.rawJson,
+          localeLanguage: locale,
         );
         if (item.barcode == null || item.barcode!.isEmpty) {
           continue;
@@ -330,7 +396,6 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
             _nameMatchScore(b.name, queryLower) -
             _nameMatchScore(a.name, queryLower),
       );
-      final stored = await widget.localDb.upsertFoods(items);
       if (!mounted) {
         return;
       }
@@ -341,13 +406,36 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         return;
       }
       setState(() {
-        _offResults = stored;
+        _offResults = items;
         _isOffLoading = false;
         _selectedResultIndex = null;
-        if (stored.isEmpty) {
+        if (items.isEmpty) {
           _message = 'No OpenFoodFacts matches found.';
           _messageTone = InlineBannerTone.info;
         }
+      });
+      if (items.isEmpty) {
+        return;
+      }
+      final stored = await _ingestOffResults(items);
+      if (!mounted) {
+        return;
+      }
+      if (_searchController.text.trim() != query) {
+        return;
+      }
+      setState(() {
+        _offResults = stored;
+      });
+    } on OffRateLimitException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _applyOffLimit(error);
+      setState(() {
+        _isOffLoading = false;
+        _message = error.message;
+        _messageTone = InlineBannerTone.info;
       });
     } on OffException catch (error) {
       if (!mounted) {
@@ -359,6 +447,22 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         _messageTone = InlineBannerTone.error;
       });
     }
+  }
+
+  Future<List<FoodItem>> _ingestOffResults(List<FoodItem> items) async {
+    final stored = <FoodItem>[];
+    for (final item in items) {
+      try {
+        stored.add(await widget.foodsApi.ingestFood(item));
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+          return stored.isEmpty ? items : stored;
+        }
+        stored.add(item);
+      }
+    }
+    return stored;
   }
 
   Future<void> _addSelected(List<_FoodResult> results) async {
@@ -378,20 +482,28 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     FoodItem selected = results[index].item;
     try {
       if (selected.backendId == null) {
-        final ingested = await widget.foodsApi.ingestFood(selected);
-        if (selected.localId != null && ingested.backendId != null) {
-          await widget.localDb.updateBackendId(
-            selected.localId!,
-            ingested.backendId!,
+        if (selected.contentHash.isNotEmpty) {
+          final check = await widget.foodsApi.checkFood(
+            source: selected.source,
+            externalId: selected.externalId,
+            contentHash: selected.contentHash,
+            imageSignature: selected.imageSignature,
           );
-          selected = ingested.copyWith(localId: selected.localId);
+          if (check.upToDate && check.foodItemId != null) {
+            selected = selected.copyWith(backendId: check.foodItemId);
+          } else {
+            selected = await widget.foodsApi.ingestFood(selected);
+          }
         } else {
-          selected = await widget.localDb.upsertFood(ingested);
+          selected = await widget.foodsApi.ingestFood(selected);
         }
       }
       if (selected.backendId == null) {
         throw ApiException('Unable to resolve food item id.');
       }
+
+      final stored = await widget.localDb.upsertFood(selected);
+      selected = stored;
 
       final consumedAt = DateTime(
         widget.selectedDate.year,
@@ -724,14 +836,16 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
                 const SizedBox(height: AppSpacing.lg),
                 _SearchBarGroup(
                   controller: _searchController,
-                  onScan: _openScanPage,
+                  onScan: _isOffRateLimited ? null : _openScanPage,
                 ),
                 if (hasQuery) ...[
                   const SizedBox(height: AppSpacing.sm),
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      onPressed: _isOffLoading ? null : _searchOnline,
+                      onPressed: _isOffLoading || _isOffRateLimited
+                          ? null
+                          : _searchOnline,
                       icon: const Icon(Icons.public),
                       label: const Text('Search online (OpenFoodFacts)'),
                     ),
@@ -885,7 +999,7 @@ class _SearchBarGroup extends StatelessWidget {
   });
 
   final TextEditingController controller;
-  final VoidCallback onScan;
+  final VoidCallback? onScan;
 
   @override
   Widget build(BuildContext context) {
@@ -1050,7 +1164,16 @@ class _FoodResultTile extends StatelessWidget {
     final metaLabel = brandLabel.isNotEmpty
         ? '$brandLabel - $kcalLabel'
         : '$originLabel - $kcalLabel';
-    final imageUrl = item.item.imageUrl?.trim();
+    final primaryUrl = item.item.imageUrl?.trim();
+    final fallbackSmall = item.item.offImageSmallUrl?.trim();
+    final fallbackLarge = item.item.offImageLargeUrl?.trim();
+    final imageUrl = (primaryUrl != null && primaryUrl.isNotEmpty)
+        ? primaryUrl
+        : (fallbackSmall != null && fallbackSmall.isNotEmpty)
+            ? fallbackSmall
+            : (fallbackLarge != null && fallbackLarge.isNotEmpty)
+                ? fallbackLarge
+                : null;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
     const double imageSize = 56;
 

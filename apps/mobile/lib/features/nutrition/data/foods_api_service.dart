@@ -4,6 +4,20 @@ import '../../../core/environment.dart';
 import 'api_exceptions.dart';
 import 'food_models.dart';
 
+class FoodCheckResult {
+  const FoodCheckResult({
+    required this.exists,
+    required this.upToDate,
+    required this.foodItemId,
+    required this.imagesOk,
+  });
+
+  final bool exists;
+  final bool upToDate;
+  final int? foodItemId;
+  final bool imagesOk;
+}
+
 class FoodsApiService {
   FoodsApiService({
     required String accessToken,
@@ -67,6 +81,43 @@ class FoodsApiService {
       );
     } catch (_) {
       throw ApiException('Unable to save food.');
+    }
+  }
+
+  Future<FoodCheckResult> checkFood({
+    required String source,
+    required String externalId,
+    required String contentHash,
+    String? imageSignature,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/v1/foods/check',
+        data: {
+          'source': source,
+          'external_id': externalId,
+          'content_hash': contentHash,
+          if (imageSignature != null && imageSignature.trim().isNotEmpty)
+            'image_signature': imageSignature,
+        },
+      );
+      final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw ApiException('Unexpected response from server.');
+      }
+      return FoodCheckResult(
+        exists: data['exists'] == true,
+        upToDate: data['up_to_date'] == true,
+        foodItemId: data['food_item_id'] as int?,
+        imagesOk: data['images_ok'] == true,
+      );
+    } on DioException catch (error) {
+      throw ApiException(
+        'Unable to check food status.',
+        statusCode: error.response?.statusCode,
+      );
+    } catch (_) {
+      throw ApiException('Unable to check food status.');
     }
   }
 }

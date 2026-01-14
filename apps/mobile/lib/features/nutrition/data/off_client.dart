@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../../../core/environment.dart';
+import 'off_rate_limiter.dart';
 
 class OffException implements Exception {
   OffException(this.message);
@@ -28,10 +29,12 @@ class OffClient {
     Dio? dio,
     String? userAgent,
     String? country,
+    OffRateLimiter? rateLimiter,
   })  : _countryTag = _normalizeCountryTag(
           country ?? EnvironmentConfig.offCountry,
         ),
         _userAgent = userAgent ?? EnvironmentConfig.offUserAgent,
+        _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
         _dio = dio ??
             Dio(
               BaseOptions(
@@ -81,12 +84,16 @@ class OffClient {
   final Dio _dio;
   final String _countryTag;
   final String _userAgent;
+  final OffRateLimiter _rateLimiter;
 
   Future<OffProductResponse?> fetchProduct(String barcode) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v2/product/$barcode',
-        queryParameters: {'fields': _fields.join(',')},
+      final response = await _rateLimiter.run(
+        _barcodeKey(barcode),
+        () => _dio.get<Map<String, dynamic>>(
+          '/api/v2/product/$barcode',
+          queryParameters: {'fields': _fields.join(',')},
+        ),
       );
       final data = response.data;
       if (data == null) {
@@ -104,6 +111,8 @@ class OffClient {
         );
       }
       return null;
+    } on OffRateLimitException {
+      rethrow;
     } on DioException catch (error) {
       throw OffException(error.message ?? 'Unable to fetch from OFF.');
     } catch (_) {
@@ -122,6 +131,8 @@ class OffClient {
         pageSize: pageSize,
         categoryTag: categoryTag,
       );
+    } on OffRateLimitException {
+      rethrow;
     } on DioException {
       try {
         return await _searchV2(
@@ -129,6 +140,8 @@ class OffClient {
           pageSize: pageSize,
           categoryTag: categoryTag,
         );
+      } on OffRateLimitException {
+        rethrow;
       } on DioException catch (fallbackError) {
         throw OffException(
           _formatDioMessage(fallbackError, 'Unable to search OFF.'),
@@ -144,13 +157,16 @@ class OffClient {
     required int pageSize,
     String? categoryTag,
   }) async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/cgi/search.pl',
-      queryParameters: _buildSearchParams(
-        query,
-        pageSize: pageSize,
-        categoryTag: categoryTag,
-        includeCgiParams: true,
+    final response = await _rateLimiter.run(
+      _searchKey(query),
+      () => _dio.get<Map<String, dynamic>>(
+        '/cgi/search.pl',
+        queryParameters: _buildSearchParams(
+          query,
+          pageSize: pageSize,
+          categoryTag: categoryTag,
+          includeCgiParams: true,
+        ),
       ),
     );
     return _parseSearchResponse(response.data);
@@ -161,13 +177,16 @@ class OffClient {
     required int pageSize,
     String? categoryTag,
   }) async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/api/v2/search',
-      queryParameters: _buildSearchParams(
-        query,
-        pageSize: pageSize,
-        categoryTag: categoryTag,
-        includeCgiParams: false,
+    final response = await _rateLimiter.run(
+      _searchKey(query),
+      () => _dio.get<Map<String, dynamic>>(
+        '/api/v2/search',
+        queryParameters: _buildSearchParams(
+          query,
+          pageSize: pageSize,
+          categoryTag: categoryTag,
+          includeCgiParams: false,
+        ),
       ),
     );
     return _parseSearchResponse(response.data);
@@ -234,4 +253,8 @@ class OffClient {
     }
     return '$fallback (HTTP $statusCode)';
   }
+
+  String _barcodeKey(String barcode) => 'barcode:${barcode.trim()}';
+
+  String _searchKey(String query) => 'search:${query.trim().toLowerCase()}';
 }
