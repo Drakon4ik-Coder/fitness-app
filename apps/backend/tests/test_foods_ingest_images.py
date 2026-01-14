@@ -42,7 +42,9 @@ def test_foods_ingest_downloads_and_refreshes_images(tmp_path) -> None:
     }
 
     with override_settings(MEDIA_ROOT=tmp_path):
-        with patch("foods.images._fetch_image_bytes", return_value=b"img") as mock_fetch:
+        with patch(
+            "foods.images._fetch_image_bytes", return_value=b"img"
+        ) as mock_fetch:
             response = client.post("/api/v1/foods/ingest", payload, format="json")
 
         assert response.status_code == 200
@@ -62,7 +64,9 @@ def test_foods_ingest_downloads_and_refreshes_images(tmp_path) -> None:
             "image_small_url": "https://images.openfoodfacts.org/front_en.2.100.jpg",
         }
 
-        with patch("foods.images._fetch_image_bytes", return_value=b"img2") as mock_fetch_update:
+        with patch(
+            "foods.images._fetch_image_bytes", return_value=b"img2"
+        ) as mock_fetch_update:
             update_response = client.post(
                 "/api/v1/foods/ingest",
                 update_payload,
