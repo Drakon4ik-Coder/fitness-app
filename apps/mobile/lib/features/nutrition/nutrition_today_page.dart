@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/theme_mode_controller.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_sheet.dart';
 import 'data/api_exceptions.dart';
@@ -238,6 +239,8 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final macroSummaries = _buildMacroSummaries(totals);
     final mealSummaries = _buildMealSummaries(context);
 
+    final themeController = ThemeModeScope.maybeOf(context);
+
     return AppScaffold(
       safeArea: false,
       padding: EdgeInsets.zero,
@@ -424,6 +427,25 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           ),
                         ),
                       ),
+                      if (themeController != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        IconButton(
+                          tooltip: themeController.isDark
+                              ? 'Switch to light'
+                              : 'Switch to dark',
+                          onPressed: themeController.toggle,
+                          constraints: const BoxConstraints(
+                            minWidth: 48,
+                            minHeight: 48,
+                          ),
+                          icon: Icon(
+                            themeController.isDark
+                                ? Icons.light_mode
+                                : Icons.dark_mode,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: AppSpacing.sm),
                       SizedBox(
                         width: 230,
