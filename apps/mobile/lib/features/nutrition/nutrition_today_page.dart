@@ -117,6 +117,13 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       isScrollControlled: true,
       showDragHandle: true,
       useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.lg),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
       builder: (_) => AddFoodSheet(
         localDb: _localDb,
         foodsApi: _foodsApi,
