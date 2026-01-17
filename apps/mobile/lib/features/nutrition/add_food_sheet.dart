@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
+import '../../ui_system/pulse_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
@@ -52,7 +53,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
 
   MealType _selectedMeal = MealType.breakfast;
   String _selectedFilter = _filterRecent;
-  int? _selectedResultIndex;
+  final Set<int> _selectedResultIndices = <int>{};
 
   bool _isBackendLoading = false;
   bool _isOffLoading = false;
@@ -115,7 +116,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       setState(() {
         _backendResults = [];
         _offResults = [];
-        _selectedResultIndex = null;
+        _selectedResultIndices.clear();
         _message = null;
         _messageTone = null;
         _isBackendLoading = false;
@@ -128,7 +129,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     setState(() {
       _offResults = [];
       _backendResults = [];
-      _selectedResultIndex = null;
+      _selectedResultIndices.clear();
       _message = null;
       _messageTone = null;
     });
@@ -152,7 +153,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     }
     setState(() {
       _localResults = results;
-      _selectedResultIndex = null;
+      _selectedResultIndices.clear();
     });
   }
 
@@ -163,7 +164,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     }
     setState(() {
       _localResults = results;
-      _selectedResultIndex = null;
+      _selectedResultIndices.clear();
     });
   }
 
@@ -190,7 +191,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       setState(() {
         _backendResults = results;
         _isBackendLoading = false;
-        _selectedResultIndex = null;
+        _selectedResultIndices.clear();
       });
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
@@ -230,9 +231,13 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     _loadFilterResults();
   }
 
-  void _selectResult(int index) {
+  void _toggleResult(int index) {
     setState(() {
-      _selectedResultIndex = index;
+      if (_selectedResultIndices.contains(index)) {
+        _selectedResultIndices.remove(index);
+      } else {
+        _selectedResultIndices.add(index);
+      }
     });
   }
 
@@ -303,7 +308,9 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         _backendResults = [];
         _localResults = [];
         _isOffLoading = false;
-        _selectedResultIndex = 0;
+        _selectedResultIndices
+          ..clear()
+          ..add(0);
       });
     } on OffRateLimitException catch (error) {
       if (!mounted) {
@@ -408,7 +415,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       setState(() {
         _offResults = items;
         _isOffLoading = false;
-        _selectedResultIndex = null;
+        _selectedResultIndices.clear();
         if (items.isEmpty) {
           _message = 'No OpenFoodFacts matches found.';
           _messageTone = InlineBannerTone.info;
@@ -466,45 +473,17 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 
   Future<void> _addSelected(List<_FoodResult> results) async {
-    if (_selectedResultIndex == null) {
+    if (_selectedResultIndices.isEmpty) {
       return;
     }
-    final index = _selectedResultIndex!;
-    if (index < 0 || index >= results.length) {
-      return;
-    }
+    final indices = _selectedResultIndices.toList()..sort();
     setState(() {
       _isSubmitting = true;
       _message = null;
       _messageTone = null;
     });
 
-    FoodItem selected = results[index].item;
     try {
-      if (selected.backendId == null) {
-        if (selected.contentHash.isNotEmpty) {
-          final check = await widget.foodsApi.checkFood(
-            source: selected.source,
-            externalId: selected.externalId,
-            contentHash: selected.contentHash,
-            imageSignature: selected.imageSignature,
-          );
-          if (check.upToDate && check.foodItemId != null) {
-            selected = selected.copyWith(backendId: check.foodItemId);
-          } else {
-            selected = await widget.foodsApi.ingestFood(selected);
-          }
-        } else {
-          selected = await widget.foodsApi.ingestFood(selected);
-        }
-      }
-      if (selected.backendId == null) {
-        throw ApiException('Unable to resolve food item id.');
-      }
-
-      final stored = await widget.localDb.upsertFood(selected);
-      selected = stored;
-
       final consumedAt = DateTime(
         widget.selectedDate.year,
         widget.selectedDate.month,
@@ -513,16 +492,47 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
         DateTime.now().minute,
       );
 
-      await widget.nutritionApi.createEntry(
-        foodItemId: selected.backendId!,
-        mealType: _selectedMeal.name,
-        quantityG: 100,
-        consumedAt: consumedAt,
-      );
+      for (final index in indices) {
+        if (index < 0 || index >= results.length) {
+          continue;
+        }
+        FoodItem selected = results[index].item;
+        if (selected.backendId == null) {
+          if (selected.contentHash.isNotEmpty) {
+            final check = await widget.foodsApi.checkFood(
+              source: selected.source,
+              externalId: selected.externalId,
+              contentHash: selected.contentHash,
+              imageSignature: selected.imageSignature,
+            );
+            if (check.upToDate && check.foodItemId != null) {
+              selected = selected.copyWith(backendId: check.foodItemId);
+            } else {
+              selected = await widget.foodsApi.ingestFood(selected);
+            }
+          } else {
+            selected = await widget.foodsApi.ingestFood(selected);
+          }
+        }
+        if (selected.backendId == null) {
+          throw ApiException('Unable to resolve food item id.');
+        }
 
-      if (selected.localId != null) {
-        await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
+        final stored = await widget.localDb.upsertFood(selected);
+        selected = stored;
+
+        await widget.nutritionApi.createEntry(
+          foodItemId: selected.backendId!,
+          mealType: _selectedMeal.name,
+          quantityG: 100,
+          consumedAt: consumedAt,
+        );
+
+        if (selected.localId != null) {
+          await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
+        }
       }
+
       if (!mounted) {
         return;
       }
@@ -552,12 +562,12 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   String _resultsHeading(String query) {
     final trimmed = query.trim();
     if (trimmed.isNotEmpty) {
-      return 'Search results';
+      return 'Search Results';
     }
     if (_selectedFilter == _filterFavorites) {
       return 'Favorites';
     }
-    return 'Recent foods';
+    return 'Recent Foods';
   }
 
   List<_FoodResult> _buildResults(String query) {
@@ -754,202 +764,220 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final effects = PulseTheme.effectsOf(context);
     final query = _searchController.text;
     final results = _buildResults(query);
     final hasQuery = query.trim().isNotEmpty;
-    final canAdd = !_isSubmitting && _selectedResultIndex != null;
+    final canAdd = !_isSubmitting && _selectedResultIndices.isNotEmpty;
 
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.88,
+      initialChildSize: 0.9,
       minChildSize: 0.5,
       maxChildSize: 0.96,
       builder: (context, scrollController) {
         return Material(
-          color: scheme.surface,
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: AppSpacing.lg,
-              right: AppSpacing.lg,
-              top: AppSpacing.lg,
-              bottom: AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Add food',
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Choose meal',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SegmentedButton<MealType>(
-                    showSelectedIcon: false,
-                    style: ButtonStyle(
-                      backgroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? scheme.primaryContainer
-                            : scheme.surfaceContainer,
-                      ),
-                      foregroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? scheme.onPrimaryContainer
-                            : scheme.onSurface,
-                      ),
-                      side: WidgetStateProperty.all(
-                        BorderSide(color: scheme.outlineVariant),
-                      ),
-                    ),
-                    segments: const [
-                      ButtonSegment(
-                        value: MealType.breakfast,
-                        label: Text('Breakfast'),
-                      ),
-                      ButtonSegment(
-                        value: MealType.lunch,
-                        label: Text('Lunch'),
-                      ),
-                      ButtonSegment(
-                        value: MealType.dinner,
-                        label: Text('Dinner'),
-                      ),
-                      ButtonSegment(
-                        value: MealType.snacks,
-                        label: Text('Snacks'),
-                      ),
-                    ],
-                    selected: {_selectedMeal},
-                    onSelectionChanged: (selection) {
-                      if (selection.isEmpty) {
-                        return;
-                      }
-                      _selectMeal(selection.first);
-                    },
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                _SearchBarGroup(
-                  controller: _searchController,
-                  onScan: _isOffRateLimited ? null : _openScanPage,
-                ),
-                if (hasQuery) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _isOffLoading || _isOffRateLimited
-                          ? null
-                          : _searchOnline,
-                      icon: const Icon(Icons.public),
-                      label: const Text('Search online (OpenFoodFacts)'),
-                    ),
-                  ),
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  scheme.surface,
+                  scheme.surfaceContainer,
+                  scheme.surfaceContainerHigh,
                 ],
-                if (!hasQuery) ...[
+              ),
+            ),
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: AppSpacing.lg,
+                right: AppSpacing.lg,
+                top: AppSpacing.lg,
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Add Food',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: scheme.onSurface,
+                    ),
+                  ),
                   const SizedBox(height: AppSpacing.md),
+                  GlassSearchBar(
+                    controller: _searchController,
+                    onScan: _isOffRateLimited ? null : _openScanPage,
+                  ),
+                  if (hasQuery) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _isOffLoading || _isOffRateLimited
+                            ? null
+                            : _searchOnline,
+                        style: TextButton.styleFrom(
+                          foregroundColor: scheme.secondary,
+                        ),
+                        icon: const Icon(Icons.public),
+                        label: const Text('Search online (OpenFoodFacts)'),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    'Choose meal',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
                   Wrap(
                     spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.sm,
                     children: [
-                      _FilterChip(
-                        label: _filterRecent,
-                        isSelected: _selectedFilter == _filterRecent,
-                        onSelected: () => _selectFilter(_filterRecent),
+                      _PulseChip(
+                        label: 'Breakfast',
+                        isSelected: _selectedMeal == MealType.breakfast,
+                        accentColor: scheme.primary,
+                        onTap: () => _selectMeal(MealType.breakfast),
+                        glowSigma: effects.glowLow,
                       ),
-                      _FilterChip(
-                        label: _filterFavorites,
-                        isSelected: _selectedFilter == _filterFavorites,
-                        onSelected: () => _selectFilter(_filterFavorites),
+                      _PulseChip(
+                        label: 'Lunch',
+                        isSelected: _selectedMeal == MealType.lunch,
+                        accentColor: scheme.primary,
+                        onTap: () => _selectMeal(MealType.lunch),
+                        glowSigma: effects.glowLow,
                       ),
-                    ],
-                  ),
-                ],
-                if (_message != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  InlineBanner(
-                    message: _message!,
-                    tone: _messageTone ?? InlineBannerTone.info,
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.lg),
-                Expanded(
-                  child: CustomScrollView(
-                    controller: scrollController,
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _resultsHeading(query),
-                              style: theme.textTheme.titleSmall,
-                            ),
-                            const SizedBox(height: AppSpacing.xs),
-                            if (_isBackendLoading || _isOffLoading)
-                              LinearProgressIndicator(
-                                minHeight: 2,
-                                color: scheme.primary,
-                              ),
-                            const SizedBox(height: AppSpacing.sm),
-                          ],
-                        ),
+                      _PulseChip(
+                        label: 'Dinner',
+                        isSelected: _selectedMeal == MealType.dinner,
+                        accentColor: scheme.primary,
+                        onTap: () => _selectMeal(MealType.dinner),
+                        glowSigma: effects.glowLow,
                       ),
-                      if (results.isEmpty)
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              vertical: AppSpacing.lg,
-                            ),
-                            child: Text('No foods to show yet.'),
-                          ),
-                        )
-                      else
-                        SliverGrid(
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: AppSpacing.sm,
-                            crossAxisSpacing: AppSpacing.sm,
-                            childAspectRatio: 1.2,
-                          ),
-                          delegate: SliverChildBuilderDelegate(
-                            (context, index) {
-                              final item = results[index];
-                              final bool isSelected = _selectedResultIndex == index;
-                              return _FoodResultTile(
-                                item: item,
-                                isSelected: isSelected,
-                                onTap: () => _selectResult(index),
-                              );
-                            },
-                            childCount: results.length,
-                          ),
-                        ),
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: AppSpacing.lg),
+                      _PulseChip(
+                        label: 'Snacks',
+                        isSelected: _selectedMeal == MealType.snacks,
+                        accentColor: scheme.primary,
+                        onTap: () => _selectMeal(MealType.snacks),
+                        glowSigma: effects.glowLow,
                       ),
                     ],
                   ),
-                ),
-                SafeArea(
-                  top: false,
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: AppPrimaryButton(
-                      onPressed:
-                          canAdd ? () => _addSelected(results) : null,
-                      isLoading: _isSubmitting,
-                      child: const Text('Add selected'),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    _resultsHeading(query),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: scheme.onSurface,
                     ),
                   ),
-                ),
-              ],
+                  if (!hasQuery) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      children: [
+                        _PulseChip(
+                          label: _filterRecent,
+                          isSelected: _selectedFilter == _filterRecent,
+                          accentColor: scheme.secondary,
+                          onTap: () => _selectFilter(_filterRecent),
+                          glowSigma: effects.glowLow,
+                        ),
+                        _PulseChip(
+                          label: _filterFavorites,
+                          isSelected: _selectedFilter == _filterFavorites,
+                          accentColor: scheme.secondary,
+                          onTap: () => _selectFilter(_filterFavorites),
+                          glowSigma: effects.glowLow,
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (_message != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    InlineBanner(
+                      message: _message!,
+                      tone: _messageTone ?? InlineBannerTone.info,
+                    ),
+                  ],
+                  if (_isBackendLoading || _isOffLoading) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    LinearProgressIndicator(
+                      minHeight: 2,
+                      color: scheme.primary,
+                      backgroundColor: scheme.surfaceContainer,
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.md),
+                  Expanded(
+                    child: CustomScrollView(
+                      controller: scrollController,
+                      slivers: [
+                        if (results.isEmpty)
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: AppSpacing.lg,
+                              ),
+                              child: Text(
+                                'No foods to show yet.',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          SliverGrid(
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: AppSpacing.sm,
+                              crossAxisSpacing: AppSpacing.sm,
+                              childAspectRatio: 0.95,
+                            ),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                final item = results[index];
+                                final bool isSelected =
+                                    _selectedResultIndices.contains(index);
+                                return _FoodResultTile(
+                                  item: item,
+                                  isSelected: isSelected,
+                                  onTap: () => _toggleResult(index),
+                                );
+                              },
+                              childCount: results.length,
+                            ),
+                          ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: AppSpacing.lg),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: AppSpacing.md,
+                        bottom: AppSpacing.lg,
+                      ),
+                      child: NeonPillButton(
+                        onPressed: canAdd ? () => _addSelected(results) : null,
+                        isLoading: _isSubmitting,
+                        child: const Text('Add Selected'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -958,126 +986,67 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
+class _PulseChip extends StatelessWidget {
+  const _PulseChip({
     required this.label,
     required this.isSelected,
-    required this.onSelected,
+    required this.accentColor,
+    required this.onTap,
+    required this.glowSigma,
   });
 
   final String label;
   final bool isSelected;
-  final VoidCallback onSelected;
+  final Color accentColor;
+  final VoidCallback onTap;
+  final double glowSigma;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = theme.colorScheme;
+    final background = isSelected
+        ? accentColor.withValues(alpha: 0.18)
+        : scheme.surfaceContainerHigh.withValues(alpha: 0.6);
+    final borderColor = isSelected
+        ? accentColor.withValues(alpha: 0.8)
+        : scheme.outlineVariant.withValues(alpha: 0.6);
     final labelColor =
-        isSelected ? scheme.onPrimaryContainer : scheme.onSurface;
-    return FilterChip(
-      label: Text(
-        label,
-        style: theme.textTheme.labelLarge?.copyWith(color: labelColor),
-      ),
-      selected: isSelected,
-      onSelected: (_) => onSelected(),
-      selectedColor: scheme.primaryContainer,
-      backgroundColor: scheme.surfaceContainer,
-      side: BorderSide(
-        color: scheme.outlineVariant.withValues(alpha: 0.6),
-      ),
-      showCheckmark: false,
-    );
-  }
-}
-
-class _SearchBarGroup extends StatelessWidget {
-  const _SearchBarGroup({
-    required this.controller,
-    required this.onScan,
-  });
-
-  final TextEditingController controller;
-  final VoidCallback? onScan;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+        isSelected ? scheme.onSurface : scheme.onSurfaceVariant;
 
     return Material(
-      color: scheme.surfaceContainer,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 56),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 52,
-              child: IconButton(
-                tooltip: 'Scan barcode',
-                onPressed: onScan,
-                style: IconButton.styleFrom(
-                  foregroundColor: scheme.onSurfaceVariant,
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          constraints: const BoxConstraints(minHeight: 48),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: borderColor),
+            boxShadow: [
+              if (isSelected)
+                BoxShadow(
+                  color: accentColor.withValues(alpha: 0.45),
+                  blurRadius: glowSigma,
+                  spreadRadius: 1,
                 ),
-                icon: const Icon(Icons.qr_code_scanner),
-              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: labelColor,
+              fontWeight: FontWeight.w600,
             ),
-            Container(
-              width: 1,
-              height: 32,
-              color: scheme.outlineVariant.withValues(alpha: 0.7),
-            ),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  labelText: 'Search foods',
-                  floatingLabelBehavior: FloatingLabelBehavior.never,
-                  border: InputBorder.none,
-                  isDense: true,
-                  filled: false,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                    vertical: AppSpacing.sm,
-                  ),
-                ),
-              ),
-            ),
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: controller,
-              builder: (context, value, _) {
-                final hasText = value.text.trim().isNotEmpty;
-                if (hasText) {
-                  return SizedBox(
-                    width: 48,
-                    child: IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: controller.clear,
-                      style: IconButton.styleFrom(
-                        foregroundColor: scheme.onSurfaceVariant,
-                      ),
-                      icon: const Icon(Icons.close),
-                    ),
-                  );
-                }
-                return SizedBox(
-                  width: 48,
-                  child: Center(
-                    child: Icon(
-                      Icons.search,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1145,17 +1114,11 @@ class _FoodResultTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final background = isSelected
-        ? scheme.primaryContainer
-        : scheme.surfaceContainerHigh;
-    final contentColor =
-        isSelected ? scheme.onPrimaryContainer : scheme.onSurface;
-    final metaColor = isSelected
-        ? scheme.onPrimaryContainer.withValues(alpha: 0.75)
-        : scheme.onSurfaceVariant;
-    final mediaColor = isSelected
-        ? scheme.surfaceContainerLowest
-        : scheme.surfaceContainerLow;
+    final effects = PulseTheme.effectsOf(context);
+    final radius = BorderRadius.circular(AppRadius.lg);
+    final borderColor = isSelected
+        ? scheme.primary.withValues(alpha: 0.9)
+        : scheme.outlineVariant.withValues(alpha: 0.6);
 
     final kcal = item.item.kcal100g?.round();
     final kcalLabel = kcal == null ? 'kcal n/a' : '$kcal kcal/100g';
@@ -1175,82 +1138,114 @@ class _FoodResultTile extends StatelessWidget {
                 ? fallbackLarge
                 : null;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
-    const double imageSize = 56;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      onTap: onTap,
-      child: Ink(
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(
-            color: isSelected
-                ? scheme.outlineVariant.withValues(alpha: 0.8)
-                : scheme.outlineVariant.withValues(alpha: 0.5),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: radius,
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            border: Border.all(color: borderColor),
+            boxShadow: [
+              if (isSelected)
+                BoxShadow(
+                  color: scheme.primary.withValues(alpha: 0.35),
+                  blurRadius: effects.glowLow,
+                  spreadRadius: 1,
+                ),
+            ],
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  child: SizedBox.square(
-                    dimension: imageSize,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Container(
-                          color: mediaColor,
-                          child: Icon(
-                            _originIcon(item.origin),
-                            color: contentColor,
-                            size: 24,
-                          ),
-                        ),
-                        if (hasImage)
-                          Image.network(
-                            imageUrl,
-                            fit: BoxFit.cover,
-                            filterQuality: FilterQuality.medium,
-                            errorBuilder: (_, _error, _stackTrace) =>
-                                const SizedBox.shrink(),
-                            loadingBuilder: (context, child, progress) {
-                              if (progress == null) {
-                                return child;
-                              }
-                              return const SizedBox.shrink();
-                            },
-                          ),
-                      ],
+          child: ClipRRect(
+            borderRadius: radius,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (hasImage)
+                  Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, _error, _stackTrace) =>
+                        const SizedBox.shrink(),
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) {
+                        return child;
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  )
+                else
+                  Container(
+                    color: scheme.surfaceContainerHigh,
+                    child: Icon(
+                      _originIcon(item.origin),
+                      color: scheme.onSurfaceVariant,
+                      size: 28,
+                    ),
+                  ),
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.7),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                item.item.name,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: contentColor,
-                  fontWeight: FontWeight.w600,
+                if (isSelected)
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.12),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: AppSpacing.sm,
+                  right: AppSpacing.sm,
+                  bottom: AppSpacing.sm,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.item.name,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        metaLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white70,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                metaLabel,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: metaColor,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+                if (isSelected)
+                  Positioned(
+                    top: AppSpacing.sm,
+                    right: AppSpacing.sm,
+                    child: Icon(
+                      Icons.check_circle,
+                      color: scheme.primary,
+                      size: 22,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
