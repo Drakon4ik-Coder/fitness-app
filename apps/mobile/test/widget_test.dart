@@ -33,7 +33,7 @@ void main() {
     await tester.pumpWidget(const FitnessApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Today'), findsOneWidget);
-    expect(find.byIcon(Icons.refresh), findsOneWidget);
+    expect(find.text('Daily Calories'), findsOneWidget);
+    expect(find.text('Eaten Meals'), findsOneWidget);
   });
 }

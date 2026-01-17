@@ -54,8 +54,8 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Today'), findsOneWidget);
-    expect(find.textContaining('Add food'), findsOneWidget);
+    expect(find.text('Daily Calories'), findsOneWidget);
+    expect(find.textContaining('Add Food'), findsOneWidget);
     expect(find.text('Breakfast'), findsOneWidget);
   });
 }

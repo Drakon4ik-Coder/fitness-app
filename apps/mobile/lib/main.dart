@@ -5,21 +5,47 @@ import 'core/auth_storage.dart';
 import 'features/nutrition/nutrition_today_page.dart';
 import 'features/login_page.dart';
 import 'ui_system/app_theme.dart';
+import 'ui_system/pulse_theme.dart';
+import 'ui_system/theme_mode_controller.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const FitnessApp());
 }
 
-class FitnessApp extends StatelessWidget {
+class FitnessApp extends StatefulWidget {
   const FitnessApp({super.key});
 
   @override
+  State<FitnessApp> createState() => _FitnessAppState();
+}
+
+class _FitnessAppState extends State<FitnessApp> {
+  late final ThemeModeController _themeModeController =
+      ThemeModeController(initialMode: ThemeMode.light);
+
+  @override
+  void dispose() {
+    _themeModeController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Fitness App',
-      theme: AppTheme.light(),
-      home: const AuthGate(),
+    return ThemeModeScope(
+      controller: _themeModeController,
+      child: AnimatedBuilder(
+        animation: _themeModeController,
+        builder: (context, _) {
+          return MaterialApp(
+            title: 'Fitness App',
+            theme: AppTheme.light(),
+            darkTheme: PulseTheme.dark(),
+            themeMode: _themeModeController.mode,
+            home: const AuthGate(),
+          );
+        },
+      ),
     );
   }
 }
