@@ -44,7 +44,10 @@ class OffRateLimiter {
   Future<T> run<T>(String key, Future<T> Function() action) {
     final existing = _inFlight[key];
     if (existing != null) {
-      return existing as Future<T>;
+      if (existing is Future<T>) {
+        return existing;
+      }
+      throw StateError('Rate limiter key reused with a different type.');
     }
     final now = _now();
     _prune(now);
