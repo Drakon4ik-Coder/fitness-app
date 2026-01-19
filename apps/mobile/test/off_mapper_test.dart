@@ -170,4 +170,21 @@ void main() {
 
     expect(original.contentHash, isNot(updated.contentHash));
   });
+
+  test('parses numeric serving_size values', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '987654',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
+      'serving_size': 42,
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+    );
+
+    expect(item.servingSizeG, 42);
+  });
 }
