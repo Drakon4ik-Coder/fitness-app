@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
+import socket
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -86,10 +89,56 @@ def _safe_signature(signature: str | None) -> str:
     return safe or "image"
 
 
+class _SafeRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_image_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _validate_image_url(url: str) -> None:
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError("Unsupported image URL scheme.")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid image URL.")
+    hostname = hostname.split("%", 1)[0]
+    for ip in _resolve_host_addresses(hostname):
+        # Reject non-global addresses (private, loopback, link-local, etc.).
+        if not ip.is_global:
+            raise ValueError("Blocked image URL host.")
+
+
+def _resolve_host_addresses(
+    hostname: str,
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    try:
+        return [ipaddress.ip_address(hostname)]
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise ValueError(f"Unable to resolve host: {hostname}") from exc
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for info in infos:
+        address = info[4][0]
+        try:
+            addresses.append(ipaddress.ip_address(address))
+        except ValueError:
+            continue
+    if not addresses:
+        raise ValueError(f"Unable to resolve host: {hostname}")
+    return addresses
+
+
 def _fetch_image_bytes(url: str) -> bytes:
+    _validate_image_url(url)
     user_agent = getattr(settings, "OFF_USER_AGENT", "FitnessApp/0.1 (images)")
     request = Request(url, headers={"User-Agent": user_agent})
-    with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+    opener = build_opener(_SafeRedirectHandler())
+    with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         content_type = response.headers.get("Content-Type", "")
         if not content_type.startswith("image/"):
             raise ValueError(f"Unexpected content type: {content_type}")
