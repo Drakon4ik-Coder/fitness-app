@@ -46,7 +46,7 @@ class OffMapper {
     final sugars = _readNutriment(nutrimentsJson, 'sugars_100g');
     final fiber = _readNutriment(nutrimentsJson, 'fiber_100g');
     final salt = _readNutriment(nutrimentsJson, 'salt_100g');
-    final servingSize = _parseServingSize(product['serving_size'] as String?);
+    final servingSize = _parseServingSize(product['serving_size']);
     final imageSignature = selection.signature;
     final contentHash = _buildContentHash(
       source: offSource,
@@ -451,11 +451,21 @@ class OffMapper {
     return parseNullableDouble(nutriments[key]);
   }
 
-  double? _parseServingSize(String? value) {
-    if (value == null || value.trim().isEmpty) {
+  double? _parseServingSize(dynamic value) {
+    if (value == null) {
       return null;
     }
-    final match = RegExp(r'([\d.,]+)').firstMatch(value);
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is! String) {
+      return null;
+    }
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final match = RegExp(r'([\d.,]+)').firstMatch(trimmed);
     if (match == null) {
       return null;
     }
