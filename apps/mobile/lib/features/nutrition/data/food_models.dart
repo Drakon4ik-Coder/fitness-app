@@ -19,6 +19,19 @@ double? parseNullableDouble(dynamic value) {
   return null;
 }
 
+Object _decodeRawSourceJson(String rawSourceJson) {
+  final trimmed = rawSourceJson.trim();
+  if (trimmed.isEmpty) {
+    return <String, dynamic>{};
+  }
+  try {
+    final decoded = jsonDecode(trimmed);
+    return decoded ?? <String, dynamic>{};
+  } on FormatException {
+    return <String, dynamic>{};
+  }
+}
+
 class FoodItem {
   FoodItem({
     this.localId,
@@ -174,7 +187,7 @@ class FoodItem {
       'fiber_g_100g': fiberG100g,
       'salt_g_100g': saltG100g,
       'serving_size_g': servingSizeG,
-      'raw_source_json': jsonDecode(rawSourceJson),
+      'raw_source_json': _decodeRawSourceJson(rawSourceJson),
     };
 
     if (contentHash.isNotEmpty) {
