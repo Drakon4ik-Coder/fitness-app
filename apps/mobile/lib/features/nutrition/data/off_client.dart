@@ -87,11 +87,12 @@ class OffClient {
   final OffRateLimiter _rateLimiter;
 
   Future<OffProductResponse?> fetchProduct(String barcode) async {
+    final trimmedBarcode = barcode.trim();
     try {
       final response = await _rateLimiter.run(
-        _barcodeKey(barcode),
+        _barcodeKey(trimmedBarcode),
         () => _dio.get<Map<String, dynamic>>(
-          '/api/v2/product/$barcode',
+          '/api/v2/product/$trimmedBarcode',
           queryParameters: {'fields': _fields.join(',')},
         ),
       );

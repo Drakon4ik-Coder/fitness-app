@@ -114,7 +114,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   Future<void> _openAddFoodSheet(BuildContext context) async {
-    await showModalBottomSheet<bool>(
+    final didAdd = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -135,6 +135,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         selectedDate: _selectedDate,
       ),
     );
+    if (!mounted || didAdd != true) {
+      return;
+    }
+    await _loadDay();
   }
 
   void _showItemDetails(BuildContext context, _MealItem item) {
