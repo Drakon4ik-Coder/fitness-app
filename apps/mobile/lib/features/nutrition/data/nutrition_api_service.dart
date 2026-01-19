@@ -82,6 +82,8 @@ class NutritionApiService {
         'Unable to load nutrition data.',
         statusCode: error.response?.statusCode,
       );
+    } on ApiException {
+      rethrow;
     } catch (_) {
       throw ApiException('Unable to load nutrition data.');
     }
@@ -113,6 +115,8 @@ class NutritionApiService {
         'Unable to add entry.',
         statusCode: error.response?.statusCode,
       );
+    } on ApiException {
+      rethrow;
     } catch (_) {
       throw ApiException('Unable to add entry.');
     }
