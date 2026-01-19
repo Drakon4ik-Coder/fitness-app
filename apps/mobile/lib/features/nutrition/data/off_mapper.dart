@@ -30,7 +30,7 @@ class OffMapper {
   }) {
     final barcode = product['code']?.toString();
     final name = _bestName(product);
-    final brands = (product['brands'] as String?)?.trim() ?? '';
+    final brands = _stringValue(product['brands']) ?? '';
     final locale = localeLanguage?.trim().toLowerCase();
     final selection = _selectImages(product, locale);
     final imageUrl = selection.smallUrl ?? selection.largeUrl;
