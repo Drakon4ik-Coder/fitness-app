@@ -600,9 +600,16 @@ class _MealItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final hasImage = item.image != null;
+    final imageUrl = item.image?.trim();
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
     final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
       color: scheme.onSurfaceVariant,
+    );
+    final fallbackIcon = Center(
+      child: Icon(
+        item.icon ?? Icons.restaurant,
+        color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+      ),
     );
 
     return InkWell(
@@ -622,12 +629,21 @@ class _MealItemRow extends StatelessWidget {
                   color: scheme.outlineVariant.withValues(alpha: 0.6),
                 ),
               ),
-              child: Icon(
-                hasImage
-                    ? Icons.image_outlined
-                    : item.icon ?? Icons.restaurant,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
-              ),
+              clipBehavior: Clip.antiAlias,
+              child: hasImage
+                  ? Image.network(
+                      imageUrl!,
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.medium,
+                      errorBuilder: (_, __, ___) => fallbackIcon,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) {
+                          return child;
+                        }
+                        return fallbackIcon;
+                      },
+                    )
+                  : fallbackIcon,
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
