@@ -19,8 +19,8 @@ class ThemeModeScope extends InheritedNotifier<ThemeModeController> {
   const ThemeModeScope({
     super.key,
     required ThemeModeController controller,
-    required Widget child,
-  }) : super(notifier: controller, child: child);
+    required super.child,
+  }) : super(notifier: controller);
 
   static ThemeModeController of(BuildContext context) {
     final scope =

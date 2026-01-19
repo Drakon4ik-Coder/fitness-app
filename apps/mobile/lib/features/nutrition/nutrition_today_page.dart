@@ -58,6 +58,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _nutritionApi = widget.nutritionApi ??
         NutritionApiService(accessToken: widget.accessToken);
     _offClient = widget.offClient ?? OffClient();
+    _loadDay();
   }
 
   @override
@@ -250,7 +251,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              scheme.background,
+              scheme.surfaceContainerLowest,
               scheme.surface,
               scheme.surfaceContainer,
             ],
