@@ -1166,7 +1166,7 @@ class _FoodResultTile extends StatelessWidget {
                     imageUrl,
                     fit: BoxFit.cover,
                     filterQuality: FilterQuality.medium,
-                    errorBuilder: (_, _error, _stackTrace) =>
+                    errorBuilder: (_, error, stackTrace) =>
                         const SizedBox.shrink(),
                     loadingBuilder: (context, child, progress) {
                       if (progress == null) {
