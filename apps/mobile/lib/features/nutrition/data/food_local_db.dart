@@ -28,6 +28,21 @@ class FoodLocalDb {
 
   Future<FoodItem> upsertFood(FoodItem item) async {
     final db = await database;
+    return _upsertFood(db, item);
+  }
+
+  Future<List<FoodItem>> upsertFoods(List<FoodItem> items) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final results = <FoodItem>[];
+      for (final item in items) {
+        results.add(await _upsertFood(txn, item));
+      }
+      return results;
+    });
+  }
+
+  Future<FoodItem> _upsertFood(DatabaseExecutor db, FoodItem item) async {
     final existing = await _findExisting(db, item);
     final merged = existing == null
         ? item
@@ -49,14 +64,6 @@ class FoodLocalDb {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     return merged.copyWith(localId: id);
-  }
-
-  Future<List<FoodItem>> upsertFoods(List<FoodItem> items) async {
-    final List<FoodItem> results = [];
-    for (final item in items) {
-      results.add(await upsertFood(item));
-    }
-    return results;
   }
 
   Future<void> updateLastUsed(int localId, DateTime usedAt) async {
@@ -131,7 +138,7 @@ class FoodLocalDb {
     return FoodItem.fromDbMap(rows.first);
   }
 
-  Future<FoodItem?> _findExisting(Database db, FoodItem item) async {
+  Future<FoodItem?> _findExisting(DatabaseExecutor db, FoodItem item) async {
     if (item.barcode != null && item.barcode!.isNotEmpty) {
       final rows = await db.query(
         'foods',
