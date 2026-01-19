@@ -18,6 +18,24 @@ import 'nutrition_scan_page.dart';
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
 
+List<String> categoryTagsForQuery(String queryLower) {
+  final trimmed = queryLower.trim();
+  if (trimmed.isEmpty || trimmed.contains(' ')) {
+    return const [];
+  }
+  final normalized = trimmed
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  if (normalized.isEmpty) {
+    return const [];
+  }
+  final tags = <String>{'en:$normalized'};
+  if (!normalized.endsWith('s')) {
+    tags.add('en:${normalized}s');
+  }
+  return tags.toList();
+}
+
 class AddFoodSheet extends StatefulWidget {
   const AddFoodSheet({
     super.key,
@@ -359,7 +377,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       final bool hasCategoryMatch =
           _hasCategoryMatch(baseResults, queryLower);
       if (baseResults.isEmpty || !hasCategoryMatch) {
-        final categoryTags = _categoryTagsForQuery(queryLower);
+        final categoryTags = categoryTagsForQuery(queryLower);
         for (final tag in categoryTags) {
           try {
             final categoryResults = await widget.offClient.searchProducts(
@@ -645,23 +663,6 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       }
     }
     return false;
-  }
-
-  List<String> _categoryTagsForQuery(String queryLower) {
-    final trimmed = queryLower.trim();
-    if (trimmed.isEmpty || trimmed.contains(' ')) {
-      return const [];
-    }
-    final normalized =
-        trimmed.replaceAll(RegExp(r'[^a-z0-9]+'), '-').trim();
-    if (normalized.isEmpty) {
-      return const [];
-    }
-    final tags = <String>{'en:$normalized'};
-    if (!normalized.endsWith('s')) {
-      tags.add('en:${normalized}s');
-    }
-    return tags.toList();
   }
 
   List<_OffSearchCandidate> _preferWholeFoodCandidates(
