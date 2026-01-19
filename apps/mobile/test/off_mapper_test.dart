@@ -187,4 +187,20 @@ void main() {
 
     expect(item.servingSizeG, 42);
   });
+
+  test('handles non-string brands safely', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '555555',
+      'product_name': 'Test Bar',
+      'brands': ['Brand A', 'Brand B'],
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+    );
+
+    expect(item.brands, '');
+  });
 }
