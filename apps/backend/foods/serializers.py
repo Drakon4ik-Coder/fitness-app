@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from foods.models import FoodItem
@@ -171,24 +172,42 @@ class FoodItemIngestSerializer(serializers.Serializer):
             else:
                 data.pop("content_hash", None)
 
-        by_barcode = FoodItem.objects.filter(barcode=barcode).first()
-        by_external = FoodItem.objects.filter(
-            source=source, external_id=external_id
-        ).first()
+        previous_signature: str | None = None
+        item: FoodItem | None = None
 
-        if by_barcode and by_external and by_barcode.id != by_external.id:
-            raise serializers.ValidationError(
-                {"barcode": "Barcode already belongs to another food item."}
-            )
-
-        item = by_barcode or by_external
-        previous_signature = item.image_signature if item else None
-        if item:
+        def apply_changes(target: FoodItem) -> None:
             for field, value in data.items():
-                setattr(item, field, value)
-            item.save()
-        else:
-            item = FoodItem.objects.create(**data)
+                setattr(target, field, value)
+
+        def resolve_and_save(lock: bool) -> FoodItem:
+            queryset = FoodItem.objects.all()
+            if lock:
+                queryset = queryset.select_for_update()
+            by_barcode = queryset.filter(barcode=barcode).first()
+            by_external = queryset.filter(
+                source=source, external_id=external_id
+            ).first()
+
+            if by_barcode and by_external and by_barcode.id != by_external.id:
+                raise serializers.ValidationError(
+                    {"barcode": "Barcode already belongs to another food item."}
+                )
+
+            candidate = by_barcode or by_external
+            nonlocal previous_signature
+            previous_signature = candidate.image_signature if candidate else None
+            if candidate:
+                apply_changes(candidate)
+                candidate.save()
+                return candidate
+            return FoodItem.objects.create(**data)
+
+        try:
+            with transaction.atomic():
+                item = resolve_and_save(lock=True)
+        except IntegrityError:
+            with transaction.atomic():
+                item = resolve_and_save(lock=True)
 
         self.image_signature_changed = bool(self.incoming_image_signature) and (
             self.incoming_image_signature != (previous_signature or "")
