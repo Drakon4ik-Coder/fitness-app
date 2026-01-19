@@ -58,6 +58,8 @@ class FoodsApiService {
         'Unable to search foods.',
         statusCode: error.response?.statusCode,
       );
+    } on ApiException {
+      rethrow;
     } catch (_) {
       throw ApiException('Unable to search foods.');
     }
@@ -79,6 +81,8 @@ class FoodsApiService {
         'Unable to save food.',
         statusCode: error.response?.statusCode,
       );
+    } on ApiException {
+      rethrow;
     } catch (_) {
       throw ApiException('Unable to save food.');
     }
@@ -116,6 +120,8 @@ class FoodsApiService {
         'Unable to check food status.',
         statusCode: error.response?.statusCode,
       );
+    } on ApiException {
+      rethrow;
     } catch (_) {
       throw ApiException('Unable to check food status.');
     }
