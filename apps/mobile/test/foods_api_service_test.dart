@@ -15,7 +15,7 @@ void main() {
             Response(
               requestOptions: options,
               statusCode: 200,
-              data: ['unexpected'],
+              data: null,
             ),
           );
         },
