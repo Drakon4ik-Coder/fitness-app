@@ -69,7 +69,7 @@ def test_nutrition_day_totals_and_grouping() -> None:
         quantity_g=Decimal("100"),
     )
 
-    date_str = timezone.localdate().isoformat()
+    date_str = timezone.localdate(now).isoformat()
     response = client.get(f"/api/v1/nutrition/day?date={date_str}")
 
     assert response.status_code == 200
