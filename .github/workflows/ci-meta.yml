@@ -1,0 +1,23 @@
+name: Meta CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify required files
+        run: |
+          test -f README.md
+          test -f LICENSE
+          test -f NOTICE
+          test -f contracts/openapi.yaml
+      - name: Sanity check OpenAPI contract
+        run: |
+          grep -n '^openapi:' contracts/openapi.yaml
