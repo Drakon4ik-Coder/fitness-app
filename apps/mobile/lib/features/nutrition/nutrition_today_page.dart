@@ -632,10 +632,10 @@ class _MealItemRow extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: hasImage
                   ? Image.network(
-                      imageUrl!,
+                      imageUrl,
                       fit: BoxFit.cover,
                       filterQuality: FilterQuality.medium,
-                      errorBuilder: (_, __, ___) => fallbackIcon,
+                      errorBuilder: (_, _, _) => fallbackIcon,
                       loadingBuilder: (context, child, progress) {
                         if (progress == null) {
                           return child;
