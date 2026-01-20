@@ -2,10 +2,18 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import ssl
 from dataclasses import dataclass
+from http.client import HTTPConnection, HTTPSConnection
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import (
+    HTTPHandler,
+    HTTPRedirectHandler,
+    HTTPSHandler,
+    Request,
+    build_opener,
+)
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -89,13 +97,85 @@ def _safe_signature(signature: str | None) -> str:
     return safe or "image"
 
 
+class _PinnedHTTPConnection(HTTPConnection):
+    def __init__(self, host: str, *, pinned_ip: str, **kwargs):
+        super().__init__(host, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        source_address = getattr(self, "source_address", None)
+        self.sock = socket.create_connection(
+            (self._pinned_ip, self.port),
+            self.timeout,
+            source_address,
+        )
+        if getattr(self, "_tunnel_host", None):
+            tunnel = getattr(self, "_tunnel", None)
+            if callable(tunnel):
+                tunnel()
+
+
+class _PinnedHTTPSConnection(HTTPSConnection):
+    def __init__(self, host: str, *, pinned_ip: str, **kwargs):
+        super().__init__(host, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        source_address = getattr(self, "source_address", None)
+        sock = socket.create_connection(
+            (self._pinned_ip, self.port),
+            self.timeout,
+            source_address,
+        )
+        self.sock = sock
+        if getattr(self, "_tunnel_host", None):
+            tunnel = getattr(self, "_tunnel", None)
+            if callable(tunnel):
+                tunnel()
+        context = getattr(self, "_context", None) or ssl.create_default_context()
+        self.sock = context.wrap_socket(self.sock, server_hostname=self.host)
+
+
+def _get_pinned_ip(request: Request) -> str:
+    pinned_ip = getattr(request, "_pinned_ip", None)
+    if pinned_ip:
+        return pinned_ip
+    pinned_ip = _pin_url(request.full_url)
+    setattr(request, "_pinned_ip", pinned_ip)
+    return pinned_ip
+
+
+class _PinnedHTTPHandler(HTTPHandler):
+    def http_open(self, req):
+        pinned_ip = _get_pinned_ip(req)
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPConnection(
+                host, pinned_ip=pinned_ip, **kwargs
+            ),
+            req,
+        )
+
+
+class _PinnedHTTPSHandler(HTTPSHandler):
+    def https_open(self, req):
+        pinned_ip = _get_pinned_ip(req)
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPSConnection(
+                host, pinned_ip=pinned_ip, **kwargs
+            ),
+            req,
+        )
+
+
 class _SafeRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _validate_image_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        request = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if request is not None:
+            _pin_request(request)
+        return request
 
 
-def _validate_image_url(url: str) -> None:
+def _pin_url(url: str) -> str:
     parsed = urlparse(url)
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https"):
@@ -104,10 +184,20 @@ def _validate_image_url(url: str) -> None:
     if not hostname:
         raise ValueError("Invalid image URL.")
     hostname = hostname.split("%", 1)[0]
+    pinned_ip = None
     for ip in _resolve_host_addresses(hostname):
         # Reject non-global addresses (private, loopback, link-local, etc.).
         if not ip.is_global:
             raise ValueError("Blocked image URL host.")
+        if pinned_ip is None:
+            pinned_ip = str(ip)
+    if pinned_ip is None:
+        raise ValueError("Blocked image URL host.")
+    return pinned_ip
+
+
+def _pin_request(request: Request) -> None:
+    setattr(request, "_pinned_ip", _pin_url(request.full_url))
 
 
 def _resolve_host_addresses(
@@ -134,10 +224,14 @@ def _resolve_host_addresses(
 
 
 def _fetch_image_bytes(url: str) -> bytes:
-    _validate_image_url(url)
     user_agent = getattr(settings, "OFF_USER_AGENT", "FitnessApp/0.1 (images)")
     request = Request(url, headers={"User-Agent": user_agent})
-    opener = build_opener(_SafeRedirectHandler())
+    _pin_request(request)
+    opener = build_opener(
+        _SafeRedirectHandler(),
+        _PinnedHTTPHandler(),
+        _PinnedHTTPSHandler(),
+    )
     with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         content_type = response.headers.get("Content-Type", "")
         if not content_type.startswith("image/"):
