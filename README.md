@@ -1,24 +1,28 @@
 # Fitness App
 
+[![Backend CI](https://github.com/Drakon4ik-Coder/fitness-app/actions/workflows/backend.yml/badge.svg)](https://github.com/Drakon4ik-Coder/fitness-app/actions/workflows/backend.yml)
+[![Mobile CI](https://github.com/Drakon4ik-Coder/fitness-app/actions/workflows/mobile.yml/badge.svg)](https://github.com/Drakon4ik-Coder/fitness-app/actions/workflows/mobile.yml)
+[![Meta CI](https://github.com/Drakon4ik-Coder/fitness-app/actions/workflows/ci-meta.yml/badge.svg)](https://github.com/Drakon4ik-Coder/fitness-app/actions/workflows/ci-meta.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 Monorepo for a Flutter mobile client and a Django/DRF backend for nutrition and fitness tracking.
 
 ## Table of contents
 - [Overview](#overview)
 - [Features](#features)
-- [Architecture](#architecture)
+- [Monorepo structure](#monorepo-structure)
 - [Tech stack](#tech-stack)
-- [Getting started](#getting-started)
-- [Local development](#local-development)
-- [Running the app](#running-the-app)
+- [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
 - [Environment variables](#environment-variables)
-- [Testing](#testing)
-- [Formatting and linting](#formatting-and-linting)
-- [API docs and contract](#api-docs-and-contract)
-- [Deployment notes](#deployment-notes)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
+- [Testing and linting](#testing-and-linting)
+- [API docs and contract workflow](#api-docs-and-contract-workflow)
+- [CI/CD](#cicd)
+- [Deployment](#deployment)
+- [Release process](#release-process)
+- [Data sources and attribution](#data-sources-and-attribution)
 - [License](#license)
-- [Acknowledgements](#acknowledgements)
+- [Contributing](#contributing)
 
 ## Overview
 Flutter + Django monorepo focused on nutrition logging, food data ingestion, and a contract-first API.
@@ -26,16 +30,20 @@ Flutter + Django monorepo focused on nutrition logging, food data ingestion, and
 See `docs/ARCHITECTURE.md` for design details and `docs/ROADMAP.md` for planned work.
 
 ## Features
+Implemented:
 - JWT auth endpoints (register, token, refresh, me).
 - Nutrition and food APIs with Open Food Facts ingestion.
 - OpenAPI schema and Swagger UI for API discovery.
 - Flutter mobile app with login, nutrition, and barcode lookup flows.
 
-Planned (see `docs/ROADMAP.md`): recipes, workouts, inventory, analytics, community features.
+Planned (see `docs/ROADMAP.md`):
+- Recipes and meal planning.
+- Workouts and training logs.
+- Inventory and pantry management.
+- Analytics and insights.
+- Community features.
 
-## Architecture
-Repo layout:
-
+## Monorepo structure
 ```text
 .
 ├─ apps/
@@ -43,10 +51,8 @@ Repo layout:
 │  └─ mobile/         # Flutter app
 ├─ contracts/
 │  └─ openapi.yaml    # Generated API contract
-└─ docs/              # Architecture, development, roadmap
+└─ docs/              # Architecture, development, roadmap, release
 ```
-
-Contract-first API: the backend generates `contracts/openapi.yaml`, and CI checks it is up to date.
 
 ## Tech stack
 - Mobile: Flutter, Dart, Riverpod, GoRouter, Dio, sqflite.
@@ -54,57 +60,29 @@ Contract-first API: the backend generates `contracts/openapi.yaml`, and CI check
 - Infra: Postgres 16, Redis 7, Docker Compose.
 - Tooling: Poetry, Ruff, mypy, pytest, Dart analyzer, Flutter test.
 
-## Getting started
-Prereqs:
+## Prerequisites
 - Docker + Docker Compose plugin (for local services).
-- Python 3.12 (tested with 3.12.5).
-- Poetry (backend tooling).
-- Flutter SDK stable (tested with Flutter 3.35.3 / Dart 3.9.2).
+- Python 3.12.
+- Poetry.
+- Flutter SDK (stable channel).
 
 For local CI and prerequisites, also see `docs/DEVELOPMENT.md`.
 
-## Local development
-1) Configure environment.
+## Quickstart
+Backend (Docker Compose):
 ```bash
 cp apps/backend/.env.example apps/backend/.env
-```
-Edit `apps/backend/.env` as needed.
-
-2) Start backend services (Postgres, Redis, Django API).
-```bash
 make up
+make migrate
 ```
 Backend listens on `http://localhost:8080`.
 
-3) Apply migrations.
-```bash
-make migrate
-```
-
-4) Install backend deps for local tooling (tests, lint, typecheck).
-```bash
-make backend-install
-```
-
-5) Install mobile deps.
+Mobile:
 ```bash
 cd apps/mobile
 flutter pub get
-```
-
-## Running the app
-Backend (Docker Compose):
-```bash
-make up
-make migrate
-```
-
-Mobile (override API base URL if using Docker Compose on 8080):
-```bash
-cd apps/mobile
 flutter run --dart-define=API_BASE_URL=http://localhost:8080
 ```
-
 Android emulator note: use `http://10.0.2.2:8080` instead of `localhost`.
 
 ## Environment variables
@@ -113,8 +91,8 @@ Backend (`apps/backend/.env`, see `apps/backend/.env.example`):
 | Variable | Required | Notes |
 | --- | --- | --- |
 | DJANGO_SECRET_KEY | Yes (prod) | Development default is in `config/settings/base.py`. |
-| DEBUG | No | Defaults to `true` in `.env.example`. |
 | DATABASE_URL | Yes | Compose uses `postgres://postgres:postgres@db:5432/fitness`. |
+| DEBUG | No | Defaults to `true` in `.env.example`. |
 | ALLOWED_HOSTS | No | Used by base/prod settings. |
 | DJANGO_SETTINGS_MODULE | No | `config.settings.local` (dev), `config.settings.prod` (prod), `config.settings.test` (tests). |
 | CSRF_TRUSTED_ORIGINS | No | Prod only, set in `config/settings/prod.py`. |
@@ -132,41 +110,25 @@ Mobile (Dart defines from `apps/mobile/lib/core/environment.dart`):
 
 Do not commit secrets. Keep local `.env` files out of version control and use `.env.example` as a template.
 
-## Testing
-All tests:
-```bash
-make test
-```
-
-Backend only:
-```bash
-make test-backend
-```
-
-Mobile only:
-```bash
-make test-mobile
-```
-
-Backend tests inside a running container:
-```bash
-make test-docker
-```
-
-## Formatting and linting
+## Testing and linting
 All checks (mirrors CI and includes the OpenAPI contract check):
 ```bash
 make check
 ```
 
-Format checks:
+Tests:
 ```bash
-make fmt
+make test
 ```
 
-Lint and typecheck:
+Lint + typecheck:
 ```bash
 make lint
+```
+
+Formatting checks:
+```bash
+make fmt
 ```
 
 Per-module:
@@ -175,7 +137,7 @@ make check-backend
 make check-mobile
 ```
 
-## API docs and contract
+## API docs and contract workflow
 - Swagger UI: `http://localhost:8080/api/docs/`
 - OpenAPI schema: `http://localhost:8080/api/schema/`
 - Contract file: `contracts/openapi.yaml`
@@ -193,19 +155,32 @@ cd apps/backend
 
 CI expects `contracts/openapi.yaml` to be up to date.
 
-## Deployment notes
+## CI/CD
+- Pull requests: Backend CI and Mobile CI always run; steps are gated by relevant file changes. Meta CI always runs.
+- Push to `main`: full backend + mobile + meta checks run every time.
+- Nightly: full pipeline runs on a scheduled workflow.
+- Manual runs: `workflow_dispatch` is enabled for all workflows.
+
+## Deployment
 - `render.yaml` defines a Render web service that builds `apps/backend/Dockerfile`.
 - `apps/backend/entrypoint.sh` runs migrations and starts Gunicorn on `$PORT` (default 8000).
 - Health check endpoint: `/health/`.
 - Production env vars typically include `DJANGO_SETTINGS_MODULE=config.settings.prod`, `DJANGO_SECRET_KEY`, `DATABASE_URL`, and `CSRF_TRUSTED_ORIGINS`. `SENTRY_DSN` is optional.
 - `MEDIA_ROOT` is local disk (`apps/backend/media`); plan for persistent storage in production if using uploads.
 
-## Troubleshooting
-- Mobile cannot reach backend: set `API_BASE_URL` and use `10.0.2.2` for Android emulators.
-- Backend not reachable: confirm Docker is running and `make up` started the `backend` service on port 8080.
-- Migrations missing: run `make migrate`.
-- Missing `.env`: copy from `apps/backend/.env.example`.
-- OpenAPI contract check failing: run `make backend-contract`.
+## Release process
+See `docs/RELEASE.md` for tagging and release notes guidance.
+
+## Data sources and attribution
+Powered by Open Food Facts.
+
+- Open Food Facts data is published under the Open Database License (ODbL). See https://world.openfoodfacts.org/data.
+- Product images are typically under Creative Commons Attribution-ShareAlike (CC BY-SA). See https://world.openfoodfacts.org/terms-of-use.
+
+When distributing the app or datasets, keep attribution and license notices intact.
+
+## License
+Licensed under the Apache License 2.0. See `LICENSE` and `NOTICE` for details.
 
 ## Contributing
 - Use feature branches and keep PRs small.
@@ -213,9 +188,3 @@ CI expects `contracts/openapi.yaml` to be up to date.
 - If API changes, update `contracts/openapi.yaml`.
 - Optional pre-push hook: `./scripts/install-githooks.sh`.
 - Backend pre-commit config is in `apps/backend/.pre-commit-config.yaml` if you use `pre-commit`.
-
-## License
-No license file found. Add one before distributing or deploying publicly.
-
-## Acknowledgements
-Food data is powered by Open Food Facts. See https://world.openfoodfacts.org/.
