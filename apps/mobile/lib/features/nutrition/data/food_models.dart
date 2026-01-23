@@ -32,6 +32,25 @@ Object _decodeRawSourceJson(String rawSourceJson) {
   }
 }
 
+Map<String, dynamic>? _decodeNutrimentsJson(String? nutrimentsRaw) {
+  if (nutrimentsRaw == null) {
+    return null;
+  }
+  final trimmed = nutrimentsRaw.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  try {
+    final decoded = jsonDecode(trimmed);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+  } on FormatException {
+    return null;
+  }
+  return null;
+}
+
 class FoodItem {
   FoodItem({
     this.localId,
@@ -234,9 +253,7 @@ class FoodItem {
       saltG100g: parseNullableDouble(map['salt_g_100g']),
       servingSizeG: parseNullableDouble(map['serving_size_g']),
       rawSourceJson: (map['raw_source_json'] as String?) ?? '{}',
-      nutrimentsJson: nutrimentsRaw == null
-          ? null
-          : jsonDecode(nutrimentsRaw) as Map<String, dynamic>,
+      nutrimentsJson: _decodeNutrimentsJson(nutrimentsRaw),
       lastUsedAt: map['last_used_at'] == null
           ? null
           : DateTime.tryParse(map['last_used_at'] as String),
@@ -277,7 +294,7 @@ class FoodItem {
         nutrimentsRaw is Map<String, dynamic>
             ? nutrimentsRaw
             : nutrimentsRaw is String
-                ? jsonDecode(nutrimentsRaw) as Map<String, dynamic>
+                ? _decodeNutrimentsJson(nutrimentsRaw)
                 : null;
     return FoodItem(
       backendId: backendId,

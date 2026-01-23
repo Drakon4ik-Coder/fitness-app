@@ -18,4 +18,13 @@ void main() {
     expect(raw, isA<Map<String, dynamic>>());
     expect((raw as Map<String, dynamic>).isEmpty, isTrue);
   });
+
+  test('fromDbMap returns null nutrimentsJson for invalid nutriments_json', () {
+    final item = FoodItem.fromDbMap(<String, Object?>{
+      'nutriments_json': '{invalid',
+      'raw_source_json': '{}',
+    });
+
+    expect(item.nutrimentsJson, isNull);
+  });
 }
