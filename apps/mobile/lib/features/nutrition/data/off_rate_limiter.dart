@@ -58,8 +58,8 @@ class OffRateLimiter {
         retryAfter.isNegative ? Duration.zero : retryAfter,
       );
     }
-    _timestamps.add(now);
     final future = action();
+    _timestamps.add(now);
     _inFlight[key] = future;
     future.whenComplete(() {
       _inFlight.remove(key);
