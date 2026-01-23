@@ -147,6 +147,8 @@ class OffClient {
         throw OffException(
           _formatDioMessage(fallbackError, 'Unable to search OFF.'),
         );
+      } catch (_) {
+        throw OffException('Unable to search OFF.');
       }
     } catch (_) {
       throw OffException('Unable to search OFF.');
