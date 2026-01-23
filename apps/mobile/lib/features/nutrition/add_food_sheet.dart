@@ -502,12 +502,13 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
     });
 
     try {
+      final now = DateTime.now();
       final consumedAt = DateTime(
         widget.selectedDate.year,
         widget.selectedDate.month,
         widget.selectedDate.day,
-        DateTime.now().hour,
-        DateTime.now().minute,
+        now.hour,
+        now.minute,
       );
 
       for (final index in indices) {
