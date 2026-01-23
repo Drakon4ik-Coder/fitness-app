@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/auth_service.dart';
@@ -92,11 +93,13 @@ class _LoginPageState extends State<LoginPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'API: ${EnvironmentConfig.apiBaseUrl}',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: AppSpacing.lg),
+            if (kDebugMode) ...[
+              Text(
+                'API: ${EnvironmentConfig.apiBaseUrl}',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             AppFormField(
               controller: _usernameController,
               label: 'Username',
