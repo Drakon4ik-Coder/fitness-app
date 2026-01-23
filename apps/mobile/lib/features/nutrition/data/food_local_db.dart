@@ -9,13 +9,32 @@ class FoodLocalDb {
   FoodLocalDb({Database? database}) : _database = database;
 
   Database? _database;
+  Completer<Database>? _databaseCompleter;
 
   Future<Database> get database async {
-    if (_database != null) {
-      return _database!;
+    final existing = _database;
+    if (existing != null) {
+      return existing;
     }
-    _database = await _openDatabase();
-    return _database!;
+    final completer = _databaseCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
+    final initCompleter = Completer<Database>();
+    _databaseCompleter = initCompleter;
+    try {
+      final db = await _openDatabase();
+      _database = db;
+      initCompleter.complete(db);
+      return db;
+    } catch (error, stackTrace) {
+      initCompleter.completeError(error, stackTrace);
+      rethrow;
+    } finally {
+      if (_databaseCompleter == initCompleter) {
+        _databaseCompleter = null;
+      }
+    }
   }
 
   Future<void> close() async {
