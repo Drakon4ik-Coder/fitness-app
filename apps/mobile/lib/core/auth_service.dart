@@ -19,8 +19,20 @@ class AuthException implements Exception {
 }
 
 class AuthService {
+  static const Duration _connectTimeout = Duration(seconds: 10);
+  static const Duration _sendTimeout = Duration(seconds: 10);
+  static const Duration _receiveTimeout = Duration(seconds: 20);
+
   AuthService({Dio? dio})
-      : _dio = dio ?? Dio(BaseOptions(baseUrl: EnvironmentConfig.apiBaseUrl));
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                baseUrl: EnvironmentConfig.apiBaseUrl,
+                connectTimeout: _connectTimeout,
+                sendTimeout: _sendTimeout,
+                receiveTimeout: _receiveTimeout,
+              ),
+            );
 
   final Dio _dio;
 
