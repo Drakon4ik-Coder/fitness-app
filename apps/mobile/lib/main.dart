@@ -4,7 +4,6 @@ import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'features/nutrition/nutrition_today_page.dart';
 import 'features/login_page.dart';
-import 'ui_system/app_theme.dart';
 import 'ui_system/pulse_theme.dart';
 import 'ui_system/theme_mode_controller.dart';
 
@@ -39,7 +38,7 @@ class _FitnessAppState extends State<FitnessApp> {
         builder: (context, _) {
           return MaterialApp(
             title: 'Fitness App',
-            theme: AppTheme.light(),
+            theme: PulseTheme.light(),
             darkTheme: PulseTheme.dark(),
             themeMode: _themeModeController.mode,
             home: const AuthGate(),

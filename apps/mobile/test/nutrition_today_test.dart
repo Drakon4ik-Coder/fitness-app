@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
-import 'package:fitness_app/ui_system/app_theme.dart';
+import 'package:fitness_app/ui_system/pulse_theme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -43,7 +43,7 @@ void main() {
         NutritionApiService(accessToken: 'token', dio: dio);
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(),
+        theme: PulseTheme.light(),
         home: NutritionTodayPage(
           accessToken: 'token',
           onLogout: () async {},

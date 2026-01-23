@@ -42,6 +42,21 @@ class PulseColors {
   static const Color macroFat = neonAmber;
 }
 
+class PulseLightColors {
+  static const Color background = Color(0xFFF5F7FA);
+  static const Color surface = Color(0xFFFFFFFF);
+  static const Color surfaceLow = Color(0xFFF0F4F8);
+  static const Color surfaceContainer = Color(0xFFE9EEF5);
+  static const Color surfaceHigh = Color(0xFFE2E8F0);
+  static const Color surfaceHighest = Color(0xFFD9E1EB);
+  static const Color surfaceVariant = Color(0xFFE3EAF2);
+  static const Color outline = Color(0xFFC2CCD8);
+  static const Color outlineVariant = Color(0xFFD5DEE8);
+  static const Color onSurface = Color(0xFF1C2431);
+  static const Color onSurfaceVariant = Color(0xFF4A5568);
+  static const Color ringTrack = Color(0xFFD3DBE5);
+}
+
 @immutable
 class PulseEffects extends ThemeExtension<PulseEffects> {
   const PulseEffects({
@@ -111,6 +126,107 @@ class PulseEffects extends ThemeExtension<PulseEffects> {
 }
 
 class PulseTheme {
+  static ThemeData light() {
+    final base = ColorScheme.fromSeed(
+      seedColor: PulseColors.neonGreen,
+      brightness: Brightness.light,
+    );
+    final scheme = base.copyWith(
+      surface: PulseLightColors.surface,
+      onSurface: PulseLightColors.onSurface,
+      onSurfaceVariant: PulseLightColors.onSurfaceVariant,
+      outline: PulseLightColors.outline,
+      outlineVariant: PulseLightColors.outlineVariant,
+      surfaceVariant: PulseLightColors.surfaceVariant,
+      surfaceTint: base.primary,
+      surfaceContainerLowest: PulseLightColors.background,
+      surfaceContainerLow: PulseLightColors.surfaceLow,
+      surfaceContainer: PulseLightColors.surfaceContainer,
+      surfaceContainerHigh: PulseLightColors.surfaceHigh,
+      surfaceContainerHighest: PulseLightColors.surfaceHighest,
+    );
+
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      borderSide: BorderSide(color: scheme.outline),
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: scheme.surfaceContainerLowest,
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: scheme.onSurface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surfaceContainerHigh,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
+        border: inputBorder,
+        enabledBorder: inputBorder,
+        focusedBorder: inputBorder.copyWith(
+          borderSide: BorderSide(color: scheme.primary, width: 1.5),
+        ),
+        errorBorder: inputBorder.copyWith(
+          borderSide: BorderSide(color: scheme.error),
+        ),
+        focusedErrorBorder: inputBorder.copyWith(
+          borderSide: BorderSide(color: scheme.error, width: 1.5),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size.fromHeight(44),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: scheme.outlineVariant.withValues(alpha: 0.4),
+        thickness: 1,
+      ),
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: scheme.surfaceContainer,
+        margin: EdgeInsets.zero,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.card,
+          side: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+        ),
+      ),
+      extensions: const [
+        PulseEffects(
+          glowLow: 6,
+          glowMedium: 12,
+          glowHigh: 20,
+          glassOverlayOpacity: 0.12,
+          blurRadius: 16,
+          ringTrackColor: PulseLightColors.ringTrack,
+        ),
+      ],
+    );
+  }
+
   static ThemeData dark() {
     final base = ColorScheme.fromSeed(
       seedColor: PulseColors.neonGreen,
