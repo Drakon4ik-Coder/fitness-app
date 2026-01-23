@@ -1,4 +1,4 @@
 apps/backend/.python-version
-apps/backend/poetry.lock
 **/.env
 **/__pycache__
+apps/backend/media

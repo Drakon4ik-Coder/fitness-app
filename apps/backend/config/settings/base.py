@@ -20,7 +20,13 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
     "rest_framework_simplejwt",
+    "accounts",
+    "preferences",
+    "foods",
+    "nutrition",
+    "nutrients",
 ]
 
 MIDDLEWARE = [
@@ -95,6 +101,8 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -106,9 +114,19 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Fitness API",
+    "DESCRIPTION": "Fitness App API",
+    "VERSION": "0.1.0",
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SERVE_AUTHENTICATION": [],
 }
 
 SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
+OFF_USER_AGENT = env("OFF_USER_AGENT", default="FitnessApp/0.1 (images)").strip()
 
 if SENTRY_DSN:
     sentry_sdk.init(

@@ -1,9 +1,11 @@
 name: Backend CI
 on:
-  push:
-    paths: ["apps/backend/**", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["apps/backend/**", ".github/workflows/backend.yml"]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -27,17 +29,91 @@ jobs:
       DJANGO_SETTINGS_MODULE: config.settings.base
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changes
+        id: changes
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "backend_changed=true" >> "$GITHUB_OUTPUT"
+            echo "mobile_changed=true" >> "$GITHUB_OUTPUT"
+            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
+            echo "contracts_changed=true" >> "$GITHUB_OUTPUT"
+            echo "docs_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          files="$(git diff --name-only "$base" "$head")"
+
+          backend_changed=false
+          mobile_changed=false
+          infra_changed=false
+          contracts_changed=false
+          docs_changed=false
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              apps/backend/*) backend_changed=true ;;
+              apps/mobile/*) mobile_changed=true ;;
+              contracts/*) contracts_changed=true ;;
+              docs/*|README.md|CHANGELOG.md|LICENSE|NOTICE) docs_changed=true ;;
+              .github/workflows/*|docker-compose.yml|render.yaml|Makefile|scripts/*|.editorconfig|.gitignore)
+                infra_changed=true
+                ;;
+            esac
+          done <<< "$files"
+
+          echo "backend_changed=$backend_changed" >> "$GITHUB_OUTPUT"
+          echo "mobile_changed=$mobile_changed" >> "$GITHUB_OUTPUT"
+          echo "infra_changed=$infra_changed" >> "$GITHUB_OUTPUT"
+          echo "contracts_changed=$contracts_changed" >> "$GITHUB_OUTPUT"
+          echo "docs_changed=$docs_changed" >> "$GITHUB_OUTPUT"
+      - name: Determine backend scope
+        id: run_scope
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.changes.outputs.backend_changed }}" == "true" || \
+                "${{ steps.changes.outputs.infra_changed }}" == "true" || \
+                "${{ steps.changes.outputs.contracts_changed }}" == "true" ]]; then
+            echo "run_backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_backend=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: No backend-relevant changes
+        if: steps.run_scope.outputs.run_backend != 'true'
+        run: echo "No backend-relevant changes detected; skipping backend checks."
       - uses: actions/setup-python@v5
+        if: steps.run_scope.outputs.run_backend == 'true'
         with: { python-version: '3.12' }
       - name: Install Poetry
+        if: steps.run_scope.outputs.run_backend == 'true'
         run: pip install poetry
       - name: Install deps
-        run: poetry install --no-interaction --no-root
+        if: steps.run_scope.outputs.run_backend == 'true'
+        run: poetry install --no-interaction --no-root --sync
+      - name: Export OpenAPI schema
+        if: steps.run_scope.outputs.run_backend == 'true'
+        run: ./scripts/export_openapi.sh
+      - name: Check OpenAPI contract is up to date
+        if: steps.run_scope.outputs.run_backend == 'true'
+        run: git diff --exit-code ../../contracts/openapi.yaml
       - name: Lint (Ruff)
+        if: steps.run_scope.outputs.run_backend == 'true'
         run: poetry run ruff check --output-format=github .
       - name: Format (Ruff)
+        if: steps.run_scope.outputs.run_backend == 'true'
         run: poetry run ruff format --check .
       - name: Type check (mypy)
+        if: steps.run_scope.outputs.run_backend == 'true'
         run: poetry run mypy .
       - name: Test
+        if: steps.run_scope.outputs.run_backend == 'true'
         run: poetry run pytest --maxfail=1 --disable-warnings -q
