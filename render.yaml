@@ -28,3 +28,4 @@ databases:
   - name: fitness-pg
     plan: free
     region: frankfurt
+
