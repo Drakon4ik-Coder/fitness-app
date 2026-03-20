@@ -23,5 +23,5 @@ jobs:
       - name: Rebuild and restart containers
         run: |
           cd /home/deployer/symbio
-          sudo docker compose -f docker-compose.prod.yml up -d --build
-          sudo docker image prune -f
+          docker compose -f docker-compose.prod.yml up -d --build
+          docker image prune -f
