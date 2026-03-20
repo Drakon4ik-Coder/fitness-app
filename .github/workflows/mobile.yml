@@ -28,6 +28,15 @@ jobs:
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
         with:
           channel: 'stable'
+          cache: true
+      - name: Cache pub dependencies
+        if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
       - name: Flutter Pub Get
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
         run: flutter pub get
