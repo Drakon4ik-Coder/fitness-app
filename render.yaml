@@ -1,9 +1,10 @@
 services:
   - type: web
-    name: fitness-backend
+    name: symbio-backend
     runtime: docker
     dockerfilePath: apps/backend/Dockerfile
     dockerContext: apps/backend
+    branch: develop
     plan: free
     region: frankfurt
     healthCheckPath: /health/
@@ -21,10 +22,10 @@ services:
         value: info
       - key: DATABASE_URL
         fromDatabase:
-          name: fitness-pg
+          name: symbio-pg
           property: connectionString
 
 databases:
-  - name: fitness-pg
+  - name: symbio-pg
     plan: free
     region: frankfurt
