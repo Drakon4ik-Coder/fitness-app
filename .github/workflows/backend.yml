@@ -29,6 +29,12 @@ jobs:
       DJANGO_SETTINGS_MODULE: config.settings.base
     steps:
       - uses: actions/checkout@v4
+      - name: Verify required files
+        working-directory: ${{ github.workspace }}
+        run: |
+          test -f README.md
+          test -f LICENSE
+          test -f NOTICE
       - uses: dorny/paths-filter@v3
         id: changes
         if: github.event_name == 'pull_request'
