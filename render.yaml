@@ -4,6 +4,7 @@ services:
     runtime: docker
     dockerfilePath: apps/backend/Dockerfile
     dockerContext: apps/backend
+    branch: develop
     plan: free
     region: frankfurt
     healthCheckPath: /health/
