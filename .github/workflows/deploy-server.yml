@@ -15,13 +15,13 @@ jobs:
     steps:
       - name: Sync to latest main
         run: |
-          cd ~/symbio
+          cd /home/deployer/symbio
           git fetch origin main
           git reset --hard origin/main
           git clean -fd
 
       - name: Rebuild and restart containers
         run: |
-          cd ~/symbio
+          cd /home/deployer/symbio
           sudo docker compose -f docker-compose.prod.yml up -d --build
           sudo docker image prune -f
