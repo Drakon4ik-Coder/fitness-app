@@ -2,7 +2,7 @@ name: Mobile CI
 on:
   pull_request:
   push:
-    branches: [main, develop]
+    branches: [develop]
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
