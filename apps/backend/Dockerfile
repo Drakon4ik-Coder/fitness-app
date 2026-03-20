@@ -16,13 +16,10 @@ RUN useradd -m appuser
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*
 COPY . /app
-RUN chown -R appuser:appuser /app
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh && chown -R appuser:appuser /app
 USER appuser
 ENV DJANGO_SETTINGS_MODULE=config.settings.prod
-# Add entrypoint script
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-# Let the entrypoint do migrations + start gunicorn
 CMD ["/entrypoint.sh"]
 
 # dev/test
