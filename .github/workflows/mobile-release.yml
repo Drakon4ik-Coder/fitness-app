@@ -1,0 +1,81 @@
+# Mobile Release Workflow
+#
+# Builds a signed Android APK and publishes it as a GitHub Release.
+#
+# ONE-TIME SETUP (do this before the first push to main):
+#   1. Generate a keystore:
+#      keytool -genkey -v -keystore release.keystore -alias release \
+#        -keyalg RSA -keysize 2048 -validity 10000
+#   2. Base64-encode it:
+#      base64 -w 0 release.keystore
+#   3. Add these 4 secrets in GitHub → Settings → Secrets → Actions:
+#      ANDROID_KEYSTORE_BASE64   (output of step 2)
+#      ANDROID_KEYSTORE_PASSWORD (storePassword)
+#      ANDROID_KEY_PASSWORD      (keyPassword)
+#      ANDROID_KEY_ALIAS         (e.g. "release")
+
+name: Mobile Release
+
+on:
+  workflow_run:
+    workflows: ["Mobile CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  release:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/release.keystore
+
+      - name: Create key.properties
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=../release.keystore
+          EOF
+
+      - name: Get version name from pubspec
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK
+        run: flutter build apk --release --build-number=${{ github.run_number }}
+
+      - name: Upload APK as GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.name }}+${{ github.run_number }}
+          name: v${{ steps.version.outputs.name }}+${{ github.run_number }}
+          generate_release_notes: true
+          files: apps/mobile/build/app/outputs/flutter-apk/app-release.apk

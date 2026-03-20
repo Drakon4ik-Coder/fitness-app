@@ -1,6 +1,12 @@
 name: Mobile CI
 on:
   pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'contracts/**'
+      - '.github/workflows/mobile.yml'
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
