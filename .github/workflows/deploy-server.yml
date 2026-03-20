@@ -1,0 +1,22 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Pull latest code
+        run: |
+          cd ~/symbio
+          git pull origin main
+
+      - name: Rebuild and restart containers
+        run: |
+          cd ~/symbio
+          sudo docker compose -f docker-compose.prod.yml up -d --build
+          sudo docker image prune -f
