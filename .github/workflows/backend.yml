@@ -44,6 +44,16 @@ jobs:
       - name: Install Poetry
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: pip install poetry
+      - name: Cache Poetry dependencies
+        if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: ${{ runner.os }}-poetry-${{ hashFiles('apps/backend/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
       - name: Install deps
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: poetry install --no-interaction --no-root --sync
