@@ -22,10 +22,10 @@ services:
         value: info
       - key: DATABASE_URL
         fromDatabase:
-          name: symbio-pg
+          name: fitness-pg
           property: connectionString
 
 databases:
-  - name: symbio-pg
+  - name: fitness-pg
     plan: free
     region: frankfurt
