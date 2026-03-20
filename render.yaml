@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: symbio-backend
+    name: fitness-backend
     runtime: docker
     dockerfilePath: apps/backend/Dockerfile
     dockerContext: apps/backend
