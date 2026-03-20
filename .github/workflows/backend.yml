@@ -43,6 +43,9 @@ jobs:
             backend:
               - 'apps/backend/**'
               - 'contracts/**'
+              - 'scripts/**'
+              - 'Makefile'
+              - 'docker-compose.yml'
               - '.github/workflows/backend.yml'
       - uses: actions/setup-python@v5
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
