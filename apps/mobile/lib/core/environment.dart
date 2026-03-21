@@ -18,8 +18,8 @@ class EnvironmentConfig {
 
   static const Map<String, String> _baseUrls = {
     'local': 'http://localhost:8000',
-    'staging': 'https://staging.example.com',
-    'prod': 'https://api.example.com',
+    'staging': 'https://fitness-backend-2ux8.onrender.com',
+    'prod': 'https://symbio.drakon4ik.uk',
   };
 
   static String get apiBaseUrl {
