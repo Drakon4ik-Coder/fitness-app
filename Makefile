@@ -3,7 +3,8 @@ MOBILE_DIR := apps/mobile
 
 .PHONY: up migrate shell test test-docker build-prod fmt lint check \
 	check-backend check-mobile fmt-backend fmt-mobile lint-backend lint-mobile \
-	typecheck-backend test-backend test-mobile backend-contract backend-install
+	typecheck-backend test-backend test-mobile backend-contract backend-install \
+	dev-phone dev-local
 
 rebuild-backend:
 	docker compose build --no-cache --pull backend
@@ -12,6 +13,14 @@ rebuild-backend:
 rebuild-all:
 	docker compose build --no-cache --pull
 	docker compose up -d
+
+dev-phone:
+	./scripts/dev-phone.sh
+
+dev-local:
+	docker compose up --build -d
+	@echo "Backend: http://localhost:8080"
+	cd $(MOBILE_DIR) && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
 
 up:
 	docker compose up --build -d
