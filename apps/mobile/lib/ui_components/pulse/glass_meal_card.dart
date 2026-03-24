@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 
 class GlassMealCard extends StatelessWidget {
@@ -22,7 +22,7 @@ class GlassMealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final radius = borderRadius ?? BorderRadius.circular(AppRadius.lg);
     final overlayColor =
         scheme.onSurface.withValues(alpha: effects.glassOverlayOpacity);

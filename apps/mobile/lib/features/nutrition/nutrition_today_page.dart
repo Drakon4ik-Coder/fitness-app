@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
-import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/theme_mode_controller.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_sheet.dart';
@@ -234,7 +234,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final totals = _dayLog?.totals;
     final eatenKcal = totals?.kcal.round() ?? 0;
     final burnedKcal = _burnedKcal;
@@ -502,11 +502,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   Color _macroAccent(MacroType type) {
     switch (type) {
       case MacroType.protein:
-        return PulseColors.macroProtein;
+        return LuminaHealthColors.primary;
       case MacroType.carbs:
-        return PulseColors.macroCarbs;
+        return LuminaHealthColors.secondary;
       case MacroType.fat:
-        return PulseColors.macroFat;
+        return LuminaHealthColors.tertiary;
     }
   }
 }

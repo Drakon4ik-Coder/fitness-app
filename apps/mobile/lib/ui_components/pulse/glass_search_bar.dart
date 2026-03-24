@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 
 class GlassSearchBar extends StatelessWidget {
@@ -25,7 +25,7 @@ class GlassSearchBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final radius = BorderRadius.circular(AppRadius.lg);
 
     return ClipRRect(

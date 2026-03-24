@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/lumina_health_theme.dart';
 
 enum PulseGlowLevel { low, medium, high }
 
@@ -29,7 +29,7 @@ class GlowingProgressRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final effectiveProgress = progress.clamp(0.0, 1.0);
     final glowSigma = switch (glowLevel) {
       PulseGlowLevel.low => effects.glowLow,
@@ -42,7 +42,7 @@ class GlowingProgressRing extends StatelessWidget {
       painter: _GlowingProgressRingPainter(
         progress: effectiveProgress,
         thickness: thickness,
-        trackColor: trackColor ?? effects.ringTrackColor,
+        trackColor: trackColor ?? scheme.surfaceContainerHigh,
         progressColor: progressColor ?? scheme.primary,
         glowColor: glowColor ?? progressColor ?? scheme.primary,
         glowSigma: glowSigma,
