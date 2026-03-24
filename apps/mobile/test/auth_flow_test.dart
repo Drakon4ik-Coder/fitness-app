@@ -47,7 +47,7 @@ void main() {
 
     await tester.enterText(find.byType(TextFormField).at(0), 'alice');
     await tester.enterText(find.byType(TextFormField).at(1), 'Password123!');
-    await tester.tap(find.widgetWithText(ElevatedButton, 'Sign in'));
+    await tester.tap(find.widgetWithText(FilledButton, 'LOGIN'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
 
