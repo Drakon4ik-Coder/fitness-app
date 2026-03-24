@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Allow cleartext (HTTP) traffic to local development servers.
+        This is referenced by AndroidManifest.xml and only affects debug builds
+        in practice (release builds should point to HTTPS endpoints).
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
