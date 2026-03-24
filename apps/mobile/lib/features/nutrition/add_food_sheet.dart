@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
-import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
@@ -766,7 +766,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final query = _searchController.text;
     final results = _buildResults(query);
     final hasQuery = query.trim().isNotEmpty;
@@ -1116,7 +1116,7 @@ class _FoodResultTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final radius = BorderRadius.circular(AppRadius.lg);
     final borderColor = isSelected
         ? scheme.primary.withValues(alpha: 0.9)

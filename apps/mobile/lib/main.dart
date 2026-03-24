@@ -4,7 +4,7 @@ import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'features/nutrition/nutrition_today_page.dart';
 import 'features/login_page.dart';
-import 'ui_system/pulse_theme.dart';
+import 'ui_system/lumina_health_theme.dart';
 import 'ui_system/theme_mode_controller.dart';
 
 void main() {
@@ -21,7 +21,7 @@ class FitnessApp extends StatefulWidget {
 
 class _FitnessAppState extends State<FitnessApp> {
   late final ThemeModeController _themeModeController =
-      ThemeModeController(initialMode: ThemeMode.light);
+      ThemeModeController(initialMode: ThemeMode.dark);
 
   @override
   void dispose() {
@@ -38,8 +38,8 @@ class _FitnessAppState extends State<FitnessApp> {
         builder: (context, _) {
           return MaterialApp(
             title: 'Fitness App',
-            theme: PulseTheme.light(),
-            darkTheme: PulseTheme.dark(),
+            theme: LuminaHealthTheme.dark(),
+            darkTheme: LuminaHealthTheme.dark(),
             themeMode: _themeModeController.mode,
             home: const AuthGate(),
           );
