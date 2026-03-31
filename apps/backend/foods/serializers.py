@@ -97,7 +97,7 @@ class FoodItemIngestSerializer(serializers.Serializer):
         choices=FoodItem.SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
     )
     external_id = serializers.CharField(max_length=128)
-    barcode = serializers.CharField(max_length=64)
+    barcode = serializers.CharField(max_length=64, required=False, allow_blank=True)
     name = serializers.CharField(max_length=255)
     brands = serializers.CharField(max_length=255, required=False, allow_blank=True)
     image_url = serializers.URLField(required=False, allow_blank=True)

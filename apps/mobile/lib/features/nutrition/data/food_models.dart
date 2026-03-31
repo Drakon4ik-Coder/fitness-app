@@ -190,6 +190,11 @@ class FoodItem {
   }
 
   Map<String, dynamic> toBackendPayload() {
+    double? round(double? val) {
+      if (val == null) return null;
+      return double.parse(val.toStringAsFixed(2));
+    }
+
     final Map<String, dynamic> payload = {
       'source': source,
       'external_id': externalId,
@@ -198,14 +203,14 @@ class FoodItem {
       'brands': brands,
       'image_url':
           offImageSmallUrl ?? offImageLargeUrl ?? imageUrl ?? '',
-      'kcal_100g': kcal100g,
-      'protein_g_100g': proteinG100g,
-      'carbs_g_100g': carbsG100g,
-      'fat_g_100g': fatG100g,
-      'sugars_g_100g': sugarsG100g,
-      'fiber_g_100g': fiberG100g,
-      'salt_g_100g': saltG100g,
-      'serving_size_g': servingSizeG,
+      'kcal_100g': round(kcal100g),
+      'protein_g_100g': round(proteinG100g),
+      'carbs_g_100g': round(carbsG100g),
+      'fat_g_100g': round(fatG100g),
+      'sugars_g_100g': round(sugarsG100g),
+      'fiber_g_100g': round(fiberG100g),
+      'salt_g_100g': round(saltG100g),
+      'serving_size_g': round(servingSizeG),
       'raw_source_json': _decodeRawSourceJson(rawSourceJson),
     };
 
