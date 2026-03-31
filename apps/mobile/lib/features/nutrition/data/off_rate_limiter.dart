@@ -41,7 +41,7 @@ class OffRateLimiter {
     return remaining.isNegative ? Duration.zero : remaining;
   }
 
-  Future<T> run<T>(String key, Future<T> Function() action) {
+  Future<T> run<T>(String key, Future<T> Function() action) async {
     final existing = _inFlight[key];
     if (existing != null) {
       if (existing is Future<T>) {
@@ -61,10 +61,11 @@ class OffRateLimiter {
     final future = action();
     _timestamps.add(now);
     _inFlight[key] = future;
-    future.whenComplete(() {
+    try {
+      return await future;
+    } finally {
       _inFlight.remove(key);
-    });
-    return future;
+    }
   }
 
   void _prune(DateTime now) {
