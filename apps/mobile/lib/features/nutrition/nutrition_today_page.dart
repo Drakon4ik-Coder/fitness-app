@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
-import 'add_food_sheet.dart';
+import 'add_food_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/foods_api_service.dart';
@@ -113,25 +113,16 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   Future<void> _openAddFoodSheet(BuildContext context) async {
-    final didAdd = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      useSafeArea: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadius.lg),
+    final didAdd = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AddFoodPage(
+          localDb: _localDb,
+          foodsApi: _foodsApi,
+          nutritionApi: _nutritionApi,
+          offClient: _offClient,
+          onLogout: widget.onLogout,
+          selectedDate: _selectedDate,
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      builder: (_) => AddFoodSheet(
-        localDb: _localDb,
-        foodsApi: _foodsApi,
-        nutritionApi: _nutritionApi,
-        offClient: _offClient,
-        onLogout: widget.onLogout,
-        selectedDate: _selectedDate,
       ),
     );
     if (!mounted || didAdd != true) {
