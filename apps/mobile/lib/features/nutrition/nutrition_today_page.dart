@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
-import '../../ui_system/theme_mode_controller.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_sheet.dart';
 import 'data/api_exceptions.dart';
@@ -234,7 +233,6 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final effects = LuminaHealthTheme.effectsOf(context);
     final totals = _dayLog?.totals;
     final eatenKcal = totals?.kcal.round() ?? 0;
     final burnedKcal = _burnedKcal;
@@ -244,256 +242,426 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final macroSummaries = _buildMacroSummaries(totals);
     final mealSummaries = _buildMealSummaries(context);
 
-    final themeController = ThemeModeScope.maybeOf(context);
+    // Calculate total entries
+    final totalEntries = _dayLog?.meals.values
+            .fold<int>(0, (sum, list) => sum + list.length) ??
+        0;
 
     return AppScaffold(
       safeArea: false,
       padding: EdgeInsets.zero,
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              scheme.surfaceContainerLowest,
-              scheme.surface,
-              scheme.surfaceContainer,
-            ],
-          ),
+          color: scheme.surface,
         ),
-        child: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              if (_isLoading)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.lg,
-                    ),
-                    child: LinearProgressIndicator(
-                      minHeight: 2,
-                      color: scheme.primary,
-                      backgroundColor: scheme.surfaceContainer,
-                    ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: MediaQuery.sizeOf(context).height * 0.6,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment.topCenter,
+                    radius: 1.0,
+                    colors: [
+                      LuminaHealthColors.primary.withValues(alpha: 0.08),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 0.65],
                   ),
                 ),
-              if (_errorMessage != null)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      AppSpacing.sm,
-                      AppSpacing.lg,
-                      AppSpacing.sm,
+              ),
+            ),
+            SafeArea(
+              child: CustomScrollView(
+                slivers: [
+                  if (_isLoading)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg,
+                        ),
+                        child: LinearProgressIndicator(
+                          minHeight: 2,
+                          color: scheme.primary,
+                          backgroundColor: scheme.surfaceContainer,
+                        ),
+                      ),
                     ),
-                    child: InlineBanner(
-                      message: _errorMessage!,
-                      tone: InlineBannerTone.error,
+                  if (_errorMessage != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          AppSpacing.sm,
+                          AppSpacing.lg,
+                          AppSpacing.sm,
+                        ),
+                        child: InlineBanner(
+                          message: _errorMessage!,
+                          tone: InlineBannerTone.error,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.md,
-                    AppSpacing.lg,
-                    AppSpacing.md,
-                  ),
-                  child: Center(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final textScale =
-                            MediaQuery.textScalerOf(context).scale(1.0);
-                        final baseSize = 190.0;
-                        final scaledSize =
-                            baseSize * (1 + (textScale - 1) * 0.35);
-                        final size = math.min(
-                          constraints.maxWidth,
-                          math.max(150.0, scaledSize),
-                        );
-                        return SizedBox(
-                          height: size,
-                          width: size,
-                          child: Stack(
-                            alignment: Alignment.center,
+                  // Top Header
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            color: LuminaHealthColors.primary,
+                            onPressed: () {},
+                          ),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              GlowingProgressRing(
-                                progress: ringProgress,
-                                size: size,
-                                thickness: 12,
-                                trackColor: effects.ringTrackColor,
-                                progressColor: scheme.primary,
-                                glowColor: scheme.primary,
-                                glowLevel: PulseGlowLevel.high,
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.sm,
+                              Text(
+                                'SYMBIO',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: LuminaHealthColors.primary
+                                      .withValues(alpha: 0.6),
+                                  letterSpacing: 2.0,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
                                 ),
-                                child: Column(
+                              ),
+                              Text(
+                                'Today',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  color: LuminaHealthColors.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            color: LuminaHealthColors.primary,
+                            onPressed: () {},
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Hero Biometric Section
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+                      child: Column(
+                        children: [
+                          // Central ring
+                          SizedBox(
+                            height: 288,
+                            width: 288,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                GlowingProgressRing(
+                                  progress: ringProgress,
+                                  size: 288,
+                                  thickness: 12,
+                                  trackColor: scheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.5),
+                                  progressColor: scheme.primary,
+                                  glowColor: scheme.primary,
+                                  glowLevel: PulseGlowLevel.high,
+                                ),
+                                Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      'Daily Calories',
-                                      style:
-                                          theme.textTheme.labelLarge?.copyWith(
-                                        color: scheme.onSurfaceVariant,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        '$kcalLeft',
-                                        style:
-                                            theme.textTheme.displaySmall?.copyWith(
-                                          color: scheme.onSurface,
-                                          fontWeight: FontWeight.w700,
-                                          height: 1,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: 1,
+                                      '$kcalLeft',
+                                      style: theme.textTheme.displayLarge
+                                          ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        height: 1,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Remaining',
-                                      style: theme.textTheme.bodySmall?.copyWith(
+                                      'LEFT',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2.0,
                                         color: scheme.onSurfaceVariant,
-                                        letterSpacing: 0.4,
                                       ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    IconButton(
+                                      onPressed: () =>
+                                          _openAddFoodSheet(context),
+                                      icon: const Icon(Icons.add),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: scheme.primary
+                                            .withValues(alpha: 0.1),
+                                        foregroundColor: scheme.primary,
+                                        side: BorderSide(
+                                          color: scheme.primary
+                                              .withValues(alpha: 0.2),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          // Kinetic Stats Grid
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'EATEN',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2.0,
+                                        color: scheme.onSurfaceVariant,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.baseline,
+                                      textBaseline: TextBaseline.alphabetic,
+                                      children: [
+                                        Text(
+                                          '$eatenKcal',
+                                          style: theme.textTheme.headlineLarge
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: scheme.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'kcal',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'BURNED',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2.0,
+                                        color: scheme.onSurfaceVariant,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.baseline,
+                                      textBaseline: TextBaseline.alphabetic,
+                                      children: [
+                                        Text(
+                                          '$burnedKcal',
+                                          style: theme.textTheme.headlineLarge
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: LuminaHealthColors.tertiary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'kcal',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      },
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    0,
-                    AppSpacing.lg,
-                    AppSpacing.md,
-                  ),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      const double gap = AppSpacing.md;
-                      final ringWidth =
-                          (constraints.maxWidth - gap * 2) / 3;
-                      final ringSize = math.min(110.0, ringWidth);
-                      return Row(
-                        children: [
-                          for (int i = 0; i < macroSummaries.length; i++) ...[
-                            Expanded(
-                              child: Center(
-                                child: MacroRing(
-                                  label: macroSummaries[i].label,
-                                  current: macroSummaries[i].current,
-                                  goal: macroSummaries[i].goal,
-                                  color: _macroAccent(macroSummaries[i].type),
-                                  trackColor: effects.ringTrackColor,
-                                  size: ringSize,
+                  // Macro Breakdown
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLow
+                              .withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(AppRadius.lg),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.05)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              offset: const Offset(0, 2),
+                              blurRadius: 4,
+                              spreadRadius: 0,
+                              blurStyle: BlurStyle.inner,
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          children: macroSummaries.map((macro) {
+                            final color = _macroAccent(macro.type);
+                            final progress = macro.goal > 0
+                                ? (macro.current / macro.goal).clamp(0.0, 1.0)
+                                : 0.0;
+                            final left =
+                                math.max(0, macro.goal - macro.current);
+                            return Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  left: macro == macroSummaries.first
+                                      ? 0
+                                      : AppSpacing.sm,
+                                  right: macro == macroSummaries.last
+                                      ? 0
+                                      : AppSpacing.sm,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          macro.label.toUpperCase(),
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: scheme.onSurfaceVariant,
+                                            letterSpacing: -0.5,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${macro.current}g',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: color,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: AppSpacing.xs),
+                                    LinearProgressIndicator(
+                                      value: progress.toDouble(),
+                                      backgroundColor:
+                                          scheme.surfaceContainerHighest,
+                                      color: color,
+                                      minHeight: 6,
+                                      borderRadius:
+                                          BorderRadius.circular(9999),
+                                    ),
+                                    const SizedBox(height: AppSpacing.xs),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: Text(
+                                        '${left}g left',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                          color: scheme.onSurface
+                                              .withValues(alpha: 0.6),
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Daily Logs Header
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
+                          AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Daily Logs',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: scheme.onSurface,
                             ),
-                            if (i != macroSummaries.length - 1)
-                              const SizedBox(width: gap),
-                          ],
+                          ),
+                          Text(
+                            '$totalEntries entries',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ],
-                      );
-                    },
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                    AppSpacing.sm,
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final meal = mealSummaries[index];
+                        return Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            index == 0 ? 0 : AppSpacing.md,
+                            AppSpacing.lg,
+                            0,
+                          ),
+                          child: _MealCard(
+                            meal: meal,
+                            onItemTap: (item) =>
+                                _showItemDetails(context, item),
+                          ),
+                        );
+                      },
+                      childCount: mealSummaries.length,
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Eaten Meals',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: scheme.onSurface,
-                          ),
-                        ),
-                      ),
-                      if (themeController != null) ...[
-                        const SizedBox(width: AppSpacing.sm),
-                        IconButton(
-                          tooltip: themeController.isDark
-                              ? 'Switch to light'
-                              : 'Switch to dark',
-                          onPressed: themeController.toggle,
-                          constraints: const BoxConstraints(
-                            minWidth: 48,
-                            minHeight: 48,
-                          ),
-                          icon: Icon(
-                            themeController.isDark
-                                ? Icons.light_mode
-                                : Icons.dark_mode,
-                            color: scheme.onSurface,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 230,
-                        child: NeonPillButton(
-                          onPressed: () => _openAddFoodSheet(context),
-                          expand: false,
-                          compact: true,
-                          child: const Text(
-                            '+ Add Food',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: AppSpacing.xxl),
                   ),
-                ),
+                ],
               ),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final meal = mealSummaries[index];
-                    return Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        AppSpacing.lg,
-                        index == 0 ? 0 : AppSpacing.md,
-                        AppSpacing.lg,
-                        0,
-                      ),
-                      child: _MealCard(
-                        meal: meal,
-                        onItemTap: (item) => _showItemDetails(context, item),
-                      ),
-                    );
-                  },
-                  childCount: mealSummaries.length,
-                ),
-              ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.xxl),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -523,168 +691,99 @@ class _MealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dividerColor = theme.dividerTheme.color ??
-        theme.colorScheme.outlineVariant.withValues(alpha: 0.4);
-    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
+    final scheme = theme.colorScheme;
+    
+    final hasItems = meal.items.isNotEmpty;
+    final firstItemHasImage = hasItems ? (meal.items.first.image?.trim().isNotEmpty ?? false) : false;
+    final imageUrl = firstItemHasImage ? meal.items.first.image!.trim() : null;
+
+    final fallbackIcon = Container(
+      color: scheme.surfaceContainerHigh,
+      child: Center(
+        child: Icon(
+          hasItems ? meal.items.first.icon ?? Icons.restaurant : Icons.restaurant,
+          color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+        ),
+      ),
     );
 
-    return GlassMealCard(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: hasItems ? () => onItemTap(meal.items.first) : null,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Container(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(
             children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: imageUrl != null 
+                    ? Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => fallbackIcon,
+                      )
+                    : fallbackIcon,
+              ),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
-                child: Text(
-                  meal.name,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          meal.name,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                        Text(
+                          '${meal.totalKcal} kcal',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasItems 
+                          ? meal.items.map((e) => e.name).join(', ')
+                          : 'No foods logged yet.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${meal.totalKcal} kcal',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    meal.time,
-                    style: secondaryStyle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+              Icon(
+                Icons.chevron_right,
+                color: scheme.onSurfaceVariant,
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
-          if (meal.items.isEmpty)
-            Text(
-              'No foods logged yet.',
-              style: secondaryStyle,
-            )
-          else
-            for (int i = 0; i < meal.items.length; i++) ...[
-              _MealItemRow(
-                item: meal.items[i],
-                onTap: () => onItemTap(meal.items[i]),
-              ),
-              if (i != meal.items.length - 1)
-                Divider(height: AppSpacing.lg, color: dividerColor),
-            ],
-        ],
-      ),
-    );
-  }
-}
-
-class _MealItemRow extends StatelessWidget {
-  const _MealItemRow({required this.item, required this.onTap});
-
-  final _MealItem item;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final imageUrl = item.image?.trim();
-    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
-    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
-      color: scheme.onSurfaceVariant,
-    );
-    final fallbackIcon = Center(
-      child: Icon(
-        item.icon ?? Icons.restaurant,
-        color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
-      ),
-    );
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: Row(
-          children: [
-            Container(
-              height: 44,
-              width: 44,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(alpha: 0.6),
-                ),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: hasImage
-                  ? Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.medium,
-                      errorBuilder: (_, _, _) => fallbackIcon,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) {
-                          return child;
-                        }
-                        return fallbackIcon;
-                      },
-                    )
-                  : fallbackIcon,
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.name,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurface,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    item.amount,
-                    style: secondaryStyle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${item.kcal} kcal',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right,
-                  color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );

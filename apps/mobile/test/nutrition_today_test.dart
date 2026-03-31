@@ -54,8 +54,8 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Daily Calories'), findsOneWidget);
-    expect(find.textContaining('Add Food'), findsOneWidget);
-    expect(find.text('Breakfast'), findsOneWidget);
+    expect(find.text('LEFT'), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.text('Breakfast', skipOffstage: false), findsOneWidget);
   });
 }
