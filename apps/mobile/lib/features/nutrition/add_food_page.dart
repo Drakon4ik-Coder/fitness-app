@@ -9,6 +9,7 @@ import 'data/food_models.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrition_api_service.dart';
 import 'data/off_client.dart';
+import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
 import 'nutrition_scan_page.dart';
@@ -59,6 +60,7 @@ class AddFoodPage extends StatefulWidget {
 class _AddFoodPageState extends State<AddFoodPage> {
   final TextEditingController _searchController = TextEditingController();
   final OffMapper _offMapper = OffMapper();
+  final OffImageDownloader _imageDownloader = OffImageDownloader();
   Timer? _debounce;
   Timer? _offBlockTimer;
 
@@ -402,7 +404,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final stored = <FoodItem>[];
     for (final item in items) {
       try {
-        stored.add(await widget.foodsApi.ingestFood(item));
+        stored.add((await widget.foodsApi.ingestFood(item)).item);
       } on ApiException catch (error) {
         if (error.isUnauthorized) {
           await widget.onLogout();
@@ -412,6 +414,24 @@ class _AddFoodPageState extends State<AddFoodPage> {
       }
     }
     return stored;
+  }
+
+  Future<FoodItem?> _tryUploadImages(FoodItem item) async {
+    final backendId = item.backendId;
+    final largeUrl = item.offImageLargeUrl;
+    final smallUrl = item.offImageSmallUrl;
+    if (backendId == null || largeUrl == null || smallUrl == null) return null;
+    final large = await _imageDownloader.downloadImage(largeUrl);
+    final small = await _imageDownloader.downloadImage(smallUrl);
+    if (large == null || small == null) return null;
+    return widget.foodsApi.uploadFoodImages(
+      foodItemId: backendId,
+      largeBytes: large.bytes,
+      smallBytes: small.bytes,
+      largeContentType: large.contentType,
+      smallContentType: small.contentType,
+      imageSignature: item.imageSignature,
+    );
   }
 
   Future<void> _submitItems() async {
@@ -434,6 +454,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       );
 
       for (FoodItem selected in _addedItems) {
+        bool imagesOk = false;
         if (selected.backendId == null) {
           if (selected.contentHash.isNotEmpty) {
             final check = await widget.foodsApi.checkFood(
@@ -444,15 +465,25 @@ class _AddFoodPageState extends State<AddFoodPage> {
             );
             if (check.upToDate && check.foodItemId != null) {
               selected = selected.copyWith(backendId: check.foodItemId);
+              imagesOk = check.imagesOk;
             } else {
-              selected = await widget.foodsApi.ingestFood(selected);
+              final result = await widget.foodsApi.ingestFood(selected);
+              selected = result.item;
+              imagesOk = result.imagesOk;
             }
           } else {
-            selected = await widget.foodsApi.ingestFood(selected);
+            final result = await widget.foodsApi.ingestFood(selected);
+            selected = result.item;
+            imagesOk = result.imagesOk;
           }
         }
         if (selected.backendId == null) {
           throw ApiException('Unable to resolve food item id.');
+        }
+
+        if (!imagesOk) {
+          final uploaded = await _tryUploadImages(selected);
+          if (uploaded != null) selected = uploaded;
         }
 
         final stored = await widget.localDb.upsertFood(selected);
