@@ -38,8 +38,6 @@ class FoodItem(models.Model):
     image_small = models.FileField(
         upload_to=food_image_upload_path, blank=True, null=True
     )
-    image_large_source_url = models.URLField(blank=True, default="")
-    image_small_source_url = models.URLField(blank=True, default="")
     image_downloaded_at = models.DateTimeField(blank=True, null=True)
     image_status = models.CharField(
         max_length=16,

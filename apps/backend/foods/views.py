@@ -1,12 +1,15 @@
-from django.db.models import Q
+from django.core.files.base import ContentFile
+from django.db import transaction
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from foods.models import FoodItem
-from foods.images import download_food_images, images_ok, should_download_images
+from foods.images import images_ok, safe_signature, validate_and_normalize_image
 from foods.serializers import (
     FoodItemCheckResponseSerializer,
     FoodItemCheckSerializer,
@@ -40,6 +43,8 @@ class FoodTypeaheadView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
+        from django.db.models import Q
+
         query = request.query_params.get("q", "").strip()
         if not query:
             return Response([])
@@ -79,15 +84,70 @@ class FoodIngestView(APIView):
         serializer = FoodItemIngestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         item = serializer.save()
-        if should_download_images(item, serializer.image_signature_changed):
-            download_food_images(
-                item,
-                serializer.incoming_image_large_url or item.image_large_source_url,
-                serializer.incoming_image_small_url or item.image_small_source_url,
-                serializer.incoming_image_signature or item.image_signature,
-            )
         output = FoodItemSerializer(item, context={"request": request})
         return Response(output.data)
+
+
+class FoodImageUploadView(APIView):
+    parser_classes = [MultiPartParser]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={
+            200: FoodItemSerializer,
+            400: OpenApiResponse(description="Invalid image data"),
+            401: OpenApiResponse(description="Unauthorized"),
+            404: OpenApiResponse(description="Food item not found"),
+        },
+    )
+    def post(self, request: Request, food_item_id: int) -> Response:
+        with transaction.atomic():
+            try:
+                item = FoodItem.objects.select_for_update().get(pk=food_item_id)
+            except FoodItem.DoesNotExist:
+                return Response({"detail": "Not found."}, status=404)
+
+            incoming_sig = (request.data.get("image_signature") or "").strip() or None
+
+            if images_ok(item) and incoming_sig == item.image_signature:
+                return Response(
+                    FoodItemSerializer(item, context={"request": request}).data
+                )
+
+            large_file = request.FILES.get("image_large")
+            small_file = request.FILES.get("image_small")
+            if not large_file or not small_file:
+                return Response(
+                    {"detail": "image_large and image_small are required."}, status=400
+                )
+
+            try:
+                large_bytes = validate_and_normalize_image(
+                    large_file.read(), large_file.content_type or ""
+                )
+                small_bytes = validate_and_normalize_image(
+                    small_file.read(), small_file.content_type or ""
+                )
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=400)
+
+            sig = safe_signature(incoming_sig)
+            if item.image_large:
+                item.image_large.delete(save=False)
+            if item.image_small:
+                item.image_small.delete(save=False)
+            item.image_large.save(
+                f"{sig}_large.jpg", ContentFile(large_bytes), save=False
+            )
+            item.image_small.save(
+                f"{sig}_small.jpg", ContentFile(small_bytes), save=False
+            )
+            item.image_status = FoodItem.IMAGE_STATUS_OK
+            item.image_downloaded_at = timezone.now()
+            item.image_signature = incoming_sig
+            item.save()
+
+        return Response(FoodItemSerializer(item, context={"request": request}).data)
 
 
 class FoodCheckView(APIView):

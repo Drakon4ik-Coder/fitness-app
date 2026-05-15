@@ -220,12 +220,6 @@ class FoodItem {
     if (imageSignature != null && imageSignature!.trim().isNotEmpty) {
       payload['image_signature'] = imageSignature;
     }
-    if (offImageLargeUrl != null && offImageLargeUrl!.trim().isNotEmpty) {
-      payload['image_large_url'] = offImageLargeUrl;
-    }
-    if (offImageSmallUrl != null && offImageSmallUrl!.trim().isNotEmpty) {
-      payload['image_small_url'] = offImageSmallUrl;
-    }
 
     if (nutrimentsJson != null) {
       payload['nutriments_json'] = nutrimentsJson;

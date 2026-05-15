@@ -126,7 +126,6 @@ SPECTACULAR_SETTINGS = {
 }
 
 SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
-OFF_USER_AGENT = env("OFF_USER_AGENT", default="FitnessApp/0.1 (images)").strip()
 
 if SENTRY_DSN:
     sentry_sdk.init(

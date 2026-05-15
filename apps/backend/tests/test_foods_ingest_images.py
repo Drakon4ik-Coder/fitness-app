@@ -1,8 +1,5 @@
-from unittest.mock import patch
-
 import pytest
 from django.contrib.auth import get_user_model
-from django.test import override_settings
 from rest_framework.test import APIClient
 
 from foods.models import FoodItem
@@ -26,7 +23,7 @@ def _auth_client() -> APIClient:
 
 @pytest.mark.django_db
 @pytest.mark.integration
-def test_foods_ingest_downloads_and_refreshes_images(tmp_path) -> None:
+def test_foods_ingest_does_not_fetch_images() -> None:
     client = _auth_client()
     payload = {
         "source": "openfoodfacts",
@@ -36,46 +33,35 @@ def test_foods_ingest_downloads_and_refreshes_images(tmp_path) -> None:
         "brands": "Test Brand",
         "content_hash": "hash-1",
         "image_signature": "front_en.1",
-        "image_large_url": "https://images.openfoodfacts.org/front_en.1.400.jpg",
-        "image_small_url": "https://images.openfoodfacts.org/front_en.1.100.jpg",
+        "image_url": "https://images.openfoodfacts.org/front_en.1.100.jpg",
         "raw_source_json": {"product": {"product_name": "Test Bar"}},
     }
 
-    with override_settings(MEDIA_ROOT=tmp_path):
-        with patch(
-            "foods.images._fetch_image_bytes", return_value=b"img"
-        ) as mock_fetch:
-            response = client.post("/api/v1/foods/ingest", payload, format="json")
+    response = client.post("/api/v1/foods/ingest", payload, format="json")
 
-        assert response.status_code == 200
-        assert mock_fetch.call_count == 2
+    assert response.status_code == 200
+    item = FoodItem.objects.get(barcode="123456789")
+    assert item.image_status == FoodItem.IMAGE_STATUS_NONE
+    assert not item.image_large
+    assert not item.image_small
+    assert response.data["images_ok"] is False
 
-        item = FoodItem.objects.get(barcode="123456789")
-        assert item.image_status == FoodItem.IMAGE_STATUS_OK
-        assert item.image_large.name
-        assert item.image_small.name
-        first_large_name = item.image_large.name
 
-        update_payload = {
-            **payload,
-            "content_hash": "hash-2",
-            "image_signature": "front_en.2",
-            "image_large_url": "https://images.openfoodfacts.org/front_en.2.400.jpg",
-            "image_small_url": "https://images.openfoodfacts.org/front_en.2.100.jpg",
-        }
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_foods_ingest_ignores_image_url_fields() -> None:
+    client = _auth_client()
+    payload = {
+        "source": "openfoodfacts",
+        "external_id": "111222333",
+        "barcode": "111222333",
+        "name": "Another Bar",
+        "brands": "Brand",
+        "image_large_url": "https://images.openfoodfacts.org/large.jpg",
+        "image_small_url": "https://images.openfoodfacts.org/small.jpg",
+        "raw_source_json": {},
+    }
 
-        with patch(
-            "foods.images._fetch_image_bytes", return_value=b"img2"
-        ) as mock_fetch_update:
-            update_response = client.post(
-                "/api/v1/foods/ingest",
-                update_payload,
-                format="json",
-            )
+    response = client.post("/api/v1/foods/ingest", payload, format="json")
 
-        assert update_response.status_code == 200
-        assert mock_fetch_update.call_count == 2
-
-        item.refresh_from_db()
-        assert item.image_signature == "front_en.2"
-        assert item.image_large.name != first_large_name
+    assert response.status_code == 200
