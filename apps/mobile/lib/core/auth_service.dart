@@ -68,6 +68,22 @@ class AuthService {
     }
   }
 
+  Future<String> refresh(String refreshToken) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/auth/refresh',
+        data: {'refresh': refreshToken},
+      );
+      final data = response.data;
+      if (data is Map && data['access'] is String) {
+        return data['access'] as String;
+      }
+      throw AuthException('Unexpected response from server.');
+    } on DioException {
+      throw AuthException('Session expired. Please sign in again.');
+    }
+  }
+
   Future<void> register({
     required String username,
     required String password,

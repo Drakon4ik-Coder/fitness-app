@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'features/nutrition/nutrition_today_page.dart';
@@ -62,6 +63,7 @@ class _AuthGateState extends State<AuthGate> {
 
   bool _isLoading = true;
   String? _accessToken;
+  AuthInterceptor? _authInterceptor;
 
   @override
   void initState() {
@@ -76,6 +78,14 @@ class _AuthGateState extends State<AuthGate> {
     }
     setState(() {
       _accessToken = token;
+      _authInterceptor = token != null
+          ? AuthInterceptor(
+              storage: _authStorage,
+              authService: _authService,
+              onSessionExpired: _handleLogout,
+              accessToken: token,
+            )
+          : null;
       _isLoading = false;
     });
   }
@@ -87,6 +97,14 @@ class _AuthGateState extends State<AuthGate> {
     }
     setState(() {
       _accessToken = token;
+      _authInterceptor = token != null
+          ? AuthInterceptor(
+              storage: _authStorage,
+              authService: _authService,
+              onSessionExpired: _handleLogout,
+              accessToken: token,
+            )
+          : null;
     });
   }
 
@@ -97,6 +115,7 @@ class _AuthGateState extends State<AuthGate> {
     }
     setState(() {
       _accessToken = null;
+      _authInterceptor = null;
     });
   }
 
@@ -121,6 +140,7 @@ class _AuthGateState extends State<AuthGate> {
     return NutritionTodayPage(
       accessToken: _accessToken!,
       onLogout: _handleLogout,
+      authInterceptor: _authInterceptor,
     );
   }
 }
