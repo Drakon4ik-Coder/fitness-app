@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/auth_interceptor.dart';
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
@@ -17,6 +18,7 @@ class NutritionTodayPage extends StatefulWidget {
     super.key,
     required this.accessToken,
     required this.onLogout,
+    this.authInterceptor,
     this.localDb,
     this.foodsApi,
     this.nutritionApi,
@@ -25,6 +27,7 @@ class NutritionTodayPage extends StatefulWidget {
 
   final String accessToken;
   final Future<void> Function() onLogout;
+  final AuthInterceptor? authInterceptor;
   final FoodLocalDb? localDb;
   final FoodsApiService? foodsApi;
   final NutritionApiService? nutritionApi;
@@ -52,10 +55,16 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _selectedDate = DateUtils.dateOnly(DateTime.now());
     _ownsLocalDb = widget.localDb == null;
     _localDb = widget.localDb ?? FoodLocalDb();
-    _foodsApi =
-        widget.foodsApi ?? FoodsApiService(accessToken: widget.accessToken);
+    _foodsApi = widget.foodsApi ??
+        FoodsApiService(
+          accessToken: widget.accessToken,
+          authInterceptor: widget.authInterceptor,
+        );
     _nutritionApi = widget.nutritionApi ??
-        NutritionApiService(accessToken: widget.accessToken);
+        NutritionApiService(
+          accessToken: widget.accessToken,
+          authInterceptor: widget.authInterceptor,
+        );
     _offClient = widget.offClient ?? OffClient();
     _loadDay();
   }
@@ -110,6 +119,34 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         _errorMessage = error.message;
       });
     }
+  }
+
+  void _changeDate(int deltaDays) {
+    final next = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day + deltaDays,
+    );
+    final today = DateUtils.dateOnly(DateTime.now());
+    if (next.isAfter(today)) {
+      return;
+    }
+    setState(() {
+      _selectedDate = next;
+    });
+    _loadDay();
+  }
+
+  String _dateLabel() {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final diff = today.difference(_selectedDate).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[_selectedDate.month - 1]} ${_selectedDate.day}';
   }
 
   Future<void> _openAddFoodSheet(BuildContext context) async {
@@ -232,6 +269,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         math.min(1.0, eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
     final macroSummaries = _buildMacroSummaries(totals);
     final mealSummaries = _buildMealSummaries(context);
+    final isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
 
     // Calculate total entries
     final totalEntries = _dayLog?.meals.values
@@ -308,7 +346,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           IconButton(
                             icon: const Icon(Icons.chevron_left),
                             color: LuminaHealthColors.primary,
-                            onPressed: () {},
+                            onPressed: () => _changeDate(-1),
                           ),
                           Column(
                             mainAxisSize: MainAxisSize.min,
@@ -324,7 +362,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                 ),
                               ),
                               Text(
-                                'Today',
+                                _dateLabel(),
                                 style: theme.textTheme.titleLarge?.copyWith(
                                   color: LuminaHealthColors.primary,
                                   fontWeight: FontWeight.bold,
@@ -334,8 +372,8 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.chevron_right),
-                            color: LuminaHealthColors.primary,
-                            onPressed: () {},
+                            color: isToday ? null : LuminaHealthColors.primary,
+                            onPressed: isToday ? null : () => _changeDate(1),
                           ),
                         ],
                       ),
