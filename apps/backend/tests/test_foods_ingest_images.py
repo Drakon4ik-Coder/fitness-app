@@ -42,8 +42,7 @@ def test_foods_ingest_does_not_fetch_images() -> None:
     assert response.status_code == 200
     item = FoodItem.objects.get(barcode="123456789")
     assert item.image_status == FoodItem.IMAGE_STATUS_NONE
-    assert not item.image_large
-    assert not item.image_small
+    assert not item.image
     assert response.data["images_ok"] is False
 
 

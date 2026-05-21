@@ -114,34 +114,21 @@ class FoodImageUploadView(APIView):
                     FoodItemSerializer(item, context={"request": request}).data
                 )
 
-            large_file = request.FILES.get("image_large")
-            small_file = request.FILES.get("image_small")
-            if not large_file or not small_file:
-                return Response(
-                    {"detail": "image_large and image_small are required."}, status=400
-                )
+            image_file = request.FILES.get("image")
+            if not image_file:
+                return Response({"detail": "image is required."}, status=400)
 
             try:
-                large_bytes = validate_and_normalize_image(
-                    large_file.read(), large_file.content_type or ""
-                )
-                small_bytes = validate_and_normalize_image(
-                    small_file.read(), small_file.content_type or ""
+                image_bytes = validate_and_normalize_image(
+                    image_file.read(), image_file.content_type or ""
                 )
             except ValueError as exc:
                 return Response({"detail": str(exc)}, status=400)
 
             sig = safe_signature(incoming_sig)
-            if item.image_large:
-                item.image_large.delete(save=False)
-            if item.image_small:
-                item.image_small.delete(save=False)
-            item.image_large.save(
-                f"{sig}_large.jpg", ContentFile(large_bytes), save=False
-            )
-            item.image_small.save(
-                f"{sig}_small.jpg", ContentFile(small_bytes), save=False
-            )
+            if item.image:
+                item.image.delete(save=False)
+            item.image.save(f"{sig}.jpg", ContentFile(image_bytes), save=False)
             item.image_status = FoodItem.IMAGE_STATUS_OK
             item.image_downloaded_at = timezone.now()
             item.image_signature = incoming_sig

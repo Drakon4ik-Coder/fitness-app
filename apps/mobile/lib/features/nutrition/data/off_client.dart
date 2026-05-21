@@ -53,18 +53,9 @@ class OffClient {
     'generic_name',
     'brands',
     'serving_size',
-    'categories_tags',
-    'image_url',
-    'image_front_url',
-    'image_front_thumb_url',
-    'image_front_small_url',
-    'image_thumb_url',
-    'image_ingredients_url',
-    'image_nutrition_url',
-    'selected_images',
-    'images',
     'nutriments',
     'lang',
+    'images',
   ];
 
   static String _normalizeCountryTag(String value) {
@@ -123,83 +114,35 @@ class OffClient {
 
   Future<List<OffProductResponse>> searchProducts(
     String query, {
-    int pageSize = 12,
+    int pageSize = 10,
     String? categoryTag,
   }) async {
     try {
-      return await _searchCgi(
-        query,
-        pageSize: pageSize,
-        categoryTag: categoryTag,
+      final response = await _rateLimiter.run(
+        _searchKey(query),
+        () => _dio.get<Map<String, dynamic>>(
+          '/api/v2/search',
+          queryParameters: _buildSearchParams(
+            query,
+            pageSize: pageSize,
+            categoryTag: categoryTag,
+          ),
+        ),
       );
+      return _parseSearchResponse(response.data);
     } on OffRateLimitException {
       rethrow;
-    } on DioException {
-      try {
-        return await _searchV2(
-          query,
-          pageSize: pageSize,
-          categoryTag: categoryTag,
-        );
-      } on OffRateLimitException {
-        rethrow;
-      } on DioException catch (fallbackError) {
-        throw OffException(
-          _formatDioMessage(fallbackError, 'Unable to search OFF.'),
-        );
-      } catch (_) {
-        throw OffException('Unable to search OFF.');
-      }
+    } on DioException catch (error) {
+      throw OffException(_formatDioMessage(error, 'Unable to search OFF.'));
     } catch (_) {
       throw OffException('Unable to search OFF.');
     }
-  }
-
-  Future<List<OffProductResponse>> _searchCgi(
-    String query, {
-    required int pageSize,
-    String? categoryTag,
-  }) async {
-    final response = await _rateLimiter.run(
-      _searchKey(query),
-      () => _dio.get<Map<String, dynamic>>(
-        '/cgi/search.pl',
-        queryParameters: _buildSearchParams(
-          query,
-          pageSize: pageSize,
-          categoryTag: categoryTag,
-          includeCgiParams: true,
-        ),
-      ),
-    );
-    return _parseSearchResponse(response.data);
-  }
-
-  Future<List<OffProductResponse>> _searchV2(
-    String query, {
-    required int pageSize,
-    String? categoryTag,
-  }) async {
-    final response = await _rateLimiter.run(
-      _searchKey(query),
-      () => _dio.get<Map<String, dynamic>>(
-        '/api/v2/search',
-        queryParameters: _buildSearchParams(
-          query,
-          pageSize: pageSize,
-          categoryTag: categoryTag,
-          includeCgiParams: false,
-        ),
-      ),
-    );
-    return _parseSearchResponse(response.data);
   }
 
   Map<String, dynamic> _buildSearchParams(
     String query, {
     required int pageSize,
     String? categoryTag,
-    required bool includeCgiParams,
   }) {
     final params = <String, dynamic>{
       'search_terms': query,
@@ -208,11 +151,6 @@ class OffClient {
       'fields': _fields.join(','),
       'page_size': pageSize,
     };
-    if (includeCgiParams) {
-      params['search_simple'] = 1;
-      params['action'] = 'process';
-      params['json'] = 1;
-    }
     int tagIndex = 0;
     void addTagFilter(String type, String tag) {
       params['tagtype_$tagIndex'] = type;

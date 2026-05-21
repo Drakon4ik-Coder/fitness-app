@@ -11,10 +11,7 @@ _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 def images_ok(item: FoodItem) -> bool:
-    return (
-        bool(item.image_large and item.image_small)
-        and item.image_status == FoodItem.IMAGE_STATUS_OK
-    )
+    return bool(item.image) and item.image_status == FoodItem.IMAGE_STATUS_OK
 
 
 def validate_and_normalize_image(raw: bytes, declared_ct: str) -> bytes:

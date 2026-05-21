@@ -418,18 +418,14 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   Future<FoodItem?> _tryUploadImages(FoodItem item) async {
     final backendId = item.backendId;
-    final largeUrl = item.offImageLargeUrl;
-    final smallUrl = item.offImageSmallUrl;
-    if (backendId == null || largeUrl == null || smallUrl == null) return null;
-    final large = await _imageDownloader.downloadImage(largeUrl);
-    final small = await _imageDownloader.downloadImage(smallUrl);
-    if (large == null || small == null) return null;
+    final imageUrl = item.imageUrl;
+    if (backendId == null || imageUrl == null) return null;
+    final result = await _imageDownloader.downloadImage(imageUrl);
+    if (result == null) return null;
     return widget.foodsApi.uploadFoodImages(
       foodItemId: backendId,
-      largeBytes: large.bytes,
-      smallBytes: small.bytes,
-      largeContentType: large.contentType,
-      smallContentType: small.contentType,
+      bytes: result.bytes,
+      contentType: result.contentType,
       imageSignature: item.imageSignature,
     );
   }
@@ -1106,16 +1102,9 @@ class _FoodCard extends StatelessWidget {
     
     final kcal = item.item.kcal100g?.round();
     final kcalLabel = kcal == null ? 'kcal n/a' : '$kcal kcal / 100g';
-    final primaryUrl = item.item.imageUrl?.trim();
-    final fallbackSmall = item.item.offImageSmallUrl?.trim();
-    final fallbackLarge = item.item.offImageLargeUrl?.trim();
-    final imageUrl = (primaryUrl != null && primaryUrl.isNotEmpty)
-        ? primaryUrl
-        : (fallbackSmall != null && fallbackSmall.isNotEmpty)
-            ? fallbackSmall
-            : (fallbackLarge != null && fallbackLarge.isNotEmpty)
-                ? fallbackLarge
-                : null;
+    final imageUrl = item.item.imageUrl?.trim().isNotEmpty == true
+        ? item.item.imageUrl!.trim()
+        : null;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
 
     return Material(
