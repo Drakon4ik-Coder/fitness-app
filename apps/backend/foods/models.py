@@ -32,12 +32,7 @@ class FoodItem(models.Model):
     image_url = models.URLField(blank=True)
     content_hash = models.CharField(max_length=128, blank=True, null=True)
     image_signature = models.CharField(max_length=128, blank=True, null=True)
-    image_large = models.FileField(
-        upload_to=food_image_upload_path, blank=True, null=True
-    )
-    image_small = models.FileField(
-        upload_to=food_image_upload_path, blank=True, null=True
-    )
+    image = models.FileField(upload_to=food_image_upload_path, blank=True, null=True)
     image_downloaded_at = models.DateTimeField(blank=True, null=True)
     image_status = models.CharField(
         max_length=16,

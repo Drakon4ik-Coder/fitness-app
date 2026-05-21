@@ -197,10 +197,6 @@ class FoodLocalDb {
       name: incoming.name.isNotEmpty ? incoming.name : existing.name,
       brands: incoming.brands.isNotEmpty ? incoming.brands : existing.brands,
       imageUrl: incoming.imageUrl ?? existing.imageUrl,
-      offImageLargeUrl:
-          incoming.offImageLargeUrl ?? existing.offImageLargeUrl,
-      offImageSmallUrl:
-          incoming.offImageSmallUrl ?? existing.offImageSmallUrl,
       imageSignature: incoming.imageSignature ?? existing.imageSignature,
       contentHash: incoming.contentHash.isNotEmpty
           ? incoming.contentHash
@@ -225,7 +221,7 @@ class FoodLocalDb {
     final path = '${directory.path}/foods.db';
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute(
           '''
@@ -238,8 +234,6 @@ class FoodLocalDb {
             name TEXT NOT NULL,
             brands TEXT NOT NULL,
             image_url TEXT,
-            off_image_large_url TEXT,
-            off_image_small_url TEXT,
             image_signature TEXT,
             content_hash TEXT,
             kcal_100g REAL,
@@ -278,6 +272,14 @@ class FoodLocalDb {
           );
           await db.execute('ALTER TABLE foods ADD COLUMN image_signature TEXT');
           await db.execute('ALTER TABLE foods ADD COLUMN content_hash TEXT');
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE foods DROP COLUMN off_image_large_url',
+          );
+          await db.execute(
+            'ALTER TABLE foods DROP COLUMN off_image_small_url',
+          );
         }
       },
     );

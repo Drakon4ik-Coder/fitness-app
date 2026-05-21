@@ -39,14 +39,9 @@ def test_foods_check_returns_up_to_date_when_images_ok(tmp_path) -> None:
             image_status=FoodItem.IMAGE_STATUS_OK,
             raw_source_json={"product": {"product_name": "Test Bar"}},
         )
-        item.image_large.save(
-            "front_en.1_large.jpg",
-            ContentFile(b"large"),
-            save=False,
-        )
-        item.image_small.save(
-            "front_en.1_small.jpg",
-            ContentFile(b"small"),
+        item.image.save(
+            "front_en.1.jpg",
+            ContentFile(b"image"),
             save=False,
         )
         item.save()

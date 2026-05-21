@@ -144,23 +144,16 @@ class FoodsApiService {
 
   Future<FoodItem?> uploadFoodImages({
     required int foodItemId,
-    required Uint8List largeBytes,
-    required Uint8List smallBytes,
-    required String largeContentType,
-    required String smallContentType,
+    required Uint8List bytes,
+    required String contentType,
     String? imageSignature,
   }) async {
     try {
       final formData = FormData.fromMap({
-        'image_large': MultipartFile.fromBytes(
-          largeBytes,
-          filename: 'large.jpg',
-          contentType: DioMediaType.parse(largeContentType),
-        ),
-        'image_small': MultipartFile.fromBytes(
-          smallBytes,
-          filename: 'small.jpg',
-          contentType: DioMediaType.parse(smallContentType),
+        'image': MultipartFile.fromBytes(
+          bytes,
+          filename: 'image.jpg',
+          contentType: DioMediaType.parse(contentType),
         ),
         if (imageSignature != null && imageSignature.trim().isNotEmpty)
           'image_signature': imageSignature,

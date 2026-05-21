@@ -9,7 +9,6 @@ from foods.images import images_ok as _images_ok
 
 class FoodItemCompactSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
-    image_small_url = serializers.SerializerMethodField()
 
     class Meta:
         model = FoodItem
@@ -19,27 +18,18 @@ class FoodItemCompactSerializer(serializers.ModelSerializer):
             "brands",
             "kcal_100g",
             "image_url",
-            "image_small_url",
             "barcode",
         )
 
     def get_image_url(self, obj: FoodItem) -> str | None:
-        small_url = self.get_image_small_url(obj)
-        if small_url:
-            return small_url
+        if _images_ok(obj) and obj.image:
+            return _absolute_file_url(self.context.get("request"), obj.image)
         url = obj.image_url.strip() if obj.image_url else ""
         return url or None
-
-    def get_image_small_url(self, obj: FoodItem) -> str | None:
-        if not _images_ok(obj) or not obj.image_small:
-            return None
-        return _absolute_file_url(self.context.get("request"), obj.image_small)
 
 
 class FoodItemSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
-    image_large_url = serializers.SerializerMethodField()
-    image_small_url = serializers.SerializerMethodField()
     images_ok = serializers.SerializerMethodField()
 
     class Meta:
@@ -52,8 +42,6 @@ class FoodItemSerializer(serializers.ModelSerializer):
             "name",
             "brands",
             "image_url",
-            "image_large_url",
-            "image_small_url",
             "images_ok",
             "kcal_100g",
             "protein_g_100g",
@@ -70,21 +58,10 @@ class FoodItemSerializer(serializers.ModelSerializer):
         )
 
     def get_image_url(self, obj: FoodItem) -> str | None:
-        small_url = self.get_image_small_url(obj)
-        if small_url:
-            return small_url
+        if _images_ok(obj) and obj.image:
+            return _absolute_file_url(self.context.get("request"), obj.image)
         url = obj.image_url.strip() if obj.image_url else ""
         return url or None
-
-    def get_image_large_url(self, obj: FoodItem) -> str | None:
-        if not _images_ok(obj) or not obj.image_large:
-            return None
-        return _absolute_file_url(self.context.get("request"), obj.image_large)
-
-    def get_image_small_url(self, obj: FoodItem) -> str | None:
-        if not _images_ok(obj) or not obj.image_small:
-            return None
-        return _absolute_file_url(self.context.get("request"), obj.image_small)
 
     def get_images_ok(self, obj: FoodItem) -> bool:
         return _images_ok(obj)
