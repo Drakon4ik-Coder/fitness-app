@@ -153,6 +153,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     await _loadDay();
   }
 
+  void _setTodayDate() {
+    _selectedDate = DateUtils.dateOnly(DateTime.now());
+    _loadDay();
+  }
+
   String _dateLabel() {
     final today = DateUtils.dateOnly(DateTime.now());
     final diff = today.difference(_selectedDate).inDays;
@@ -379,6 +384,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                               ),
                               InkWell(
                                 onTap:() => _pickDate(context),
+                                onDoubleTap:() => _setTodayDate(),
                                 borderRadius: BorderRadius.circular(8),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
