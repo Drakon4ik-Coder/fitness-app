@@ -137,6 +137,22 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _loadDay();
   }
 
+  Future<void> _pickDate(BuildContext context) async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final picker = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: today, 
+    );
+    if (picker == null) return;
+    if (picker == _selectedDate) return;
+    setState(() {
+      _selectedDate = picker;
+    });
+    await _loadDay();
+  }
+
   String _dateLabel() {
     final today = DateUtils.dateOnly(DateTime.now());
     final diff = today.difference(_selectedDate).inDays;
@@ -361,11 +377,21 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                   fontSize: 10,
                                 ),
                               ),
-                              Text(
-                                _dateLabel(),
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  color: LuminaHealthColors.primary,
-                                  fontWeight: FontWeight.bold,
+                              InkWell(
+                                onTap:() => _pickDate(context),
+                                borderRadius: BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.sm,
+                                    vertical: AppSpacing.xs,
+                                  ), 
+                                  child: Text(
+                                    _dateLabel(),
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      color: LuminaHealthColors.primary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
