@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -46,7 +47,8 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final OffClient _offClient;
 
   NutritionDayLog? _dayLog;
-  bool _isLoading = false;
+  Timer? _spinnerTimer;
+  bool _showSpinner = false;
   String? _errorMessage;
 
   @override
@@ -80,6 +82,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
 
   @override
   void dispose() {
+    _spinnerTimer?.cancel();
     if (_ownsLocalDb) {
       _localDb.close();
     }
@@ -87,9 +90,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   Future<void> _loadDay() async {
+    _spinnerTimer?.cancel();
     setState(() {
-      _isLoading = true;
+      _showSpinner = false;
       _errorMessage = null;
+    });
+    _spinnerTimer = Timer(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      setState(() => _showSpinner = true);
     });
     try {
       final dayLog = await _nutritionApi.fetchDay(_selectedDate);
@@ -98,26 +106,24 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       }
       setState(() {
         _dayLog = dayLog;
-        _isLoading = false;
+        _showSpinner = false;
       });
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
         await widget.onLogout();
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _isLoading = false;
-        });
+        if (!mounted) return;
+        setState(() => _showSpinner = false);
         return;
       }
       if (!mounted) {
         return;
       }
       setState(() {
-        _isLoading = false;
+        _showSpinner = false;
         _errorMessage = error.message;
       });
+    } finally {
+      _spinnerTimer?.cancel();
     }
   }
 
@@ -328,8 +334,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
             SafeArea(
               child: CustomScrollView(
                 slivers: [
-                  if (_isLoading)
+                  if (_showSpinner)
                     SliverToBoxAdapter(
+                      key: const Key("nutritionLoadingSpinner"),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.lg,
