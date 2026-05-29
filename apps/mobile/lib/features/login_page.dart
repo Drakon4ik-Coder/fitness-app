@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
@@ -56,6 +57,7 @@ class _LoginPageState extends State<LoginPage> {
         username: _usernameController.text.trim(),
         password: _passwordController.text,
       );
+      TextInput.finishAutofillContext();
       await widget.authStorage.saveTokens(tokens);
       if (!mounted) {
         return;
@@ -106,262 +108,266 @@ class _LoginPageState extends State<LoginPage> {
           ),
           child: Form(
             key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: AppSpacing.lg),
+            child: AutofillGroup(
+                child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: AppSpacing.lg),
 
-                // Brand header
-                Text(
-                  'SYMBIO',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 3,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xxl),
-
-                // Title
-                Text(
-                  'Welcome Back',
-                  style: theme.textTheme.headlineLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-
-                // Subtitle
-                Text(
-                  'Continue your high-performance biometric journey.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
-
-                // Email / Username label
-                Text(
-                  'EMAIL ADDRESS',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    letterSpacing: 1.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                TextFormField(
-                  controller: _usernameController,
-                  textInputAction: TextInputAction.next,
-                  autofillHints: const [AutofillHints.username],
-                  decoration: InputDecoration(
-                    hintText: 'name@example.com',
-                    prefixIcon: Icon(
-                      Icons.alternate_email,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Enter your username.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: AppSpacing.xl),
-
-                // Password label row with forgot password
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'PASSWORD',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        letterSpacing: 1.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // Forgot password action placeholder
-                      },
-                      child: Text(
-                        'FORGOT PASSWORD?',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: colorScheme.primary,
-                          letterSpacing: 1,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _submit(),
-                  autofillHints: const [AutofillHints.password],
-                  decoration: InputDecoration(
-                    hintText: '••••••••',
-                    prefixIcon: Icon(
-                      Icons.lock_outline,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Enter your password.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: AppSpacing.xxl),
-
-                // Login button
-                FilledButton(
-                  onPressed: _isLoading ? null : _submit,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: colorScheme.onPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    textStyle: theme.textTheme.titleSmall?.copyWith(
+                  // Brand header
+                  Text(
+                    'SYMBIO',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: colorScheme.primary,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 2,
+                      letterSpacing: 3,
                     ),
                   ),
-                  child: _isLoading
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: colorScheme.onPrimary,
-                          ),
-                        )
-                      : const Text('LOGIN'),
-                ),
-                const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.xxl),
 
-                // Divider with "OR CONTINUE WITH"
-                Row(
-                  children: [
-                    Expanded(
-                      child: Divider(
-                        color: colorScheme.outline.withValues(alpha: 0.4),
+                  // Title
+                  Text(
+                    'Welcome Back',
+                    style: theme.textTheme.headlineLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+
+                  // Subtitle
+                  Text(
+                    'Continue your high-performance biometric journey.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
+
+                  // Email / Username label
+                  Text(
+                    'USERNAME',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextFormField(
+                    controller: _usernameController,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.username],
+                    decoration: InputDecoration(
+                      labelText: "Username",
+                      hintText: 'Enter your Username',
+                      prefixIcon: Icon(
+                        Icons.alternate_email,
+                        color: colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                      ),
-                      child: Text(
-                        'OR CONTINUE WITH',
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Enter your username.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  // Password label row with forgot password
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'PASSWORD',
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Divider(
-                        color: colorScheme.outline.withValues(alpha: 0.4),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xl),
-
-                // Google login button
-                OutlinedButton.icon(
-                  onPressed: _isLoading ? null : () {},
-                  icon: const Text(
-                    'G',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 18,
-                    ),
-                  ),
-                  label: const Text('GOOGLE'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                    side: BorderSide(
-                      color: colorScheme.outline.withValues(alpha: 0.5),
-                    ),
-                    foregroundColor: colorScheme.onSurface,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    textStyle: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xxl),
-
-                // Footer: New to Symbio?
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'New to Symbio? ',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _isLoading
-                          ? null
-                          : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => RegisterPage(
-                                    authService: widget.authService,
-                                  ),
-                                ),
-                              );
-                            },
-                      child: Text(
-                        'Create account',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.primary,
+                          letterSpacing: 1.5,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      GestureDetector(
+                        onTap: () {
+                          // Forgot password action placeholder
+                        },
+                        child: Text(
+                          'FORGOT PASSWORD?',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.primary,
+                            letterSpacing: 1,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _submit(),
+                    autofillHints: const [AutofillHints.password],
+                    decoration: InputDecoration(
+                      labelText: "Password",
+                      hintText: 'Enter your password',
+                      prefixIcon: Icon(
+                        Icons.lock_outline,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Enter your password.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.xxl),
+
+                  // Login button
+                  FilledButton(
+                    onPressed: _isLoading ? null : _submit,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      backgroundColor: colorScheme.primary,
+                      foregroundColor: colorScheme.onPrimary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      textStyle: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                    child: _isLoading
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.onPrimary,
+                            ),
+                          )
+                        : const Text('LOGIN'),
+                  ),
+                  const SizedBox(height: AppSpacing.xxl),
+
+                  // Divider with "OR CONTINUE WITH"
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Divider(
+                          color: colorScheme.outline.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        child: Text(
+                          'OR CONTINUE WITH',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Divider(
+                          color: colorScheme.outline.withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  // Google login button
+                  OutlinedButton.icon(
+                    onPressed: _isLoading ? null : () {},
+                    icon: const Text(
+                      'G',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
+                      ),
+                    ),
+                    label: const Text('GOOGLE'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      side: BorderSide(
+                        color: colorScheme.outline.withValues(alpha: 0.5),
+                      ),
+                      foregroundColor: colorScheme.onSurface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                      ),
+                      textStyle: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xxl),
+
+                  // Footer: New to Symbio?
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'New to Symbio? ',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _isLoading
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => RegisterPage(
+                                      authService: widget.authService,
+                                    ),
+                                  ),
+                                );
+                              },
+                        child: Text(
+                          'Create account',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: AppSpacing.xl),
+                    InlineBanner(
+                      message: _errorMessage!,
+                      tone: InlineBannerTone.error,
                     ),
                   ],
-                ),
 
-                if (_errorMessage != null) ...[
                   const SizedBox(height: AppSpacing.xl),
-                  InlineBanner(
-                    message: _errorMessage!,
-                    tone: InlineBannerTone.error,
-                  ),
                 ],
-
-                const SizedBox(height: AppSpacing.xl),
-              ],
+              ),
             ),
           ),
         ),
