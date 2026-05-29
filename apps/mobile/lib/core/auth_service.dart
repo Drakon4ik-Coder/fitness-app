@@ -102,11 +102,33 @@ class AuthService {
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
       if (statusCode == 400) {
-        throw AuthException('Please check your details and try again.');
+        final message = _firstErrorMessage(error.response?.data);
+        throw AuthException(message ?? 'Please check your details and try again.');
       }
-      throw AuthException('Unable to register. Please try again.');
+      throw AuthException('Unable to register. Please try again later.');
     } catch (_) {
-      throw AuthException('Unable to register. Please try again.');
+      throw AuthException('Unable to register. Please try again later.');
     }
+  }
+
+  /// Extracts the first field error message from a DRF validation response.
+  ///
+  /// DRF returns errors as `{ "field": ["message", ...], ... }`. We surface the
+  /// first message of the first field so the user sees one specific reason.
+  String? _firstErrorMessage(dynamic data) {
+    if (data is Map) {
+      for (final value in data.values) {
+        if (value is List && value.isNotEmpty) {
+          return value.first.toString();
+        }
+        if (value is String && value.isNotEmpty) {
+          return value;
+        }
+      }
+    }
+    if (data is List && data.isNotEmpty) {
+      return data.first.toString();
+    }
+    return null;
   }
 }
