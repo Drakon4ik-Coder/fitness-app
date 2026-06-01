@@ -1,23 +1,24 @@
 from decimal import Decimal
 
 import pytest
-from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from accounts.models import User
 from foods.models import FoodItem
 from nutrition.models import MealEntry
 
 
 def _auth_client() -> tuple[APIClient, User]:
     user = User.objects.create_user(
-        username="mealuser",
+        email="mealuser@example.com",
         password="Str0ngPass!word",
+        email_verified=True,
     )
     client = APIClient()
     token_response = client.post(
         "/api/v1/auth/token",
-        {"username": user.username, "password": "Str0ngPass!word"},
+        {"email": user.email, "password": "Str0ngPass!word"},
         format="json",
     )
     access_token = token_response.data["access"]

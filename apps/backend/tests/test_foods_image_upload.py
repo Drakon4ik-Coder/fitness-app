@@ -18,13 +18,14 @@ def _make_jpeg(size: tuple[int, int] = (1, 1)) -> bytes:
 
 def _auth_client() -> APIClient:
     user = get_user_model().objects.create_user(
-        username="uploaduser",
+        email="uploaduser@example.com",
         password="Str0ngPass!word",
+        email_verified=True,
     )
     client = APIClient()
     token_response = client.post(
         "/api/v1/auth/token",
-        {"username": user.username, "password": "Str0ngPass!word"},
+        {"email": user.email, "password": "Str0ngPass!word"},
         format="json",
     )
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_response.data['access']}")

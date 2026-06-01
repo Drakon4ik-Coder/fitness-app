@@ -9,13 +9,14 @@ from foods.models import FoodItem
 
 def _auth_client() -> APIClient:
     user = get_user_model().objects.create_user(
-        username="checkuser",
+        email="checkuser@example.com",
         password="Str0ngPass!word",
+        email_verified=True,
     )
     client = APIClient()
     token_response = client.post(
         "/api/v1/auth/token",
-        {"username": user.username, "password": "Str0ngPass!word"},
+        {"email": user.email, "password": "Str0ngPass!word"},
         format="json",
     )
     access_token = token_response.data["access"]

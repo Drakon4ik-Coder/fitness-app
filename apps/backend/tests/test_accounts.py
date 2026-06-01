@@ -10,7 +10,6 @@ from preferences.models import UserPreferences
 def test_register_creates_preferences() -> None:
     client = APIClient()
     payload = {
-        "username": "newuser",
         "password": "Str0ngPass!word",
         "email": "newuser@example.com",
     }
@@ -28,7 +27,6 @@ def test_register_creates_preferences() -> None:
 def test_register_rejects_common_password() -> None:
     client = APIClient()
     payload = {
-        "username": "weakuser",
         "password": "password1",
         "email": "weakuser@example.com",
     }
@@ -43,14 +41,15 @@ def test_register_rejects_common_password() -> None:
 @pytest.mark.integration
 def test_token_and_me_flow() -> None:
     user = get_user_model().objects.create_user(
-        username="alice",
+        email="alice@example.com",
         password="Str0ngPass!word",
+        email_verified=True,
     )
 
     client = APIClient()
     token_response = client.post(
         "/api/v1/auth/token",
-        {"username": user.username, "password": "Str0ngPass!word"},
+        {"email": user.email, "password": "Str0ngPass!word"},
         format="json",
     )
 
@@ -61,7 +60,7 @@ def test_token_and_me_flow() -> None:
     me_response = client.get("/api/v1/auth/me")
 
     assert me_response.status_code == 200
-    assert me_response.data["username"] == user.username
+    assert me_response.data["email"] == user.email
 
 
 @pytest.mark.django_db

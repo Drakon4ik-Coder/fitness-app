@@ -5,10 +5,21 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import AbstractBaseUser
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from preferences.models import UserPreferences
 
 User = get_user_model()
+
+
+class EmailVerifiedTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        if not self.user.email_verified:
+            raise serializers.ValidationError(
+                "Please confirm your email before signing in."
+            )
+        return data
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -26,7 +37,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("id", "username", "email", "password")
+        fields = ("id", "email", "password", "display_name")
+        extra_kwargs = {"display_name": {"required": False}}
 
     def create(self, validated_data: dict[str, Any]) -> AbstractBaseUser:
         password = validated_data.pop("password")
@@ -35,15 +47,10 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return user
 
     def validate_password(self, value: str) -> str:
-        username = self.initial_data.get("username")
-        email = self.initial_data.get("email")
-        user_kwargs = {}
-        username_field = User.USERNAME_FIELD
-        if username:
-            user_kwargs[username_field] = username
-        if email and username_field != "email":
-            user_kwargs["email"] = email
-        user = User(**user_kwargs) if user_kwargs else None
+        user = User(
+            email=self.initial_data.get("email") or "",
+            display_name=self.initial_data.get("display_name") or "",
+        )
         validate_password(value, user=user)
         return value
 
@@ -51,4 +58,4 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "username", "email")
+        fields = ("id", "email", "display_name")
