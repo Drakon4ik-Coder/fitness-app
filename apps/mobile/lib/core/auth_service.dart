@@ -37,14 +37,14 @@ class AuthService {
   final Dio _dio;
 
   Future<AuthTokens> login({
-    required String username,
+    required String email,
     required String password,
   }) async {
     try {
       final response = await _dio.post(
         '/api/v1/auth/token',
         data: {
-          'username': username,
+          'email': email,
           'password': password,
         },
       );
@@ -60,7 +60,10 @@ class AuthService {
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
       if (statusCode == 401 || statusCode == 400) {
-        throw AuthException('Invalid username or password.');
+        // Surfaces server messages such as the email-verification gate,
+        // falling back to a generic credential error.
+        final message = _firstErrorMessage(error.response?.data);
+        throw AuthException(message ?? 'Invalid email or password.');
       }
       throw AuthException('Unable to sign in. Please try again.');
     } catch (_) {
@@ -85,18 +88,18 @@ class AuthService {
   }
 
   Future<void> register({
-    required String username,
+    required String email,
     required String password,
-    String? email,
+    String? displayName,
   }) async {
-    final trimmedEmail = email?.trim() ?? '';
+    final trimmedDisplayName = displayName?.trim() ?? '';
     try {
       await _dio.post(
         '/api/v1/auth/register',
         data: {
-          'username': username,
+          'email': email,
           'password': password,
-          if (trimmedEmail.isNotEmpty) 'email': trimmedEmail,
+          if (trimmedDisplayName.isNotEmpty) 'display_name': trimmedDisplayName,
         },
       );
     } on DioException catch (error) {

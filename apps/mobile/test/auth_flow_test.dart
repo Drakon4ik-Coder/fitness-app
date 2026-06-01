@@ -15,7 +15,7 @@ class FakeAuthService extends AuthService {
 
   @override
   Future<AuthTokens> login({
-    required String username,
+    required String email,
     required String password,
   }) async {
     return tokens;
@@ -45,7 +45,7 @@ void main() {
       ),
     );
 
-    await tester.enterText(find.byType(TextFormField).at(0), 'alice');
+    await tester.enterText(find.byType(TextFormField).at(0), 'alice@example.com');
     await tester.enterText(find.byType(TextFormField).at(1), 'Password123!');
     await tester.tap(find.widgetWithText(FilledButton, 'LOGIN'));
     await tester.pump();

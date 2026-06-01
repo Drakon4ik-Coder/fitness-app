@@ -19,7 +19,7 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _displayNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -29,7 +29,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _displayNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -48,9 +48,9 @@ class _RegisterPageState extends State<RegisterPage> {
 
     try {
       await widget.authService.register(
-        username: _usernameController.text.trim(),
-        password: _passwordController.text,
         email: _emailController.text.trim(),
+        password: _passwordController.text,
+        displayName: _displayNameController.text.trim(),
       );
       TextInput.finishAutofillContext();
       if (!mounted) {
@@ -141,9 +141,9 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
 
-                  // Full Name label
+                  // Display name label (optional)
                   Text(
-                    'USERNAME',
+                    'NAME',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                       letterSpacing: 1.5,
@@ -152,23 +152,17 @@ class _RegisterPageState extends State<RegisterPage> {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   TextFormField(
-                    controller: _usernameController,
+                    controller: _displayNameController,
                     textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.username],
+                    autofillHints: const [AutofillHints.name],
                     decoration: InputDecoration(
-                      labelText: "Username",
-                      hintText: 'Enter your username',
+                      labelText: "Name",
+                      hintText: 'What should we call you? (optional)',
                       prefixIcon: Icon(
                         Icons.person_outline,
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Enter a username.';
-                      }
-                      return null;
-                    },
                   ),
                   const SizedBox(height: AppSpacing.xl),
 
@@ -196,8 +190,8 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return null;
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Enter your email.';
                       }
                       if (!value.contains('@')) {
                         return 'Enter a valid email.';
