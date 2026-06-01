@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -20,6 +22,8 @@ def test_register_creates_preferences() -> None:
     user_id = response.data["id"]
     user = get_user_model().objects.get(id=user_id)
     assert UserPreferences.objects.filter(user=user).exists()
+    # Default display name is "User" + secrets.token_hex(3) (6 hex chars).
+    assert re.fullmatch(r"User[0-9a-f]{6}", user.display_name)
 
 
 @pytest.mark.django_db

@@ -1,3 +1,4 @@
+import secrets
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -37,20 +38,19 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("id", "email", "password", "display_name")
-        extra_kwargs = {"display_name": {"required": False}}
+        fields = ("id", "email", "password")
 
     def create(self, validated_data: dict[str, Any]) -> AbstractBaseUser:
         password = validated_data.pop("password")
         user = User.objects.create_user(password=password, **validated_data)
+        # Default display name until the user sets one (e.g. "User42").
+        user.display_name = f"User{secrets.token_hex(3)}"
+        user.save(update_fields=["display_name"])
         UserPreferences.objects.get_or_create(user=user)
         return user
 
     def validate_password(self, value: str) -> str:
-        user = User(
-            email=self.initial_data.get("email") or "",
-            display_name=self.initial_data.get("display_name") or "",
-        )
+        user = User(email=self.initial_data.get("email") or "")
         validate_password(value, user=user)
         return value
 
