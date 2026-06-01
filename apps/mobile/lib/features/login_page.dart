@@ -27,7 +27,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isLoading = false;
@@ -36,7 +36,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -54,7 +54,7 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final tokens = await widget.authService.login(
-        username: _usernameController.text.trim(),
+        email: _emailController.text.trim(),
         password: _passwordController.text,
       );
       TextInput.finishAutofillContext();
@@ -144,9 +144,9 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
 
-                  // Email / Username label
+                  // Email label
                   Text(
-                    'USERNAME',
+                    'EMAIL',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                       letterSpacing: 1.5,
@@ -155,12 +155,13 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   TextFormField(
-                    controller: _usernameController,
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.username],
+                    autofillHints: const [AutofillHints.email],
                     decoration: InputDecoration(
-                      labelText: "Username",
-                      hintText: 'Enter your Username',
+                      labelText: "E-mail",
+                      hintText: 'Enter your e-mail',
                       prefixIcon: Icon(
                         Icons.alternate_email,
                         color: colorScheme.onSurfaceVariant,
@@ -168,7 +169,10 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
-                        return 'Enter your username.';
+                        return 'Enter your email.';
+                      }
+                      if (!value.contains('@')) {
+                        return 'Enter a valid email.';
                       }
                       return null;
                     },
