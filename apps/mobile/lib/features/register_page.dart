@@ -19,7 +19,6 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _displayNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -29,7 +28,6 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   void dispose() {
-    _displayNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -50,7 +48,6 @@ class _RegisterPageState extends State<RegisterPage> {
       await widget.authService.register(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-        displayName: _displayNameController.text.trim(),
       );
       TextInput.finishAutofillContext();
       if (!mounted) {
@@ -140,31 +137,6 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
-
-                  // Display name label (optional)
-                  Text(
-                    'NAME',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  TextFormField(
-                    controller: _displayNameController,
-                    textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.name],
-                    decoration: InputDecoration(
-                      labelText: "Name",
-                      hintText: 'What should we call you? (optional)',
-                      prefixIcon: Icon(
-                        Icons.person_outline,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
 
                   // Email label
                   Text(

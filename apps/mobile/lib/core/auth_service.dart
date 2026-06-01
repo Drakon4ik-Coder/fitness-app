@@ -90,16 +90,13 @@ class AuthService {
   Future<void> register({
     required String email,
     required String password,
-    String? displayName,
   }) async {
-    final trimmedDisplayName = displayName?.trim() ?? '';
     try {
       await _dio.post(
         '/api/v1/auth/register',
         data: {
           'email': email,
           'password': password,
-          if (trimmedDisplayName.isNotEmpty) 'display_name': trimmedDisplayName,
         },
       );
     } on DioException catch (error) {
