@@ -4,8 +4,17 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
 
-from accounts.serializers import UserRegistrationSerializer, UserSerializer
+from accounts.serializers import (
+    UserRegistrationSerializer,
+    UserSerializer,
+    EmailVerifiedTokenObtainPairSerializer,
+)
+
+
+class EmailVerifiedTokenObtainPairView(TokenObtainPairView):
+    serializer_class = EmailVerifiedTokenObtainPairSerializer
 
 
 class RegisterView(generics.CreateAPIView):

@@ -306,6 +306,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     return AppScaffold(
       safeArea: false,
       padding: EdgeInsets.zero,
+      appBar: AppBar(
+        actions: [
+          IconButton(
+            onPressed: () => widget.onLogout(), 
+            icon: const Icon(Icons.logout) 
+          ),
+        ],
+      ),
       body: Container(
         decoration: BoxDecoration(
           color: scheme.surface,
