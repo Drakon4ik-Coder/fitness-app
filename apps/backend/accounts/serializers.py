@@ -1,4 +1,3 @@
-import secrets
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -7,8 +6,7 @@ from django.contrib.auth.models import AbstractBaseUser
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
-from preferences.models import UserPreferences
+from accounts.services import create_user_with_defaults
 
 User = get_user_model()
 
@@ -41,13 +39,10 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         fields = ("id", "email", "password")
 
     def create(self, validated_data: dict[str, Any]) -> AbstractBaseUser:
-        password = validated_data.pop("password")
-        user = User.objects.create_user(password=password, **validated_data)
-        # Default display name until the user sets one (e.g. "User42").
-        user.display_name = f"User{secrets.token_hex(3)}"
-        user.save(update_fields=["display_name"])
-        UserPreferences.objects.get_or_create(user=user)
-        return user
+        return create_user_with_defaults(
+            email=validated_data["email"],
+            password=validated_data["password"],
+        )
 
     def validate_password(self, value: str) -> str:
         user = User(email=self.initial_data.get("email") or "")
@@ -59,3 +54,12 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ("id", "email", "display_name")
+
+
+class GoogleLoginSerializer(serializers.Serializer):
+    id_token = serializers.CharField()
+
+
+class TokenPairSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
