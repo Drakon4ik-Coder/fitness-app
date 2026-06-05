@@ -141,4 +141,4 @@ if SENTRY_DSN:
         traces_sample_rate=0.1,
     )
 
-GOOGLE_OAUTH_CLIENTS_IDS = env.list("GOOGLE_OAUTH_CLIENTS_IDS", default=[])
+GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
