@@ -65,11 +65,38 @@ class AuthService {
         final message = _firstErrorMessage(error.response?.data);
         throw AuthException(message ?? 'Invalid email or password.');
       }
-      throw AuthException('Unable to sign in. Please try again.');
+      throw AuthException('Unable to sign in. Please try again later.');
     } catch (_) {
-      throw AuthException('Unable to sign in. Please try again.');
+      throw AuthException('Unable to sign in. Please try again later.');
     }
   }
+
+  Future<AuthTokens> googleLogin(String idToken) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/auth/google',
+        data: {'id_token': idToken},
+      );
+      final data = response.data;
+      if (data is Map) {
+        final access = data['access'] as String?;
+        final refresh = data['refresh'] as String?;
+        if (access != null && refresh != null) {
+          return AuthTokens(accessToken: access, refreshToken: refresh);
+        }
+      }
+      throw AuthException('Unexpected response from server.');
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 401) {
+        final message = _firstErrorMessage(error.response?.data);
+        throw AuthException(message ?? 'Google sign-in was rejected.');
+      }
+      throw AuthException('Unable to sign in with Google. Please try again later.');
+    } catch (_) {
+      throw AuthException('Unable to sign in with Google. Please try again later.');
+    }
+  }
+
 
   Future<String> refresh(String refreshToken) async {
     try {

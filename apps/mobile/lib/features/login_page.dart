@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
+import '../core/google_auth_service.dart';
 
 import 'register_page.dart';
 import '../ui_components/ui_components.dart';
@@ -29,6 +30,7 @@ class _LoginPageState extends State<LoginPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final GoogleAuthService _googleAuth = GoogleAuthService();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -77,6 +79,36 @@ class _LoginPageState extends State<LoginPage> {
       }
       setState(() {
         _errorMessage = 'Unable to sign in. Please try again.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _googleSubmit() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final idToken = await _googleAuth.signInAndGetToken();
+      if (idToken == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+      final tokens = await widget.authService.googleLogin(idToken);
+      await widget.authStorage.saveTokens(tokens);
+      if (!mounted) return;
+      widget.onLoggedIn();
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = error.message;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Unable to sign in with Google.';
         _isLoading = false;
       });
     }
@@ -302,7 +334,7 @@ class _LoginPageState extends State<LoginPage> {
 
                   // Google login button
                   OutlinedButton.icon(
-                    onPressed: _isLoading ? null : () {},
+                    onPressed: _isLoading ? null : _googleSubmit,
                     icon: const Text(
                       'G',
                       style: TextStyle(
