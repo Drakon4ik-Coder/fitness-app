@@ -20,7 +20,7 @@ dev-phone:
 dev-local:
 	docker compose up --build -d
 	@echo "Backend: http://localhost:8080"
-	cd $(MOBILE_DIR) && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
+	cd $(MOBILE_DIR) && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080 --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
 
 up:
 	docker compose up --build -d
