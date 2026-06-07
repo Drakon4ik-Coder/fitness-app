@@ -84,4 +84,4 @@ jobs:
         run: poetry run mypy .
       - name: Test
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
-        run: poetry run pytest --maxfail=1 --disable-warnings -q
+        run: poetry run pytest --ds=config.settings.test --maxfail=1 --disable-warnings -q
