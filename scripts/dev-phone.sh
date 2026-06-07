@@ -129,7 +129,7 @@ done
 # Routes the phone's localhost:8080 to this PC's backend via adb, so the app
 # works even when the WiFi router isolates clients (no LAN route to the PC).
 echo "🔌 Setting up adb reverse tunnel (localhost:8080 → PC:8080)..."
-adb reverse tcp:8080 tcp:8080
+$ADB reverse tcp:8080 tcp:8080
 
 # ---------- run Flutter ----------
 echo "🚀 Launching Flutter app → API at http://localhost:8080 (via adb)"
