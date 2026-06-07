@@ -216,6 +216,54 @@ class FoodLocalDb {
     );
   }
 
+  // Column definitions for the `foods` table, shared between onCreate and the
+  // v3 migration rebuild so the two schemas can never drift apart.
+  static const String _foodsColumnsDdl = '''
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backend_id INTEGER,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    barcode TEXT,
+    name TEXT NOT NULL,
+    brands TEXT NOT NULL,
+    image_url TEXT,
+    image_signature TEXT,
+    content_hash TEXT,
+    kcal_100g REAL,
+    protein_g_100g REAL,
+    carbs_g_100g REAL,
+    fat_g_100g REAL,
+    sugars_g_100g REAL,
+    fiber_g_100g REAL,
+    salt_g_100g REAL,
+    serving_size_g REAL,
+    raw_source_json TEXT NOT NULL,
+    nutriments_json TEXT,
+    last_used_at TEXT,
+    is_favorite INTEGER NOT NULL DEFAULT 0
+  ''';
+
+  // The same columns as a comma-separated list for INSERT ... SELECT copies.
+  static const String _foodsColumnList =
+      'id, backend_id, source, external_id, barcode, name, brands, '
+      'image_url, image_signature, content_hash, kcal_100g, protein_g_100g, '
+      'carbs_g_100g, fat_g_100g, sugars_g_100g, fiber_g_100g, salt_g_100g, '
+      'serving_size_g, raw_source_json, nutriments_json, last_used_at, '
+      'is_favorite';
+
+  Future<void> _createIndexes(DatabaseExecutor db) async {
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_foods_source_external_id ON foods(source, external_id)',
+    );
+    await db.execute('CREATE INDEX idx_foods_name ON foods(name)');
+    await db.execute(
+      'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
+    );
+  }
+
   Future<Database> _openDatabase() async {
     final directory = await getApplicationDocumentsDirectory();
     final path = '${directory.path}/foods.db';
@@ -223,44 +271,8 @@ class FoodLocalDb {
       path,
       version: 3,
       onCreate: (db, version) async {
-        await db.execute(
-          '''
-          CREATE TABLE foods (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            backend_id INTEGER,
-            source TEXT NOT NULL,
-            external_id TEXT NOT NULL,
-            barcode TEXT,
-            name TEXT NOT NULL,
-            brands TEXT NOT NULL,
-            image_url TEXT,
-            image_signature TEXT,
-            content_hash TEXT,
-            kcal_100g REAL,
-            protein_g_100g REAL,
-            carbs_g_100g REAL,
-            fat_g_100g REAL,
-            sugars_g_100g REAL,
-            fiber_g_100g REAL,
-            salt_g_100g REAL,
-            serving_size_g REAL,
-            raw_source_json TEXT NOT NULL,
-            nutriments_json TEXT,
-            last_used_at TEXT,
-            is_favorite INTEGER NOT NULL DEFAULT 0
-          )
-          ''',
-        );
-        await db.execute(
-          'CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)',
-        );
-        await db.execute(
-          'CREATE UNIQUE INDEX idx_foods_source_external_id ON foods(source, external_id)',
-        );
-        await db.execute('CREATE INDEX idx_foods_name ON foods(name)');
-        await db.execute(
-          'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
-        );
+        await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
+        await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -274,12 +286,20 @@ class FoodLocalDb {
           await db.execute('ALTER TABLE foods ADD COLUMN content_hash TEXT');
         }
         if (oldVersion < 3) {
+          // Drop the now-unused off_image_* columns. ALTER TABLE DROP COLUMN
+          // requires SQLite >= 3.35.0, which is newer than the platform SQLite
+          // on many shipping Android/iOS versions, so rebuild the table instead
+          // (the portable approach that works on every SQLite version).
+          // onUpgrade already runs inside a transaction, so these statements
+          // are applied atomically without an explicit nested transaction.
+          await db.execute('CREATE TABLE foods_new ($_foodsColumnsDdl)');
           await db.execute(
-            'ALTER TABLE foods DROP COLUMN off_image_large_url',
+            'INSERT INTO foods_new ($_foodsColumnList) '
+            'SELECT $_foodsColumnList FROM foods',
           );
-          await db.execute(
-            'ALTER TABLE foods DROP COLUMN off_image_small_url',
-          );
+          await db.execute('DROP TABLE foods');
+          await db.execute('ALTER TABLE foods_new RENAME TO foods');
+          await _createIndexes(db);
         }
       },
     );

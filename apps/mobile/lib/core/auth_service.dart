@@ -111,6 +111,8 @@ class AuthService {
       throw AuthException('Unexpected response from server.');
     } on DioException {
       throw AuthException('Session expired. Please sign in again.');
+    } catch (_) {
+      throw AuthException('Session expired. Please sign in again.');
     }
   }
 
