@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from google.auth import exceptions as google_exceptions
 from rest_framework.test import APIClient
 
 from accounts.services import create_user_with_defaults
@@ -77,3 +78,26 @@ def test_google_login_rejects_invalid_token() -> None:
     with patch(VERIFY, side_effect=ValueError("bad signature")):
         response = APIClient().post(URL, {"id_token": "x"}, format="json")
     assert response.status_code == 401
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_google_login_rejects_untrusted_issuer() -> None:
+    # verify_oauth2_token raises GoogleAuthError (not ValueError) when the
+    # token is validly signed but minted by a non-Google issuer.
+    err = google_exceptions.GoogleAuthError("Wrong issuer.")
+    with patch(VERIFY, side_effect=err):
+        response = APIClient().post(URL, {"id_token": "x"}, format="json")
+    assert response.status_code == 401
+    assert get_user_model().objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_google_login_handles_transport_error() -> None:
+    # A failure reaching Google for signing certs is transient, not a bad
+    # token, so it surfaces as 503 rather than a misleading 401.
+    err = google_exceptions.TransportError("cert fetch failed")
+    with patch(VERIFY, side_effect=err):
+        response = APIClient().post(URL, {"id_token": "x"}, format="json")
+    assert response.status_code == 503

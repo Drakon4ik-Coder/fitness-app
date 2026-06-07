@@ -8,6 +8,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
+from google.auth import exceptions as google_exceptions
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
@@ -39,7 +41,16 @@ class GoogleLoginView(APIView):
                 google_requests.Request(),
                 clock_skew_in_seconds=10,
             )
-        except ValueError:
+        except google_exceptions.TransportError:
+            # Couldn't reach Google to fetch signing certs — transient and
+            # not the caller's fault, so don't brand the token as invalid.
+            return Response(
+                {"detail": "Could not verify Google token, try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except (ValueError, google_exceptions.GoogleAuthError):
+            # Bad signature/expiry/audience (ValueError) or an untrusted
+            # issuer (GoogleAuthError) — reject as an invalid token.
             return Response(
                 {"detail": "Invalid Google token."},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -61,14 +72,25 @@ class GoogleLoginView(APIView):
         email = claims["email"].lower()
         user = User.objects.filter(email__iexact=email).first()
         if user is None:
-            user = create_user_with_defaults(
-                email=email,
-                display_name=claims.get("name"),
-                email_verified=True,
-            )
-        elif (
-            not user.email_verified
-        ):  # If email is in use - let user in and verify his email
+            try:
+                user = create_user_with_defaults(
+                    email=email,
+                    display_name=claims.get("name"),
+                    email_verified=True,
+                )
+            except IntegrityError:
+                # A concurrent login created this user between our lookup
+                # and insert; reuse the row that request committed.
+                user = User.objects.filter(email__iexact=email).first()
+                if user is None:
+                    # The conflicting insert didn't ultimately commit.
+                    return Response(
+                        {"detail": "Could not complete sign-in, try again."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+        # If the email is already in use, let the user in and verify it.
+        if not user.email_verified:
             user.email_verified = True
             user.save(update_fields=["email_verified"])
 
