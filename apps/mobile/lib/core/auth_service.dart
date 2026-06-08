@@ -10,9 +10,13 @@ class AuthTokens {
 }
 
 class AuthException implements Exception {
-  AuthException(this.message);
+  AuthException(this.message, {this.emailUnverified = false});
 
   final String message;
+
+  /// True when sign-in was rejected because the email isn't verified yet, so
+  /// the UI can offer to resend the verification link.
+  final bool emailUnverified;
 
   @override
   String toString() => message;
@@ -63,11 +67,32 @@ class AuthService {
         // Surfaces server messages such as the email-verification gate,
         // falling back to a generic credential error.
         final message = _firstErrorMessage(error.response?.data);
-        throw AuthException(message ?? 'Invalid email or password.');
+        final unverified = statusCode == 400 &&
+            (message?.toLowerCase().contains('confirm your email') ?? false);
+        throw AuthException(
+          message ?? 'Invalid email or password.',
+          emailUnverified: unverified,
+        );
       }
       throw AuthException('Unable to sign in. Please try again later.');
     } catch (_) {
       throw AuthException('Unable to sign in. Please try again later.');
+    }
+  }
+
+  /// Asks the backend to email a fresh verification link. The endpoint always
+  /// succeeds (it won't reveal whether the account exists), so this only throws
+  /// on a network/server failure.
+  Future<void> resendVerification(String email) async {
+    try {
+      await _dio.post(
+        '/api/v1/auth/resend-verification',
+        data: {'email': email},
+      );
+    } on DioException {
+      throw AuthException('Could not resend the email. Please try again later.');
+    } catch (_) {
+      throw AuthException('Could not resend the email. Please try again later.');
     }
   }
 

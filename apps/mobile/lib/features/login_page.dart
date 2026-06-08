@@ -33,8 +33,10 @@ class _LoginPageState extends State<LoginPage> {
   final GoogleAuthService _googleAuth = GoogleAuthService();
 
   bool _isLoading = false;
+  bool _isResending = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+  bool _showResend = false;
 
   @override
   void dispose() {
@@ -52,6 +54,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _showResend = false;
     });
 
     try {
@@ -71,6 +74,7 @@ class _LoginPageState extends State<LoginPage> {
       }
       setState(() {
         _errorMessage = error.message;
+        _showResend = error.emailUnverified;
         _isLoading = false;
       });
     } catch (_) {
@@ -84,10 +88,42 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _resendVerification() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      return;
+    }
+
+    setState(() => _isResending = true);
+    try {
+      await widget.authService.resendVerification(email);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Verification email sent. Check your inbox.'),
+        ),
+      );
+    } on AuthException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isResending = false);
+      }
+    }
+  }
+
   Future<void> _googleSubmit() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _showResend = false;
     });
     try {
       final idToken = await _googleAuth.signInAndGetToken();
@@ -399,6 +435,22 @@ class _LoginPageState extends State<LoginPage> {
                       message: _errorMessage!,
                       tone: InlineBannerTone.error,
                     ),
+                    if (_showResend) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      TextButton(
+                        onPressed: _isResending ? null : _resendVerification,
+                        child: _isResending
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: colorScheme.primary,
+                                ),
+                              )
+                            : const Text('Resend verification email'),
+                      ),
+                    ],
                   ],
 
                   const SizedBox(height: AppSpacing.xl),
