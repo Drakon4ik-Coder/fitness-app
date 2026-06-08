@@ -1,6 +1,11 @@
+import hashlib
+import secrets
+
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -55,3 +60,36 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.email
+
+
+class EmailVerificationToken(models.Model):
+    """Single-use, expiring token backing the email-verification link.
+
+    Only the SHA-256 hash of the token is stored, so a database leak does not
+    expose live links. The raw token travels only in the emailed URL.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="verification_tokens"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    @staticmethod
+    def hash_token(raw: str) -> str:
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    @classmethod
+    def issue(cls, user: "User") -> str:
+        """Create a token for ``user`` and return the raw value for the URL."""
+        raw = secrets.token_urlsafe(32)
+        cls.objects.create(user=user, token_hash=cls.hash_token(raw))
+        return raw
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.created_at + settings.EMAIL_VERIFICATION_TTL
+
+    def __str__(self) -> str:
+        return f"verification for {self.user.email}"

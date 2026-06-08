@@ -1,0 +1,7 @@
+Welcome to Symbio!
+
+Please confirm your email address by opening the link below:
+
+{{ verify_url }}
+
+If you didn't create a Symbio account, you can ignore this email.

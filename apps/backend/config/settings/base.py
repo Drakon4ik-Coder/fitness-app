@@ -142,3 +142,31 @@ if SENTRY_DSN:
     )
 
 GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
+
+# Email
+# Local/dev defaults to the console backend (emails print to the runserver
+# logs). Prod overrides EMAIL_BACKEND to SMTP via env. The same env vars work
+# for Gmail (smtp.gmail.com + App Password) or any custom-domain SMTP provider,
+# so switching senders later is an env change with no code change.
+# EMAIL_BACKEND = env(
+#     "EMAIL_BACKEND",
+#     default="django.core.mail.backends.console.EmailBackend",
+# )
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env(
+    "DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@drakon4ik.uk"
+)
+
+# How long an emailed verification link stays valid.
+EMAIL_VERIFICATION_TTL = timedelta(
+    hours=env.int("EMAIL_VERIFICATION_TTL_HOURS", default=24)
+)
+
+# Absolute base URL used to build verification links in emails. When empty we
+# fall back to the host of the incoming request (correct in prod behind the
+# public domain; fine in dev with the console email backend).
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="").rstrip("/")

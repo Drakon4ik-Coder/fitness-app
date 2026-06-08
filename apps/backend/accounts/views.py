@@ -1,26 +1,37 @@
+import logging
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods
 from google.auth import exceptions as google_exceptions
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
+from accounts.models import EmailVerificationToken
 from accounts.serializers import (
     UserRegistrationSerializer,
     UserSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
+    ResendVerificationSerializer,
     TokenPairSerializer,
 )
-from accounts.services import create_user_with_defaults
+from accounts.services import create_user_with_defaults, send_verification_email
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -106,6 +117,77 @@ class EmailVerifiedTokenObtainPairView(TokenObtainPairView):
 class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [AllowAny]
+
+    def perform_create(self, serializer: BaseSerializer) -> None:
+        user = serializer.save()
+        try:
+            send_verification_email(user, request=self.request)
+        except Exception:
+            # The account exists; a failed send shouldn't 500 the signup. The
+            # user can request a fresh link via the resend endpoint.
+            logger.exception("Failed to send verification email to %s", user.email)
+
+
+@require_http_methods(["GET", "POST"])
+def verify_email(request: HttpRequest, token: str) -> HttpResponse:
+    """Landing page the emailed link points to.
+
+    A GET only shows a confirmation page; the email is verified on POST (when
+    the user clicks the button). This keeps email security scanners, which
+    pre-fetch links with GET, from silently consuming the token.
+    """
+    token_obj = (
+        EmailVerificationToken.objects.select_related("user")
+        .filter(token_hash=EmailVerificationToken.hash_token(token))
+        .first()
+    )
+
+    if token_obj is None:
+        return _verification_result(request, "invalid")
+    if token_obj.used_at is not None:
+        # Already consumed by an earlier confirmation; the email is verified.
+        return _verification_result(request, "already")
+    if token_obj.is_expired:
+        return _verification_result(request, "expired")
+
+    if request.method == "GET":
+        return render(request, "accounts/verification_confirm.html")
+
+    # POST: the user explicitly confirmed.
+    user = token_obj.user
+    if not user.email_verified:
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+    token_obj.used_at = timezone.now()
+    token_obj.save(update_fields=["used_at"])
+    return _verification_result(request, "success")
+
+
+def _verification_result(request: HttpRequest, result: str) -> HttpResponse:
+    return render(request, "accounts/verification_result.html", {"result": result})
+
+
+class ResendVerificationView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(request=ResendVerificationSerializer, responses=None)
+    def post(self, request: Request) -> Response:
+        body = ResendVerificationSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        email = body.validated_data["email"].lower()
+
+        user = User.objects.filter(email__iexact=email).first()
+        if user is not None and not user.email_verified:
+            try:
+                send_verification_email(user, request=request)
+            except Exception:
+                logger.exception("Failed to resend verification email to %s", email)
+
+        # Always 200, regardless of whether the email exists or is already
+        # verified, so the endpoint can't be used to enumerate accounts.
+        return Response(
+            {"detail": "If that email needs verifying, a link is on its way."}
+        )
 
 
 class MeView(APIView):

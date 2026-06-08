@@ -45,17 +45,21 @@ class _RegisterPageState extends State<RegisterPage> {
     });
 
     try {
+      final email = _emailController.text.trim();
       await widget.authService.register(
-        email: _emailController.text.trim(),
+        email: email,
         password: _passwordController.text,
       );
       TextInput.finishAutofillContext();
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created. Please sign in.')),
-      );
+      // Block on an explicit acknowledgement so the user can't miss the
+      // verification step before being returned to the login screen.
+      await _showVerifyEmailDialog(email);
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pop();
     } on AuthException catch (error) {
       if (!mounted) {
@@ -74,6 +78,34 @@ class _RegisterPageState extends State<RegisterPage> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _showVerifyEmailDialog(String email) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final dialogTheme = Theme.of(dialogContext);
+        return AlertDialog(
+          icon: Icon(
+            Icons.mark_email_unread_outlined,
+            color: dialogTheme.colorScheme.primary,
+          ),
+          title: const Text('Verify your email'),
+          content: Text(
+            'We sent a verification link to $email.\n\n'
+            'Open it to confirm your account, then sign in.',
+            style: dialogTheme.textTheme.bodyMedium,
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Got it'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
