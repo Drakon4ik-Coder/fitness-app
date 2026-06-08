@@ -1,7 +1,7 @@
 BACKEND_DIR := apps/backend
 MOBILE_DIR := apps/mobile
 
-.PHONY: up migrate shell test test-docker build-prod fmt lint check \
+.PHONY: up migrate shell clean-db test test-docker build-prod fmt lint check \
 	check-backend check-mobile fmt-backend fmt-mobile lint-backend lint-mobile \
 	typecheck-backend test-backend test-mobile backend-contract backend-install \
 	dev-phone dev-local
@@ -30,6 +30,11 @@ migrate:
 
 shell:
 	docker compose exec backend python manage.py shell
+
+# Wipe ALL rows from every table (keeps schema/migrations). Irreversible.
+clean-db:
+	docker compose exec backend python manage.py flush --no-input
+	@echo "Database data cleared."
 
 check:
 	@echo "==> check"
