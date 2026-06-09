@@ -18,10 +18,7 @@ A monorepo pairing a **Flutter** mobile client with a **Django / DRF** backend. 
 
 <div align="center">
 
-<!-- TODO: replace with the real demo GIF -->
-<!-- ![Fitness App demo](docs/assets/demo.gif) -->
-
-> **Demo coming soon** — drop a GIF at `docs/assets/demo.gif` and swap in the line above.
+<img src="docs/assets/demo.gif" alt="Fitness App demo" width="320" />
 
 </div>
 
