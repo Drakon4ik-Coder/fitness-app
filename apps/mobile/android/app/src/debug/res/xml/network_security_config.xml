@@ -5,6 +5,17 @@
         This config lives in the debug source set, so release and profile
         builds never reference it and reject all cleartext traffic.
     -->
+    <!--
+        Trust user-installed CAs (in addition to system CAs) so developers can
+        inspect HTTPS traffic with a proxy like mitmproxy/Charles/Proxyman.
+        Debug-only: release builds keep Android's default of system CAs only.
+    -->
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
