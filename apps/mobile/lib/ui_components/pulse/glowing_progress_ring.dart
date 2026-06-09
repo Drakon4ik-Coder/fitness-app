@@ -42,7 +42,7 @@ class GlowingProgressRing extends StatelessWidget {
       painter: _GlowingProgressRingPainter(
         progress: effectiveProgress,
         thickness: thickness,
-        trackColor: trackColor ?? scheme.surfaceContainerHigh,
+        trackColor: trackColor ?? effects.ringTrackColor,
         progressColor: progressColor ?? scheme.primary,
         glowColor: glowColor ?? progressColor ?? scheme.primary,
         glowSigma: glowSigma,

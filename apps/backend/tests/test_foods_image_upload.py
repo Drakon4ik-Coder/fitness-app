@@ -169,6 +169,35 @@ def test_upload_oversize_rejected(tmp_path) -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_upload_oversize_signature_rejected(tmp_path) -> None:
+    client = _auth_client()
+    item = _create_food_item()
+    jpeg = _make_jpeg()
+    max_len = FoodItem._meta.get_field("image_signature").max_length
+    assert max_len is not None
+    oversize_sig = "a" * (max_len + 1)
+
+    with override_settings(MEDIA_ROOT=tmp_path):
+        response = client.post(
+            f"/api/v1/foods/{item.pk}/images",
+            {
+                "image": SimpleUploadedFile(
+                    "image.jpg", jpeg, content_type="image/jpeg"
+                ),
+                "image_signature": oversize_sig,
+            },
+            format="multipart",
+        )
+
+    # Oversized signature is a client error, not an unhandled 500 from the DB.
+    assert response.status_code == 400
+    assert "image_signature" in response.data["detail"]
+    item.refresh_from_db()
+    assert item.image_signature is None  # nothing persisted
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_upload_wrong_content_type_rejected(tmp_path) -> None:
     client = _auth_client()
     item = _create_food_item()

@@ -109,6 +109,21 @@ class FoodImageUploadView(APIView):
 
             incoming_sig = (request.data.get("image_signature") or "").strip() or None
 
+            max_sig_len = FoodItem._meta.get_field("image_signature").max_length
+            if (
+                incoming_sig is not None
+                and max_sig_len is not None
+                and len(incoming_sig) > max_sig_len
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            f"image_signature must be at most {max_sig_len} characters."
+                        )
+                    },
+                    status=400,
+                )
+
             if images_ok(item) and incoming_sig == item.image_signature:
                 return Response(
                     FoodItemSerializer(item, context={"request": request}).data
