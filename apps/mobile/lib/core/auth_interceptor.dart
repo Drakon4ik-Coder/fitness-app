@@ -74,8 +74,8 @@ class AuthInterceptor extends Interceptor {
     if (refreshToken == null) return null;
     try {
       final access = await _authService.refresh(refreshToken);
-      _accessToken = access;
       await _storage.saveAccessToken(access);
+      _accessToken = access;
       for (final d in _dios) {
         d.options.headers['Authorization'] = 'Bearer $access';
       }

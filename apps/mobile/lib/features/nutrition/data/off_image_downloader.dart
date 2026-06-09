@@ -20,6 +20,8 @@ class OffImageDownloader {
               'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
             },
             responseType: ResponseType.bytes,
+            connectTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 20),
           ),
         );
 
