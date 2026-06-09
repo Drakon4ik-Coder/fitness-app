@@ -57,6 +57,26 @@ def test_google_login_links_existing_account() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_google_login_rejects_deactivated_account() -> None:
+    # A disabled account must not be able to sign in via Google, mirroring the
+    # is_active check the password flow gets through authenticate().
+    user = create_user_with_defaults(
+        email="disabled@example.com",
+        password="Str0ngPass!word",
+        email_verified=True,
+    )
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+
+    with patch(VERIFY, return_value=_claims(email="disabled@example.com")):
+        response = APIClient().post(URL, {"id_token": "x"}, format="json")
+
+    assert response.status_code == 401
+    assert "access" not in response.data
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_google_login_rejects_unverified_email() -> None:
     with patch(VERIFY, return_value=_claims(email_verified=False)):
         response = APIClient().post(URL, {"id_token": "x"}, format="json")

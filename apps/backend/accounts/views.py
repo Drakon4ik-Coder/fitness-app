@@ -100,6 +100,14 @@ class GoogleLoginView(APIView):
                         status=status.HTTP_409_CONFLICT,
                     )
 
+        # Deactivated accounts must not be able to sign in, mirroring the
+        # is_active check the password flow gets for free via authenticate().
+        if not user.is_active:
+            return Response(
+                {"detail": "This account is disabled."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
         # If the email is already in use, let the user in and verify it.
         if not user.email_verified:
             user.email_verified = True
