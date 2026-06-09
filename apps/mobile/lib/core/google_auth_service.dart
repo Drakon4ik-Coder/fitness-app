@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'auth_service.dart';
 import 'environment.dart';
 
 
@@ -23,7 +24,14 @@ class GoogleAuthService {
       final account = await GoogleSignIn.instance.authenticate(
         scopeHint: const ['email', 'profile'],
       );
-      return account.authentication.idToken;
+      final idToken = account.authentication.idToken;
+      if (idToken == null) {
+        // Sign-in succeeded but no ID token came back
+        throw AuthException(
+          'Google sign-in did not return a token. Please try again.',
+        );
+      }
+      return idToken;
     } on GoogleSignInException catch (e) {
       // User exited - not an error
       if (e.code == GoogleSignInExceptionCode.canceled) {

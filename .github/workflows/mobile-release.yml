@@ -17,12 +17,15 @@
 name: Mobile Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Mobile CI"]
     branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   release:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

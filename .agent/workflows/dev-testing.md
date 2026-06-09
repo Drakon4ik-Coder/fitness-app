@@ -6,7 +6,7 @@ description: How to test the app on PC (localhost) and on a physical phone via w
 
 ## Option A — PC only (emulator or Chrome)
 
-// turbo
+<!-- turbo -->
 1. Start backend services:
 ```bash
 make up
@@ -60,7 +60,7 @@ make dev-local
 
 ### Daily testing
 
-// turbo
+<!-- turbo -->
 Run the all-in-one script (auto-discovers phone via mDNS, falls back to interactive prompt):
 ```bash
 make dev-phone
@@ -75,7 +75,7 @@ This will:
 
 ### Manual steps (if you prefer)
 
-// turbo
+<!-- turbo -->
 1. Start backend:
 ```bash
 make up
