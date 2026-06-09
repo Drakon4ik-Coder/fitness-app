@@ -4,6 +4,7 @@ import pytest
 from django.core import mail
 from django.contrib.auth import get_user_model
 from django.test import Client
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import EmailVerificationToken
@@ -159,6 +160,68 @@ def test_confirming_verification_link_verifies_user_then_token_works() -> None:
         format="json",
     )
     assert token_response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_confirming_verification_link_is_single_use() -> None:
+    # The token consumption is an atomic conditional UPDATE, so a second
+    # confirmation (e.g. a concurrent click) must not re-consume the token.
+    user = get_user_model().objects.create_user(
+        email="single@example.com", password="Str0ngPass!word"
+    )
+    raw_token = EmailVerificationToken.issue(user)
+    client = APIClient()
+
+    first = client.post(f"/api/v1/auth/verify/{raw_token}")
+    assert first.status_code == 200
+    assert first.context["result"] == "success"
+    first_used_at = EmailVerificationToken.objects.get(user=user).used_at
+    assert first_used_at is not None
+
+    second = client.post(f"/api/v1/auth/verify/{raw_token}")
+    assert second.status_code == 200
+    assert second.context["result"] == "already"
+    # used_at is untouched by the losing confirmation.
+    assert EmailVerificationToken.objects.get(user=user).used_at == first_used_at
+
+
+@pytest.mark.django_db
+def test_concurrent_confirmation_loses_the_race(monkeypatch) -> None:
+    # The test DB is SQLite :memory:, which can't reproduce real row-level
+    # concurrency, so we inject the race deterministically: a second request
+    # consumes the token AFTER this request passed the "used_at is None" guard
+    # but BEFORE it issues its own claim. The fixed view claims with a
+    # conditional UPDATE (WHERE used_at IS NULL), so it must lose and render
+    # "already". A read-modify-write implementation would blindly overwrite
+    # used_at and render "success", failing this test.
+    from accounts import views
+
+    user = get_user_model().objects.create_user(
+        email="interleave@example.com", password="Str0ngPass!word"
+    )
+    raw_token = EmailVerificationToken.issue(user)
+    pk = EmailVerificationToken.objects.get(user=user).pk
+    client = APIClient()
+
+    real_now = timezone.now
+
+    def consume_mid_flight():
+        # Stand-in for the winning concurrent request. timezone.now() is first
+        # called as the view builds its claim, i.e. right after the guard —
+        # exactly the window where the race occurs.
+        monkeypatch.setattr(views.timezone, "now", real_now)  # inject once
+        EmailVerificationToken.objects.filter(pk=pk, used_at__isnull=True).update(
+            used_at=real_now()
+        )
+        return real_now()
+
+    monkeypatch.setattr(views.timezone, "now", consume_mid_flight)
+
+    response = client.post(f"/api/v1/auth/verify/{raw_token}")
+
+    assert response.status_code == 200
+    assert response.context["result"] == "already"
 
 
 @pytest.mark.django_db

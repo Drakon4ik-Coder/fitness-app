@@ -161,13 +161,20 @@ def verify_email(request: HttpRequest, token: str) -> HttpResponse:
     if request.method == "GET":
         return render(request, "accounts/verification_confirm.html")
 
-    # POST: the user explicitly confirmed.
+    # POST: the user explicitly confirmed. Consume the token with a single
+    # conditional UPDATE so concurrent confirmations can't both succeed: only
+    # the request that flips used_at from NULL wins and verifies the email.
+    claimed = EmailVerificationToken.objects.filter(
+        pk=token_obj.pk, used_at__isnull=True
+    ).update(used_at=timezone.now())
+    if not claimed:
+        # Another concurrent confirmation consumed the token first.
+        return _verification_result(request, "already")
+
     user = token_obj.user
     if not user.email_verified:
         user.email_verified = True
         user.save(update_fields=["email_verified"])
-    token_obj.used_at = timezone.now()
-    token_obj.save(update_fields=["used_at"])
     return _verification_result(request, "success")
 
 
