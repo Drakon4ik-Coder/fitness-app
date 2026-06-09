@@ -367,3 +367,140 @@ def test_resend_verification_is_rate_limited(monkeypatch) -> None:
         format="json",
     )
     assert throttled.status_code == 429
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_login_is_rate_limited(monkeypatch) -> None:
+    # Anonymous login must be throttled so it can't be used for credential
+    # brute-force / password-spraying. Every attempt counts, success or not.
+    from django.core.cache import cache
+    from rest_framework.throttling import ScopedRateThrottle
+
+    get_user_model().objects.create_user(
+        email="alice@example.com",
+        password="Str0ngPass!word",
+        email_verified=True,
+    )
+    cache.clear()
+    monkeypatch.setattr(ScopedRateThrottle, "THROTTLE_RATES", {"login": "2/min"})
+    client = APIClient()
+    payload = {"email": "alice@example.com", "password": "Str0ngPass!word"}
+
+    for _ in range(2):
+        assert (
+            client.post("/api/v1/auth/token", payload, format="json").status_code == 200
+        )
+
+    throttled = client.post("/api/v1/auth/token", payload, format="json")
+    assert throttled.status_code == 429
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_register_is_rate_limited(monkeypatch) -> None:
+    # Anonymous registration sends an email per call, so it must be throttled
+    # to block signup spam / mail-provider cost abuse.
+    from django.core.cache import cache
+    from rest_framework.throttling import ScopedRateThrottle
+
+    cache.clear()
+    monkeypatch.setattr(ScopedRateThrottle, "THROTTLE_RATES", {"register": "2/hour"})
+    client = APIClient()
+
+    for i in range(2):
+        response = client.post(
+            "/api/v1/auth/register",
+            {"email": f"new{i}@example.com", "password": "Str0ngPass!word"},
+            format="json",
+        )
+        assert response.status_code == 201
+
+    throttled = client.post(
+        "/api/v1/auth/register",
+        {"email": "new2@example.com", "password": "Str0ngPass!word"},
+        format="json",
+    )
+    assert throttled.status_code == 429
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_global_anon_throttle_limits_unauthenticated_requests(monkeypatch) -> None:
+    # The global AnonRateThrottle covers every DRF view that doesn't set its
+    # own scope. /refresh is anonymous and uses the default, so use it to
+    # prove the baseline bites by client IP.
+    from django.core.cache import cache
+    from rest_framework.throttling import AnonRateThrottle
+
+    cache.clear()
+    monkeypatch.setattr(AnonRateThrottle, "THROTTLE_RATES", {"anon": "2/min"})
+    client = APIClient()
+
+    for _ in range(2):
+        # Bad token => 401, but the throttle still counts the attempt.
+        assert (
+            client.post(
+                "/api/v1/auth/refresh", {"refresh": "nope"}, format="json"
+            ).status_code
+            != 429
+        )
+
+    throttled = client.post("/api/v1/auth/refresh", {"refresh": "nope"}, format="json")
+    assert throttled.status_code == 429
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_global_user_throttle_limits_authenticated_requests(monkeypatch) -> None:
+    # The global UserRateThrottle caps requests per account across every
+    # authenticated DRF view. /me uses the default, so use it to prove the
+    # baseline bites per user.
+    from django.core.cache import cache
+    from rest_framework.throttling import UserRateThrottle
+
+    user = get_user_model().objects.create_user(
+        email="busy@example.com",
+        password="Str0ngPass!word",
+        email_verified=True,
+    )
+    cache.clear()
+    monkeypatch.setattr(UserRateThrottle, "THROTTLE_RATES", {"user": "2/min"})
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    for _ in range(2):
+        assert client.get("/api/v1/auth/me").status_code == 200
+
+    assert client.get("/api/v1/auth/me").status_code == 429
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_anon_throttle_keys_on_cloudflare_client_ip(settings, monkeypatch) -> None:
+    # Behind a Cloudflare Tunnel, REMOTE_ADDR is the tunnel's address for every
+    # request, so the throttle must instead key on CF-Connecting-IP — otherwise
+    # all visitors share one bucket. Prove distinct client IPs get distinct
+    # buckets when the Tunnel mode is enabled.
+    from django.core.cache import cache
+    from rest_framework.throttling import AnonRateThrottle
+
+    settings.USE_CLOUDFLARE_CLIENT_IP = True
+    cache.clear()
+    monkeypatch.setattr(AnonRateThrottle, "THROTTLE_RATES", {"anon": "1/min"})
+    client = APIClient()
+
+    def refresh(client_ip: str):
+        return client.post(
+            "/api/v1/auth/refresh",
+            {"refresh": "nope"},
+            format="json",
+            HTTP_CF_CONNECTING_IP=client_ip,
+        )
+
+    # First IP burns its single allowance, then gets throttled.
+    assert refresh("203.0.113.1").status_code != 429
+    assert refresh("203.0.113.1").status_code == 429
+
+    # A different client IP is tracked separately and is still allowed.
+    assert refresh("203.0.113.2").status_code != 429

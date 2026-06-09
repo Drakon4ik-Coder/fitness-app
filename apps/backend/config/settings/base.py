@@ -1,5 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 import environ
 import os
 import sentry_sdk
@@ -32,6 +33,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Must run before anything that reads the client IP (e.g. DRF throttling).
+    "config.middleware.CloudflareClientIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -112,19 +115,41 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-REST_FRAMEWORK = {
+REST_FRAMEWORK: dict[str, Any] = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    # Per-view scoped throttles. Anonymous, email-sending endpoints are rate
-    # limited by client IP so they can't be abused to spam inboxes / run up
-    # mail-provider cost.
+    # Baseline throttles applied to every DRF view that doesn't set its own:
+    # "anon" keys by client IP, "user" by account id. This is app-level abuse
+    # hygiene (a speed bump against a single script), NOT DDoS protection —
+    # volumetric defense belongs at the edge (proxy / Cloudflare / WAF).
+    # Views with their own throttle_classes (login, register, etc.) override
+    # these rather than stacking with them.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
     "DEFAULT_THROTTLE_RATES": {
-        "resend_verification": "2/day",
+        "anon": "20/min",
+        "user": "100/min",
+        # Tighter per-view scopes for sensitive anonymous endpoints.
+        "resend_verification": "2/day",  # sends an email per call
+        "login": "5/min",  # credential brute-force / password spray
+        "register": "2/day",  # sends a verification email per call
+        "google": "10/min",  # outbound token verification to Google per call
     },
 }
+
+# Behind a Cloudflare Tunnel the origin only ever sees the tunnel's address in
+# REMOTE_ADDR, so CloudflareClientIPMiddleware rewrites it from the trusted
+# CF-Connecting-IP header (see config/middleware.py). When that's on, also pin
+# DRF's IP resolution to REMOTE_ADDR (NUM_PROXIES=0) so it uses our corrected
+# value instead of the X-Forwarded-For header Cloudflare also appends.
+USE_CLOUDFLARE_CLIENT_IP = env.bool("USE_CLOUDFLARE_CLIENT_IP", default=False)
+if USE_CLOUDFLARE_CLIENT_IP:
+    REST_FRAMEWORK["NUM_PROXIES"] = 0
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),

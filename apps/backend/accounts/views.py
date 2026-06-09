@@ -39,6 +39,10 @@ User = get_user_model()
 
 class GoogleLoginView(APIView):
     permission_classes = [AllowAny]
+    # Anonymous + makes an outbound call to Google to verify the token on
+    # every request, so rate limit by client IP.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "google"
 
     @extend_schema(request=GoogleLoginSerializer, responses=TokenPairSerializer)
     def post(self, request: Request) -> Response:
@@ -121,11 +125,19 @@ class GoogleLoginView(APIView):
 
 class EmailVerifiedTokenObtainPairView(TokenObtainPairView):
     serializer_class = EmailVerifiedTokenObtainPairSerializer
+    # Anonymous login — throttle by client IP to blunt credential
+    # brute-force / password-spraying.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
 
 
 class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [AllowAny]
+    # Anonymous + sends a verification email per call, so rate limit by client
+    # IP to block signup spam / mail-provider cost.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
 
     def perform_create(self, serializer: BaseSerializer) -> None:
         user = serializer.save()

@@ -22,5 +22,12 @@ GOOGLE_OAUTH_CLIENT_IDS = ["test-client-id"]
 # thing under test.
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,
-    "DEFAULT_THROTTLE_RATES": {"resend_verification": None},
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": None,
+        "user": None,
+        "resend_verification": None,
+        "login": None,
+        "register": None,
+        "google": None,
+    },
 }
