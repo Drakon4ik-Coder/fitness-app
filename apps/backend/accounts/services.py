@@ -1,6 +1,7 @@
 import secrets
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.template.loader import render_to_string
@@ -35,14 +36,18 @@ def build_verification_url(raw_token: str, *, request=None) -> str:
     """Absolute URL the user taps to verify, e.g. https://host/.../verify/<token>.
 
     Prefers the configured PUBLIC_BASE_URL; otherwise derives the host from the
-    incoming request.
+    incoming request. Raises if neither is available, since a relative URL would
+    produce a broken, non-clickable link in the verification email.
     """
     path = reverse("verify-email", args=[raw_token])
     if settings.PUBLIC_BASE_URL:
         return f"{settings.PUBLIC_BASE_URL}{path}"
     if request is not None:
         return request.build_absolute_uri(path)
-    return path
+    raise ImproperlyConfigured(
+        "Cannot build an absolute verification URL: set PUBLIC_BASE_URL or call "
+        "with a request to derive the host."
+    )
 
 
 def send_verification_email(user: User, *, request=None) -> None:

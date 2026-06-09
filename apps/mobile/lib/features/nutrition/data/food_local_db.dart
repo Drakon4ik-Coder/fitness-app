@@ -216,40 +216,42 @@ class FoodLocalDb {
     );
   }
 
-  // Column definitions for the `foods` table, shared between onCreate and the
-  // v3 migration rebuild so the two schemas can never drift apart.
-  static const String _foodsColumnsDdl = '''
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    backend_id INTEGER,
-    source TEXT NOT NULL,
-    external_id TEXT NOT NULL,
-    barcode TEXT,
-    name TEXT NOT NULL,
-    brands TEXT NOT NULL,
-    image_url TEXT,
-    image_signature TEXT,
-    content_hash TEXT,
-    kcal_100g REAL,
-    protein_g_100g REAL,
-    carbs_g_100g REAL,
-    fat_g_100g REAL,
-    sugars_g_100g REAL,
-    fiber_g_100g REAL,
-    salt_g_100g REAL,
-    serving_size_g REAL,
-    raw_source_json TEXT NOT NULL,
-    nutriments_json TEXT,
-    last_used_at TEXT,
-    is_favorite INTEGER NOT NULL DEFAULT 0
-  ''';
+  // Canonical column definitions for the `foods` table: name -> type/constraints.
+  // This is the single source of truth — both the CREATE TABLE DDL and the
+  // INSERT ... SELECT column list are derived from it, so they can never drift.
+  // Insertion order is significant: it's the column order used by copies.
+  static const Map<String, String> _foodsColumns = {
+    'id': 'INTEGER PRIMARY KEY AUTOINCREMENT',
+    'backend_id': 'INTEGER',
+    'source': 'TEXT NOT NULL',
+    'external_id': 'TEXT NOT NULL',
+    'barcode': 'TEXT',
+    'name': 'TEXT NOT NULL',
+    'brands': 'TEXT NOT NULL',
+    'image_url': 'TEXT',
+    'image_signature': 'TEXT',
+    'content_hash': 'TEXT',
+    'kcal_100g': 'REAL',
+    'protein_g_100g': 'REAL',
+    'carbs_g_100g': 'REAL',
+    'fat_g_100g': 'REAL',
+    'sugars_g_100g': 'REAL',
+    'fiber_g_100g': 'REAL',
+    'salt_g_100g': 'REAL',
+    'serving_size_g': 'REAL',
+    'raw_source_json': 'TEXT NOT NULL',
+    'nutriments_json': 'TEXT',
+    'last_used_at': 'TEXT',
+    'is_favorite': 'INTEGER NOT NULL DEFAULT 0',
+  };
 
-  // The same columns as a comma-separated list for INSERT ... SELECT copies.
-  static const String _foodsColumnList =
-      'id, backend_id, source, external_id, barcode, name, brands, '
-      'image_url, image_signature, content_hash, kcal_100g, protein_g_100g, '
-      'carbs_g_100g, fat_g_100g, sugars_g_100g, fiber_g_100g, salt_g_100g, '
-      'serving_size_g, raw_source_json, nutriments_json, last_used_at, '
-      'is_favorite';
+  // Column definitions for `CREATE TABLE`, e.g. "id INTEGER PRIMARY KEY, ...".
+  static final String _foodsColumnsDdl = _foodsColumns.entries
+      .map((column) => '${column.key} ${column.value}')
+      .join(', ');
+
+  // The same columns as a comma-separated name list for INSERT ... SELECT copies.
+  static final String _foodsColumnList = _foodsColumns.keys.join(', ');
 
   Future<void> _createIndexes(DatabaseExecutor db) async {
     await db.execute(

@@ -86,23 +86,26 @@ class _RegisterPageState extends State<RegisterPage> {
       barrierDismissible: false,
       builder: (dialogContext) {
         final dialogTheme = Theme.of(dialogContext);
-        return AlertDialog(
-          icon: Icon(
-            Icons.mark_email_unread_outlined,
-            color: dialogTheme.colorScheme.primary,
-          ),
-          title: const Text('Verify your email'),
-          content: Text(
-            'We sent a verification link to $email.\n\n'
-            'Open it to confirm your account, then sign in.',
-            style: dialogTheme.textTheme.bodyMedium,
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Got it'),
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            icon: Icon(
+              Icons.mark_email_unread_outlined,
+              color: dialogTheme.colorScheme.primary,
             ),
-          ],
+            title: const Text('Verify your email'),
+            content: Text(
+              'We sent a verification link to $email.\n\n'
+              'Open it to confirm your account, then sign in.',
+              style: dialogTheme.textTheme.bodyMedium,
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
+          ),
         );
       },
     );
