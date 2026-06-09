@@ -9,13 +9,14 @@ from foods.models import FoodItem
 
 def _auth_client() -> APIClient:
     user = get_user_model().objects.create_user(
-        username="checkuser",
+        email="checkuser@example.com",
         password="Str0ngPass!word",
+        email_verified=True,
     )
     client = APIClient()
     token_response = client.post(
         "/api/v1/auth/token",
-        {"username": user.username, "password": "Str0ngPass!word"},
+        {"email": user.email, "password": "Str0ngPass!word"},
         format="json",
     )
     access_token = token_response.data["access"]
@@ -39,14 +40,9 @@ def test_foods_check_returns_up_to_date_when_images_ok(tmp_path) -> None:
             image_status=FoodItem.IMAGE_STATUS_OK,
             raw_source_json={"product": {"product_name": "Test Bar"}},
         )
-        item.image_large.save(
-            "front_en.1_large.jpg",
-            ContentFile(b"large"),
-            save=False,
-        )
-        item.image_small.save(
-            "front_en.1_small.jpg",
-            ContentFile(b"small"),
+        item.image.save(
+            "front_en.1.jpg",
+            ContentFile(b"image"),
             save=False,
         )
         item.save()

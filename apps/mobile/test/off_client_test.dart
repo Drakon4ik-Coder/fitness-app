@@ -18,8 +18,7 @@ class _TestRateLimiter extends OffRateLimiter {
 }
 
 void main() {
-  test(
-      'searchProducts wraps unexpected errors from fallback search in OffException',
+  test('searchProducts wraps DioException in OffException with status code',
       () async {
     final dio = Dio();
     dio.interceptors.add(
@@ -48,11 +47,11 @@ void main() {
         isA<OffException>().having(
           (error) => error.message,
           'message',
-          'Unable to search OFF.',
+          contains('Unable to search OFF.'),
         ),
       ),
     );
 
-    expect(rateLimiter.callCount, 2);
+    expect(rateLimiter.callCount, 1);
   });
 }

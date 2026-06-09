@@ -15,6 +15,10 @@ class EnvironmentConfig {
     'OFF_COUNTRY',
     defaultValue: 'en:united-kingdom',
   );
+  static const String _googleServerClientId = String.fromEnvironment(
+    'GOOGLE_SERVER_CLIENT_ID',
+    defaultValue: '',
+  );
 
   static const Map<String, String> _baseUrls = {
     'local': 'http://localhost:8000',
@@ -34,4 +38,6 @@ class EnvironmentConfig {
   static String get offUserAgent => _offUserAgent;
 
   static String get offCountry => _offCountry;
+
+  static String get googleServerClientId => _googleServerClientId;
 }

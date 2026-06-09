@@ -39,28 +39,59 @@ void main() {
     expect(item.contentHash, isNotEmpty);
   });
 
-  test('prefers selected_images front display/thumb by locale', () {
+  test('prefers most recently uploaded org- image at full resolution', () {
     final mapper = OffMapper();
     final product = {
       'code': '1234567890123',
       'product_name': 'Test Bar',
       'brands': 'Test Brand',
-      'selected_images': {
-        'front': {
-          'display': {
-            'fr':
-                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.400.jpg',
-            'en':
-                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_en.5.400.jpg',
-          },
-          'thumb': {
-            'fr':
-                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.100.jpg',
-            'en':
-                'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_en.5.100.jpg',
+      'images': {
+        // org- image uploaded later — should win
+        '5': {
+          'uploader': 'org-bestbrand',
+          'uploaded_t': 1700000100,
+          'sizes': {
+            'full': {'h': 1200, 'w': 600},
           },
         },
+        // org- image uploaded earlier — should lose
+        '3': {
+          'uploader': 'org-bestbrand',
+          'uploaded_t': 1700000000,
+          'sizes': {
+            'full': {'h': 1200, 'w': 600},
+          },
+        },
+        // non-org image — should be ignored
+        '1': {
+          'uploader': 'kiliweb',
+          'uploaded_t': 1700000200,
+          'sizes': {
+            'full': {'h': 1000, 'w': 500},
+          },
+        },
+        'front_en': {'imgid': '1', 'rev': 10},
       },
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+    );
+
+    expect(
+      item.imageUrl,
+      'https://images.openfoodfacts.org/images/products/123/456/789/0123/5.jpg',
+    );
+    expect(item.imageSignature, '5');
+  });
+
+  test('falls back to selected front image at full resolution by locale', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '1234567890123',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
       'images': {
         'front_fr': {'rev': 11},
         'front_en': {'rev': 5},
@@ -74,51 +105,20 @@ void main() {
     );
 
     expect(
-      item.offImageLargeUrl,
-      'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.400.jpg',
-    );
-    expect(
-      item.offImageSmallUrl,
-      'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.100.jpg',
+      item.imageUrl,
+      'https://images.openfoodfacts.org/images/products/123/456/789/0123/front_fr.11.full.jpg',
     );
     expect(item.imageSignature, 'front_fr.11');
   });
 
-  test('falls back to image_front_url and thumb', () {
-    final mapper = OffMapper();
-    final product = {
-      'code': '123456',
-      'product_name': 'Test Bar',
-      'brands': 'Test Brand',
-      'image_front_url':
-          'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.400.jpg',
-      'image_front_thumb_url':
-          'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.100.jpg',
-    };
-
-    final item = mapper.mapProduct(
-      product: product,
-      rawJson: '{"product": {"product_name": "Test Bar"}}',
-    );
-
-    expect(
-      item.offImageLargeUrl,
-      'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.400.jpg',
-    );
-    expect(
-      item.offImageSmallUrl,
-      'https://images.openfoodfacts.org/images/products/000/000/123/4560/front_en.2.100.jpg',
-    );
-    expect(item.imageSignature, 'front_en.2');
-  });
-
-  test('computes image URLs from images metadata when needed', () {
+  test('prefers en over other langs when locale not available', () {
     final mapper = OffMapper();
     final product = {
       'code': '1234567890',
       'product_name': 'Test Bar',
       'brands': 'Test Brand',
       'images': {
+        'front_de': {'rev': 2},
         'front_en': {'rev': 3},
       },
     };
@@ -126,16 +126,12 @@ void main() {
     final item = mapper.mapProduct(
       product: product,
       rawJson: '{"product": {"product_name": "Test Bar"}}',
-      localeLanguage: 'en',
+      localeLanguage: 'es',
     );
 
     expect(
-      item.offImageLargeUrl,
-      'https://images.openfoodfacts.org/images/products/000/123/456/7890/front_en.3.400.jpg',
-    );
-    expect(
-      item.offImageSmallUrl,
-      'https://images.openfoodfacts.org/images/products/000/123/456/7890/front_en.3.100.jpg',
+      item.imageUrl,
+      'https://images.openfoodfacts.org/images/products/000/123/456/7890/front_en.3.full.jpg',
     );
     expect(item.imageSignature, 'front_en.3');
   });
@@ -202,5 +198,22 @@ void main() {
     );
 
     expect(item.brands, '');
+  });
+
+  test('returns null imageUrl when no org or front image present', () {
+    final mapper = OffMapper();
+    final product = {
+      'code': '123456',
+      'product_name': 'Test Bar',
+      'brands': 'Test Brand',
+    };
+
+    final item = mapper.mapProduct(
+      product: product,
+      rawJson: '{"product": {"product_name": "Test Bar"}}',
+    );
+
+    expect(item.imageUrl, isNull);
+    expect(item.imageSignature, isNull);
   });
 }

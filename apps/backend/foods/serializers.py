@@ -4,12 +4,11 @@ from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from foods.models import FoodItem
-from foods.images import images_ok
+from foods.images import images_ok as _images_ok
 
 
 class FoodItemCompactSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
-    image_small_url = serializers.SerializerMethodField()
 
     class Meta:
         model = FoodItem
@@ -19,27 +18,19 @@ class FoodItemCompactSerializer(serializers.ModelSerializer):
             "brands",
             "kcal_100g",
             "image_url",
-            "image_small_url",
             "barcode",
         )
 
     def get_image_url(self, obj: FoodItem) -> str | None:
-        small_url = self.get_image_small_url(obj)
-        if small_url:
-            return small_url
+        if _images_ok(obj) and obj.image:
+            return _absolute_file_url(self.context.get("request"), obj.image)
         url = obj.image_url.strip() if obj.image_url else ""
         return url or None
-
-    def get_image_small_url(self, obj: FoodItem) -> str | None:
-        if not images_ok(obj) or not obj.image_small:
-            return None
-        return _absolute_file_url(self.context.get("request"), obj.image_small)
 
 
 class FoodItemSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
-    image_large_url = serializers.SerializerMethodField()
-    image_small_url = serializers.SerializerMethodField()
+    images_ok = serializers.SerializerMethodField()
 
     class Meta:
         model = FoodItem
@@ -51,8 +42,7 @@ class FoodItemSerializer(serializers.ModelSerializer):
             "name",
             "brands",
             "image_url",
-            "image_large_url",
-            "image_small_url",
+            "images_ok",
             "kcal_100g",
             "protein_g_100g",
             "carbs_g_100g",
@@ -68,21 +58,13 @@ class FoodItemSerializer(serializers.ModelSerializer):
         )
 
     def get_image_url(self, obj: FoodItem) -> str | None:
-        small_url = self.get_image_small_url(obj)
-        if small_url:
-            return small_url
+        if _images_ok(obj) and obj.image:
+            return _absolute_file_url(self.context.get("request"), obj.image)
         url = obj.image_url.strip() if obj.image_url else ""
         return url or None
 
-    def get_image_large_url(self, obj: FoodItem) -> str | None:
-        if not images_ok(obj) or not obj.image_large:
-            return None
-        return _absolute_file_url(self.context.get("request"), obj.image_large)
-
-    def get_image_small_url(self, obj: FoodItem) -> str | None:
-        if not images_ok(obj) or not obj.image_small:
-            return None
-        return _absolute_file_url(self.context.get("request"), obj.image_small)
+    def get_images_ok(self, obj: FoodItem) -> bool:
+        return _images_ok(obj)
 
 
 def _absolute_file_url(request: Any | None, field: Any) -> str:
@@ -97,12 +79,10 @@ class FoodItemIngestSerializer(serializers.Serializer):
         choices=FoodItem.SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
     )
     external_id = serializers.CharField(max_length=128)
-    barcode = serializers.CharField(max_length=64)
+    barcode = serializers.CharField(max_length=64, required=False, allow_blank=True)
     name = serializers.CharField(max_length=255)
     brands = serializers.CharField(max_length=255, required=False, allow_blank=True)
     image_url = serializers.URLField(required=False, allow_blank=True)
-    image_large_url = serializers.URLField(required=False, allow_blank=True)
-    image_small_url = serializers.URLField(required=False, allow_blank=True)
     content_hash = serializers.CharField(
         max_length=128, required=False, allow_blank=True
     )
@@ -136,33 +116,19 @@ class FoodItemIngestSerializer(serializers.Serializer):
     raw_source_json = serializers.JSONField()
     nutriments_json = serializers.JSONField(required=False, allow_null=True)
 
-    incoming_image_signature: str | None = None
-    incoming_image_large_url: str | None = None
-    incoming_image_small_url: str | None = None
-    image_signature_changed: bool = False
-
     def save(self, **kwargs: Any) -> FoodItem:
         data = dict(self.validated_data)
         source = data["source"]
         external_id = data["external_id"]
         barcode = data["barcode"]
-        large_url = data.pop("image_large_url", None)
-        small_url = data.pop("image_small_url", None)
-        if isinstance(large_url, str) and large_url.strip():
-            data["image_large_source_url"] = large_url.strip()
-            self.incoming_image_large_url = large_url.strip()
-        if isinstance(small_url, str) and small_url.strip():
-            data["image_small_source_url"] = small_url.strip()
-            self.incoming_image_small_url = small_url.strip()
 
         incoming_signature = data.get("image_signature")
         if isinstance(incoming_signature, str):
             incoming_signature = incoming_signature.strip()
-            self.incoming_image_signature = (
-                incoming_signature if incoming_signature else None
-            )
             if not incoming_signature:
                 data.pop("image_signature", None)
+            else:
+                data["image_signature"] = incoming_signature
 
         incoming_hash = data.get("content_hash")
         if isinstance(incoming_hash, str):
@@ -172,7 +138,6 @@ class FoodItemIngestSerializer(serializers.Serializer):
             else:
                 data.pop("content_hash", None)
 
-        previous_signature: str | None = None
         item: FoodItem | None = None
 
         def apply_changes(target: FoodItem) -> None:
@@ -194,8 +159,6 @@ class FoodItemIngestSerializer(serializers.Serializer):
                 )
 
             candidate = by_barcode or by_external
-            nonlocal previous_signature
-            previous_signature = candidate.image_signature if candidate else None
             if candidate:
                 apply_changes(candidate)
                 candidate.save()
@@ -209,10 +172,7 @@ class FoodItemIngestSerializer(serializers.Serializer):
             with transaction.atomic():
                 item = resolve_and_save(lock=True)
 
-        self.image_signature_changed = bool(self.incoming_image_signature) and (
-            self.incoming_image_signature != (previous_signature or "")
-        )
-        return item
+        return item  # type: ignore[return-value]
 
 
 class FoodItemCheckSerializer(serializers.Serializer):

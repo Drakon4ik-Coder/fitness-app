@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Permit cleartext HTTP to local dev servers in debug builds only. -->
+    <application
+        android:networkSecurityConfig="@xml/network_security_config" />
 </manifest>

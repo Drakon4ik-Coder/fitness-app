@@ -21,8 +21,7 @@ void main() {
     await tester.pumpWidget(const FitnessApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Sign in'), findsWidgets);
-    expect(find.widgetWithText(ElevatedButton, 'Sign in'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'LOGIN'), findsOneWidget);
     expect(find.text('Create account'), findsOneWidget);
   });
 
@@ -33,7 +32,7 @@ void main() {
     await tester.pumpWidget(const FitnessApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Daily Calories'), findsOneWidget);
-    expect(find.text('Eaten Meals'), findsOneWidget);
+    expect(find.text('EATEN'), findsOneWidget);
+    expect(find.text('BURNED'), findsOneWidget);
   });
 }

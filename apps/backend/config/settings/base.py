@@ -1,4 +1,6 @@
+from datetime import timedelta
 from pathlib import Path
+from typing import Any
 import environ
 import os
 import sentry_sdk
@@ -31,6 +33,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Must run before anything that reads the client IP (e.g. DRF throttling).
+    "config.middleware.CloudflareClientIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -64,6 +68,8 @@ DATABASES = {
         "DATABASE_URL", default="postgres://postgres:postgres@localhost:5432/fitness"
     )
 }
+
+AUTH_USER_MODEL = "accounts.User"
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -109,12 +115,45 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-REST_FRAMEWORK = {
+REST_FRAMEWORK: dict[str, Any] = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Baseline throttles applied to every DRF view that doesn't set its own:
+    # "anon" keys by client IP, "user" by account id. This is app-level abuse
+    # hygiene (a speed bump against a single script), NOT DDoS protection —
+    # volumetric defense belongs at the edge (proxy / Cloudflare / WAF).
+    # Views with their own throttle_classes (login, register, etc.) override
+    # these rather than stacking with them.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "20/min",
+        "user": "100/min",
+        # Tighter per-view scopes for sensitive anonymous endpoints.
+        "resend_verification": "2/day",  # sends an email per call
+        "login": "5/min",  # credential brute-force / password spray
+        "register": "2/day",  # sends a verification email per call
+        "google": "10/min",  # outbound token verification to Google per call
+    },
+}
+
+# Behind a Cloudflare Tunnel the origin only ever sees the tunnel's address in
+# REMOTE_ADDR, so CloudflareClientIPMiddleware rewrites it from the trusted
+# CF-Connecting-IP header (see config/middleware.py). When that's on, also pin
+# DRF's IP resolution to REMOTE_ADDR (NUM_PROXIES=0) so it uses our corrected
+# value instead of the X-Forwarded-For header Cloudflare also appends.
+USE_CLOUDFLARE_CLIENT_IP = env.bool("USE_CLOUDFLARE_CLIENT_IP", default=False)
+if USE_CLOUDFLARE_CLIENT_IP:
+    REST_FRAMEWORK["NUM_PROXIES"] = 0
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -126,10 +165,39 @@ SPECTACULAR_SETTINGS = {
 }
 
 SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
-OFF_USER_AGENT = env("OFF_USER_AGENT", default="FitnessApp/0.1 (images)").strip()
 
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         traces_sample_rate=0.1,
     )
+
+GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
+
+# Email
+# Local/dev defaults to the console backend (emails print to the runserver
+# logs). Prod overrides EMAIL_BACKEND to SMTP via env. The same env vars work
+# for Gmail (smtp.gmail.com + App Password) or any custom-domain SMTP provider,
+# so switching senders later is an env change with no code change.
+# EMAIL_BACKEND = env(
+#     "EMAIL_BACKEND",
+#     default="django.core.mail.backends.console.EmailBackend",
+# )
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env(
+    "DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@drakon4ik.uk"
+)
+
+# How long an emailed verification link stays valid.
+EMAIL_VERIFICATION_TTL = timedelta(
+    hours=env.int("EMAIL_VERIFICATION_TTL_HOURS", default=24)
+)
+
+# Absolute base URL used to build verification links in emails. When empty we
+# fall back to the host of the incoming request (correct in prod behind the
+# public domain; fine in dev with the console email backend).
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="").rstrip("/")

@@ -61,8 +61,6 @@ class FoodItem {
     required this.name,
     required this.brands,
     this.imageUrl,
-    this.offImageLargeUrl,
-    this.offImageSmallUrl,
     this.imageSignature,
     this.contentHash = '',
     this.kcal100g,
@@ -87,8 +85,6 @@ class FoodItem {
   final String name;
   final String brands;
   final String? imageUrl;
-  final String? offImageLargeUrl;
-  final String? offImageSmallUrl;
   final String? imageSignature;
   final String contentHash;
   final double? kcal100g;
@@ -113,8 +109,6 @@ class FoodItem {
     String? name,
     String? brands,
     String? imageUrl,
-    String? offImageLargeUrl,
-    String? offImageSmallUrl,
     String? imageSignature,
     String? contentHash,
     double? kcal100g,
@@ -139,8 +133,6 @@ class FoodItem {
       name: name ?? this.name,
       brands: brands ?? this.brands,
       imageUrl: imageUrl ?? this.imageUrl,
-      offImageLargeUrl: offImageLargeUrl ?? this.offImageLargeUrl,
-      offImageSmallUrl: offImageSmallUrl ?? this.offImageSmallUrl,
       imageSignature: imageSignature ?? this.imageSignature,
       contentHash: contentHash ?? this.contentHash,
       kcal100g: kcal100g ?? this.kcal100g,
@@ -168,8 +160,6 @@ class FoodItem {
       'name': name,
       'brands': brands,
       'image_url': imageUrl,
-      'off_image_large_url': offImageLargeUrl,
-      'off_image_small_url': offImageSmallUrl,
       'image_signature': imageSignature,
       'content_hash': contentHash,
       'kcal_100g': kcal100g,
@@ -190,22 +180,26 @@ class FoodItem {
   }
 
   Map<String, dynamic> toBackendPayload() {
+    double? round(double? val) {
+      if (val == null) return null;
+      return double.parse(val.toStringAsFixed(2));
+    }
+
     final Map<String, dynamic> payload = {
       'source': source,
       'external_id': externalId,
       'barcode': barcode ?? '',
       'name': name,
       'brands': brands,
-      'image_url':
-          offImageSmallUrl ?? offImageLargeUrl ?? imageUrl ?? '',
-      'kcal_100g': kcal100g,
-      'protein_g_100g': proteinG100g,
-      'carbs_g_100g': carbsG100g,
-      'fat_g_100g': fatG100g,
-      'sugars_g_100g': sugarsG100g,
-      'fiber_g_100g': fiberG100g,
-      'salt_g_100g': saltG100g,
-      'serving_size_g': servingSizeG,
+      'image_url': imageUrl ?? '',
+      'kcal_100g': round(kcal100g),
+      'protein_g_100g': round(proteinG100g),
+      'carbs_g_100g': round(carbsG100g),
+      'fat_g_100g': round(fatG100g),
+      'sugars_g_100g': round(sugarsG100g),
+      'fiber_g_100g': round(fiberG100g),
+      'salt_g_100g': round(saltG100g),
+      'serving_size_g': round(servingSizeG),
       'raw_source_json': _decodeRawSourceJson(rawSourceJson),
     };
 
@@ -214,12 +208,6 @@ class FoodItem {
     }
     if (imageSignature != null && imageSignature!.trim().isNotEmpty) {
       payload['image_signature'] = imageSignature;
-    }
-    if (offImageLargeUrl != null && offImageLargeUrl!.trim().isNotEmpty) {
-      payload['image_large_url'] = offImageLargeUrl;
-    }
-    if (offImageSmallUrl != null && offImageSmallUrl!.trim().isNotEmpty) {
-      payload['image_small_url'] = offImageSmallUrl;
     }
 
     if (nutrimentsJson != null) {
@@ -240,8 +228,6 @@ class FoodItem {
       name: (map['name'] as String?) ?? '',
       brands: (map['brands'] as String?) ?? '',
       imageUrl: map['image_url'] as String?,
-      offImageLargeUrl: map['off_image_large_url'] as String?,
-      offImageSmallUrl: map['off_image_small_url'] as String?,
       imageSignature: map['image_signature'] as String?,
       contentHash: (map['content_hash'] as String?) ?? '',
       kcal100g: parseNullableDouble(map['kcal_100g']),
@@ -264,8 +250,7 @@ class FoodItem {
   static FoodItem fromBackendSummary(Map<String, dynamic> map) {
     final backendId = map['id'] as int?;
     final barcode = map['barcode']?.toString();
-    final imageSmallUrl = map['image_small_url'] as String?;
-    final imageUrl = imageSmallUrl ?? map['image_url'] as String?;
+    final imageUrl = map['image_url'] as String?;
     return FoodItem(
       backendId: backendId,
       source: offSource,
@@ -306,8 +291,7 @@ class FoodItem {
       barcode: barcode,
       name: (map['name'] as String?) ?? '',
       brands: (map['brands'] as String?) ?? '',
-      imageUrl: (map['image_small_url'] as String?) ??
-          (map['image_url'] as String?),
+      imageUrl: map['image_url'] as String?,
       imageSignature: map['image_signature'] as String?,
       contentHash: (map['content_hash'] as String?) ?? '',
       kcal100g: parseNullableDouble(map['kcal_100g']),

@@ -197,10 +197,6 @@ class FoodLocalDb {
       name: incoming.name.isNotEmpty ? incoming.name : existing.name,
       brands: incoming.brands.isNotEmpty ? incoming.brands : existing.brands,
       imageUrl: incoming.imageUrl ?? existing.imageUrl,
-      offImageLargeUrl:
-          incoming.offImageLargeUrl ?? existing.offImageLargeUrl,
-      offImageSmallUrl:
-          incoming.offImageSmallUrl ?? existing.offImageSmallUrl,
       imageSignature: incoming.imageSignature ?? existing.imageSignature,
       contentHash: incoming.contentHash.isNotEmpty
           ? incoming.contentHash
@@ -220,53 +216,65 @@ class FoodLocalDb {
     );
   }
 
+  // Canonical column definitions for the `foods` table: name -> type/constraints.
+  // This is the single source of truth — both the CREATE TABLE DDL and the
+  // INSERT ... SELECT column list are derived from it, so they can never drift.
+  // Insertion order is significant: it's the column order used by copies.
+  static const Map<String, String> _foodsColumns = {
+    'id': 'INTEGER PRIMARY KEY AUTOINCREMENT',
+    'backend_id': 'INTEGER',
+    'source': 'TEXT NOT NULL',
+    'external_id': 'TEXT NOT NULL',
+    'barcode': 'TEXT',
+    'name': 'TEXT NOT NULL',
+    'brands': 'TEXT NOT NULL',
+    'image_url': 'TEXT',
+    'image_signature': 'TEXT',
+    'content_hash': 'TEXT',
+    'kcal_100g': 'REAL',
+    'protein_g_100g': 'REAL',
+    'carbs_g_100g': 'REAL',
+    'fat_g_100g': 'REAL',
+    'sugars_g_100g': 'REAL',
+    'fiber_g_100g': 'REAL',
+    'salt_g_100g': 'REAL',
+    'serving_size_g': 'REAL',
+    'raw_source_json': 'TEXT NOT NULL',
+    'nutriments_json': 'TEXT',
+    'last_used_at': 'TEXT',
+    'is_favorite': 'INTEGER NOT NULL DEFAULT 0',
+  };
+
+  // Column definitions for `CREATE TABLE`, e.g. "id INTEGER PRIMARY KEY, ...".
+  static final String _foodsColumnsDdl = _foodsColumns.entries
+      .map((column) => '${column.key} ${column.value}')
+      .join(', ');
+
+  // The same columns as a comma-separated name list for INSERT ... SELECT copies.
+  static final String _foodsColumnList = _foodsColumns.keys.join(', ');
+
+  Future<void> _createIndexes(DatabaseExecutor db) async {
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_foods_source_external_id ON foods(source, external_id)',
+    );
+    await db.execute('CREATE INDEX idx_foods_name ON foods(name)');
+    await db.execute(
+      'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
+    );
+  }
+
   Future<Database> _openDatabase() async {
     final directory = await getApplicationDocumentsDirectory();
     final path = '${directory.path}/foods.db';
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
-        await db.execute(
-          '''
-          CREATE TABLE foods (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            backend_id INTEGER,
-            source TEXT NOT NULL,
-            external_id TEXT NOT NULL,
-            barcode TEXT,
-            name TEXT NOT NULL,
-            brands TEXT NOT NULL,
-            image_url TEXT,
-            off_image_large_url TEXT,
-            off_image_small_url TEXT,
-            image_signature TEXT,
-            content_hash TEXT,
-            kcal_100g REAL,
-            protein_g_100g REAL,
-            carbs_g_100g REAL,
-            fat_g_100g REAL,
-            sugars_g_100g REAL,
-            fiber_g_100g REAL,
-            salt_g_100g REAL,
-            serving_size_g REAL,
-            raw_source_json TEXT NOT NULL,
-            nutriments_json TEXT,
-            last_used_at TEXT,
-            is_favorite INTEGER NOT NULL DEFAULT 0
-          )
-          ''',
-        );
-        await db.execute(
-          'CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)',
-        );
-        await db.execute(
-          'CREATE UNIQUE INDEX idx_foods_source_external_id ON foods(source, external_id)',
-        );
-        await db.execute('CREATE INDEX idx_foods_name ON foods(name)');
-        await db.execute(
-          'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
-        );
+        await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
+        await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -278,6 +286,22 @@ class FoodLocalDb {
           );
           await db.execute('ALTER TABLE foods ADD COLUMN image_signature TEXT');
           await db.execute('ALTER TABLE foods ADD COLUMN content_hash TEXT');
+        }
+        if (oldVersion < 3) {
+          // Drop the now-unused off_image_* columns. ALTER TABLE DROP COLUMN
+          // requires SQLite >= 3.35.0, which is newer than the platform SQLite
+          // on many shipping Android/iOS versions, so rebuild the table instead
+          // (the portable approach that works on every SQLite version).
+          // onUpgrade already runs inside a transaction, so these statements
+          // are applied atomically without an explicit nested transaction.
+          await db.execute('CREATE TABLE foods_new ($_foodsColumnsDdl)');
+          await db.execute(
+            'INSERT INTO foods_new ($_foodsColumnList) '
+            'SELECT $_foodsColumnList FROM foods',
+          );
+          await db.execute('DROP TABLE foods');
+          await db.execute('ALTER TABLE foods_new RENAME TO foods');
+          await _createIndexes(db);
         }
       },
     );

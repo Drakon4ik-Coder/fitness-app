@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -18,6 +18,8 @@ from nutrition.serializers import (
     NutritionDaySerializer,
 )
 from nutrition.utils import calculate_macros, serialize_decimal
+
+User = get_user_model()
 
 
 class MealEntryCreateView(APIView):

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../../core/auth_interceptor.dart';
 import '../../../core/environment.dart';
 import 'api_exceptions.dart';
 import 'food_models.dart';
@@ -51,6 +52,7 @@ class NutritionDayLog {
 class NutritionApiService {
   NutritionApiService({
     required String accessToken,
+    AuthInterceptor? authInterceptor,
     Dio? dio,
   }) : _dio = dio ??
             Dio(
@@ -58,7 +60,9 @@ class NutritionApiService {
                 baseUrl: EnvironmentConfig.apiBaseUrl,
                 headers: {'Authorization': 'Bearer $accessToken'},
               ),
-            );
+            ) {
+    authInterceptor?.attachTo(_dio);
+  }
 
   final Dio _dio;
 

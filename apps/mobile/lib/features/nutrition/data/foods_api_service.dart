@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
+import '../../../core/auth_interceptor.dart';
 import '../../../core/environment.dart';
 import 'api_exceptions.dart';
 import 'food_models.dart';
@@ -18,9 +21,16 @@ class FoodCheckResult {
   final bool imagesOk;
 }
 
+class FoodIngestResult {
+  const FoodIngestResult({required this.item, required this.imagesOk});
+  final FoodItem item;
+  final bool imagesOk;
+}
+
 class FoodsApiService {
   FoodsApiService({
     required String accessToken,
+    AuthInterceptor? authInterceptor,
     Dio? dio,
   }) : _dio = dio ??
             Dio(
@@ -28,7 +38,9 @@ class FoodsApiService {
                 baseUrl: EnvironmentConfig.apiBaseUrl,
                 headers: {'Authorization': 'Bearer $accessToken'},
               ),
-            );
+            ) {
+    authInterceptor?.attachTo(_dio);
+  }
 
   final Dio _dio;
 
@@ -65,7 +77,7 @@ class FoodsApiService {
     }
   }
 
-  Future<FoodItem> ingestFood(FoodItem item) async {
+  Future<FoodIngestResult> ingestFood(FoodItem item) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/api/v1/foods/ingest',
@@ -73,7 +85,10 @@ class FoodsApiService {
       );
       final data = response.data;
       if (data is Map<String, dynamic>) {
-        return FoodItem.fromBackendDetail(data);
+        return FoodIngestResult(
+          item: FoodItem.fromBackendDetail(data),
+          imagesOk: data['images_ok'] == true,
+        );
       }
       throw ApiException('Unexpected response from server.');
     } on DioException catch (error) {
@@ -124,6 +139,36 @@ class FoodsApiService {
       rethrow;
     } catch (_) {
       throw ApiException('Unable to check food status.');
+    }
+  }
+
+  Future<FoodItem?> uploadFoodImages({
+    required int foodItemId,
+    required Uint8List bytes,
+    required String contentType,
+    String? imageSignature,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'image': MultipartFile.fromBytes(
+          bytes,
+          filename: 'image.jpg',
+          contentType: DioMediaType.parse(contentType),
+        ),
+        if (imageSignature != null && imageSignature.trim().isNotEmpty)
+          'image_signature': imageSignature,
+      });
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/v1/foods/$foodItemId/images',
+        data: formData,
+      );
+      final data = response.data;
+      if (data is Map<String, dynamic>) {
+        return FoodItem.fromBackendDetail(data);
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../ui_system/pulse_theme.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 
 class NeonPillButton extends StatefulWidget {
@@ -60,7 +60,7 @@ class _NeonPillButtonState extends State<NeonPillButton> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final effects = PulseTheme.effectsOf(context);
+    final effects = LuminaHealthTheme.effectsOf(context);
     final glow = widget.glowColor ?? scheme.primary;
     final enabled = _isEnabled;
     final baseColor = enabled ? scheme.primary : scheme.surfaceContainerHigh;

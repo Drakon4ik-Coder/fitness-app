@@ -148,6 +148,33 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/auth/google:
+    post:
+      operationId: v1_auth_google_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleLogin'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GoogleLogin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GoogleLogin'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
   /api/v1/auth/me:
     get:
       operationId: v1_auth_me_retrieve
@@ -216,6 +243,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserRegistration'
           description: ''
+  /api/v1/auth/resend-verification:
+    post:
+      operationId: v1_auth_resend_verification_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerification'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResendVerification'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResendVerification'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
   /api/v1/auth/token:
     post:
       operationId: v1_auth_token_create
@@ -228,21 +278,47 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TokenObtainPair'
+              $ref: '#/components/schemas/EmailVerifiedTokenObtainPair'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/TokenObtainPair'
+              $ref: '#/components/schemas/EmailVerifiedTokenObtainPair'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/TokenObtainPair'
+              $ref: '#/components/schemas/EmailVerifiedTokenObtainPair'
         required: true
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenObtainPair'
+                $ref: '#/components/schemas/EmailVerifiedTokenObtainPair'
           description: ''
+  /api/v1/foods/{food_item_id}/images:
+    post:
+      operationId: v1_foods_images_create
+      parameters:
+      - in: path
+        name: food_item_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoodItem'
+          description: ''
+        '400':
+          description: Invalid image data
+        '401':
+          description: Unauthorized
+        '404':
+          description: Food item not found
   /api/v1/foods/check:
     post:
       operationId: v1_foods_check_create
@@ -389,6 +465,18 @@ paths:
           description: Unauthorized
 components:
   schemas:
+    EmailVerifiedTokenObtainPair:
+      type: object
+      properties:
+        email:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
     FoodItem:
       type: object
       properties:
@@ -415,13 +503,8 @@ components:
           type: string
           nullable: true
           readOnly: true
-        image_large_url:
-          type: string
-          nullable: true
-          readOnly: true
-        image_small_url:
-          type: string
-          nullable: true
+        images_ok:
+          type: boolean
           readOnly: true
         kcal_100g:
           type: string
@@ -478,9 +561,8 @@ components:
       - barcode
       - external_id
       - id
-      - image_large_url
-      - image_small_url
       - image_url
+      - images_ok
       - name
       - raw_source_json
     FoodItemCheck:
@@ -539,17 +621,12 @@ components:
           type: string
           nullable: true
           readOnly: true
-        image_small_url:
-          type: string
-          nullable: true
-          readOnly: true
         barcode:
           type: string
           maxLength: 64
       required:
       - barcode
       - id
-      - image_small_url
       - image_url
       - name
     FoodItemIngest:
@@ -572,12 +649,6 @@ components:
           type: string
           maxLength: 255
         image_url:
-          type: string
-          format: uri
-        image_large_url:
-          type: string
-          format: uri
-        image_small_url:
           type: string
           format: uri
         content_hash:
@@ -630,10 +701,16 @@ components:
         nutriments_json:
           nullable: true
       required:
-      - barcode
       - external_id
       - name
       - raw_source_json
+    GoogleLogin:
+      type: object
+      properties:
+        id_token:
+          type: string
+      required:
+      - id_token
     MealEntry:
       type: object
       properties:
@@ -748,31 +825,29 @@ components:
       - fat_g
       - kcal
       - protein_g
+    ResendVerification:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
     SourceEnum:
       enum:
       - openfoodfacts
       type: string
       description: '* `openfoodfacts` - Open Food Facts'
-    TokenObtainPair:
+    TokenPair:
       type: object
       properties:
-        username:
-          type: string
-          writeOnly: true
-        password:
-          type: string
-          writeOnly: true
         access:
           type: string
-          readOnly: true
         refresh:
           type: string
-          readOnly: true
       required:
       - access
-      - password
       - refresh
-      - username
     TokenRefresh:
       type: object
       properties:
@@ -791,51 +866,34 @@ components:
         id:
           type: integer
           readOnly: true
-        username:
-          type: string
-          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
-            only.
-          pattern: ^[\w.@+-]+$
-          maxLength: 150
         email:
           type: string
           format: email
           title: Email address
           maxLength: 254
-        first_name:
+        display_name:
           type: string
-          maxLength: 150
-        last_name:
-          type: string
-          maxLength: 150
+          maxLength: 40
       required:
+      - email
       - id
-      - username
     UserRegistration:
       type: object
       properties:
         id:
           type: integer
           readOnly: true
-        username:
-          type: string
-          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
-            only.
-          pattern: ^[\w.@+-]+$
-          maxLength: 150
         email:
           type: string
           format: email
-          title: Email address
-          maxLength: 254
         password:
           type: string
           writeOnly: true
           minLength: 8
       required:
+      - email
       - id
       - password
-      - username
   securitySchemes:
     jwtAuth:
       type: http

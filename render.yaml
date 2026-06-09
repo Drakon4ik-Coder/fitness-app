@@ -21,12 +21,4 @@ services:
       - key: LOG_LEVEL
         value: info
       - key: DATABASE_URL
-        fromDatabase:
-          name: fitness-pg
-          property: connectionString
-
-databases:
-  - name: fitness-pg
-    plan: free
-    region: frankfurt
-
+        sync: false

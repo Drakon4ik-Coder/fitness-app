@@ -1,50 +1,28 @@
 import 'package:flutter/material.dart';
 
+import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'features/nutrition/nutrition_today_page.dart';
 import 'features/login_page.dart';
-import 'ui_system/pulse_theme.dart';
-import 'ui_system/theme_mode_controller.dart';
+import 'ui_system/lumina_health_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const FitnessApp());
 }
 
-class FitnessApp extends StatefulWidget {
+class FitnessApp extends StatelessWidget {
   const FitnessApp({super.key});
 
   @override
-  State<FitnessApp> createState() => _FitnessAppState();
-}
-
-class _FitnessAppState extends State<FitnessApp> {
-  late final ThemeModeController _themeModeController =
-      ThemeModeController(initialMode: ThemeMode.light);
-
-  @override
-  void dispose() {
-    _themeModeController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return ThemeModeScope(
-      controller: _themeModeController,
-      child: AnimatedBuilder(
-        animation: _themeModeController,
-        builder: (context, _) {
-          return MaterialApp(
-            title: 'Fitness App',
-            theme: PulseTheme.light(),
-            darkTheme: PulseTheme.dark(),
-            themeMode: _themeModeController.mode,
-            home: const AuthGate(),
-          );
-        },
-      ),
+    return MaterialApp(
+      title: 'Fitness App',
+      // Dark-only design system: `theme` (the light slot) is set to the dark
+      // theme so the app always renders dark regardless of OS brightness.
+      theme: LuminaHealthTheme.dark(),
+      home: const AuthGate(),
     );
   }
 }
@@ -62,6 +40,7 @@ class _AuthGateState extends State<AuthGate> {
 
   bool _isLoading = true;
   String? _accessToken;
+  AuthInterceptor? _authInterceptor;
 
   @override
   void initState() {
@@ -76,6 +55,14 @@ class _AuthGateState extends State<AuthGate> {
     }
     setState(() {
       _accessToken = token;
+      _authInterceptor = token != null
+          ? AuthInterceptor(
+              storage: _authStorage,
+              authService: _authService,
+              onSessionExpired: _handleLogout,
+              accessToken: token,
+            )
+          : null;
       _isLoading = false;
     });
   }
@@ -87,6 +74,14 @@ class _AuthGateState extends State<AuthGate> {
     }
     setState(() {
       _accessToken = token;
+      _authInterceptor = token != null
+          ? AuthInterceptor(
+              storage: _authStorage,
+              authService: _authService,
+              onSessionExpired: _handleLogout,
+              accessToken: token,
+            )
+          : null;
     });
   }
 
@@ -97,6 +92,7 @@ class _AuthGateState extends State<AuthGate> {
     }
     setState(() {
       _accessToken = null;
+      _authInterceptor = null;
     });
   }
 
@@ -121,6 +117,7 @@ class _AuthGateState extends State<AuthGate> {
     return NutritionTodayPage(
       accessToken: _accessToken!,
       onLogout: _handleLogout,
+      authInterceptor: _authInterceptor,
     );
   }
 }

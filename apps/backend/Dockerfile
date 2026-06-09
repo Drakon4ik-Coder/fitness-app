@@ -10,18 +10,6 @@ RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
 RUN poetry export --with dev -f requirements.txt --output requirements-dev.txt --without-hashes
 RUN pip wheel --wheel-dir=/wheels -r requirements.txt
 
-# runtime (prod)
-FROM base AS runtime
-RUN useradd -m appuser
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/*
-COPY . /app
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && chown -R appuser:appuser /app
-USER appuser
-ENV DJANGO_SETTINGS_MODULE=config.settings.prod
-CMD ["/entrypoint.sh"]
-
 # dev/test
 FROM base AS dev
 RUN useradd -m appuser
@@ -34,3 +22,15 @@ RUN chown -R appuser:appuser /app
 USER appuser
 ENV DJANGO_SETTINGS_MODULE=config.settings.local
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8080"]
+
+# runtime (prod) — keep LAST so Render builds this stage by default
+FROM base AS runtime
+RUN useradd -m appuser
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir /wheels/*
+COPY . /app
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh && chown -R appuser:appuser /app
+USER appuser
+ENV DJANGO_SETTINGS_MODULE=config.settings.prod
+CMD ["/entrypoint.sh"]

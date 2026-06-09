@@ -10,9 +10,13 @@ class AuthTokens {
 }
 
 class AuthException implements Exception {
-  AuthException(this.message);
+  AuthException(this.message, {this.emailUnverified = false});
 
   final String message;
+
+  /// True when sign-in was rejected because the email isn't verified yet, so
+  /// the UI can offer to resend the verification link.
+  final bool emailUnverified;
 
   @override
   String toString() => message;
@@ -37,14 +41,14 @@ class AuthService {
   final Dio _dio;
 
   Future<AuthTokens> login({
-    required String username,
+    required String email,
     required String password,
   }) async {
     try {
       final response = await _dio.post(
         '/api/v1/auth/token',
         data: {
-          'username': username,
+          'email': email,
           'password': password,
         },
       );
@@ -60,37 +64,125 @@ class AuthService {
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
       if (statusCode == 401 || statusCode == 400) {
-        throw AuthException('Invalid username or password.');
+        // Surfaces server messages such as the email-verification gate,
+        // falling back to a generic credential error.
+        final message = _firstErrorMessage(error.response?.data);
+        final unverified = statusCode == 400 &&
+            (message?.toLowerCase().contains('confirm your email') ?? false);
+        throw AuthException(
+          message ?? 'Invalid email or password.',
+          emailUnverified: unverified,
+        );
       }
-      throw AuthException('Unable to sign in. Please try again.');
+      throw AuthException('Unable to sign in. Please try again later.');
     } catch (_) {
-      throw AuthException('Unable to sign in. Please try again.');
+      throw AuthException('Unable to sign in. Please try again later.');
+    }
+  }
+
+  /// Asks the backend to email a fresh verification link. The endpoint always
+  /// succeeds (it won't reveal whether the account exists), so this only throws
+  /// on a network/server failure.
+  Future<void> resendVerification(String email) async {
+    try {
+      await _dio.post(
+        '/api/v1/auth/resend-verification',
+        data: {'email': email},
+      );
+    } on DioException {
+      throw AuthException('Could not resend the email. Please try again later.');
+    } catch (_) {
+      throw AuthException('Could not resend the email. Please try again later.');
+    }
+  }
+
+  Future<AuthTokens> googleLogin(String idToken) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/auth/google',
+        data: {'id_token': idToken},
+      );
+      final data = response.data;
+      if (data is Map) {
+        final access = data['access'] as String?;
+        final refresh = data['refresh'] as String?;
+        if (access != null && refresh != null) {
+          return AuthTokens(accessToken: access, refreshToken: refresh);
+        }
+      }
+      throw AuthException('Unexpected response from server.');
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 401) {
+        final message = _firstErrorMessage(error.response?.data);
+        throw AuthException(message ?? 'Google sign-in was rejected.');
+      }
+      throw AuthException('Unable to sign in with Google. Please try again later.');
+    } catch (_) {
+      throw AuthException('Unable to sign in with Google. Please try again later.');
+    }
+  }
+
+
+  Future<String> refresh(String refreshToken) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/auth/refresh',
+        data: {'refresh': refreshToken},
+      );
+      final data = response.data;
+      if (data is Map && data['access'] is String) {
+        return data['access'] as String;
+      }
+      throw AuthException('Unexpected response from server.');
+    } on DioException {
+      throw AuthException('Session expired. Please sign in again.');
+    } catch (_) {
+      throw AuthException('Session expired. Please sign in again.');
     }
   }
 
   Future<void> register({
-    required String username,
+    required String email,
     required String password,
-    String? email,
   }) async {
-    final trimmedEmail = email?.trim() ?? '';
     try {
       await _dio.post(
         '/api/v1/auth/register',
         data: {
-          'username': username,
+          'email': email,
           'password': password,
-          if (trimmedEmail.isNotEmpty) 'email': trimmedEmail,
         },
       );
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
       if (statusCode == 400) {
-        throw AuthException('Please check your details and try again.');
+        final message = _firstErrorMessage(error.response?.data);
+        throw AuthException(message ?? 'Please check your details and try again.');
       }
-      throw AuthException('Unable to register. Please try again.');
+      throw AuthException('Unable to register. Please try again later.');
     } catch (_) {
-      throw AuthException('Unable to register. Please try again.');
+      throw AuthException('Unable to register. Please try again later.');
     }
+  }
+
+  /// Extracts the first field error message from a DRF validation response.
+  ///
+  /// DRF returns errors as `{ "field": ["message", ...], ... }`. We surface the
+  /// first message of the first field so the user sees one specific reason.
+  String? _firstErrorMessage(dynamic data) {
+    if (data is Map) {
+      for (final value in data.values) {
+        if (value is List && value.isNotEmpty) {
+          return value.first.toString();
+        }
+        if (value is String && value.isNotEmpty) {
+          return value;
+        }
+      }
+    }
+    if (data is List && data.isNotEmpty) {
+      return data.first.toString();
+    }
+    return null;
   }
 }

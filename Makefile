@@ -1,9 +1,10 @@
 BACKEND_DIR := apps/backend
 MOBILE_DIR := apps/mobile
 
-.PHONY: up migrate shell test test-docker build-prod fmt lint check \
+.PHONY: up migrate shell clean-db test test-docker build-prod fmt lint check \
 	check-backend check-mobile fmt-backend fmt-mobile lint-backend lint-mobile \
-	typecheck-backend test-backend test-mobile backend-contract backend-install
+	typecheck-backend test-backend test-mobile backend-contract backend-install \
+	dev-phone dev-local
 
 rebuild-backend:
 	docker compose build --no-cache --pull backend
@@ -13,6 +14,14 @@ rebuild-all:
 	docker compose build --no-cache --pull
 	docker compose up -d
 
+dev-phone:
+	./scripts/dev-phone.sh
+
+dev-local:
+	docker compose up --build -d
+	@echo "Backend: http://localhost:8080"
+	cd $(MOBILE_DIR) && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080 --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
+
 up:
 	docker compose up --build -d
 
@@ -21,6 +30,11 @@ migrate:
 
 shell:
 	docker compose exec backend python manage.py shell
+
+# Wipe ALL rows from every table (keeps schema/migrations). Irreversible.
+clean-db:
+	docker compose exec backend python manage.py flush --no-input
+	@echo "Database data cleared."
 
 check:
 	@echo "==> check"
