@@ -56,6 +56,10 @@ class User(AbstractUser):
     class Meta:
         constraints = [
             models.UniqueConstraint(Lower("username"), name="uniq_username_ci"),
+            # Login is case-insensitive (email__iexact), so uniqueness must be
+            # too — otherwise case-variant duplicates (e.g. John@x vs john@x)
+            # can coexist and an iexact lookup resolves to an arbitrary row.
+            models.UniqueConstraint(Lower("email"), name="uniq_email_ci"),
         ]
 
     def __str__(self) -> str:

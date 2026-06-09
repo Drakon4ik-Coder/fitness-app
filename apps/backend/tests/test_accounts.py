@@ -238,6 +238,28 @@ def test_resend_verification_sends_link_for_unverified_user() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_register_rejects_case_variant_of_existing_email() -> None:
+    # Email login is case-insensitive, so a case-variant must not create a
+    # second account — otherwise an iexact lookup (e.g. Google login) could
+    # resolve to an arbitrary one of the duplicates.
+    get_user_model().objects.create_user(
+        email="dup@example.com", password="Str0ngPass!word"
+    )
+    client = APIClient()
+
+    response = client.post(
+        "/api/v1/auth/register",
+        {"password": "Str0ngPass!word", "email": "DUP@example.com"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "email" in response.data
+    assert get_user_model().objects.filter(email__iexact="dup@example.com").count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_resend_verification_is_silent_for_unknown_email() -> None:
     client = APIClient()
 

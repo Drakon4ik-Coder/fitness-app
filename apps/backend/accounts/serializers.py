@@ -29,6 +29,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         validators=[
             UniqueValidator(
                 queryset=User.objects.all(),
+                lookup="iexact",
                 message="An account with this email already exists.",
             ),
         ],
