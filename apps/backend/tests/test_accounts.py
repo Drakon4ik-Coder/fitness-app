@@ -335,3 +335,35 @@ def test_resend_verification_is_silent_for_unknown_email() -> None:
     # 200 with no email sent, so the endpoint can't enumerate accounts.
     assert response.status_code == 200
     assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_resend_verification_is_rate_limited(monkeypatch) -> None:
+    # The endpoint is anonymous and sends an email on every call, so it must
+    # be throttled to block inbox spam / mail-provider cost abuse. DRF binds
+    # the rate table as a class attribute at import, so patch it there rather
+    # than via the settings fixture (which the throttle never re-reads).
+    from django.core.cache import cache
+    from rest_framework.throttling import ScopedRateThrottle
+
+    cache.clear()
+    monkeypatch.setattr(
+        ScopedRateThrottle, "THROTTLE_RATES", {"resend_verification": "2/hour"}
+    )
+    client = APIClient()
+
+    for _ in range(2):
+        ok = client.post(
+            "/api/v1/auth/resend-verification",
+            {"email": "ghost@example.com"},
+            format="json",
+        )
+        assert ok.status_code == 200
+
+    throttled = client.post(
+        "/api/v1/auth/resend-verification",
+        {"email": "ghost@example.com"},
+        format="json",
+    )
+    assert throttled.status_code == 429

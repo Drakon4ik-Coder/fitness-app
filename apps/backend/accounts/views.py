@@ -6,6 +6,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -184,6 +185,11 @@ def _verification_result(request: HttpRequest, result: str) -> HttpResponse:
 
 class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
+    # Anonymous + sends an email on every call, so rate limit by client IP to
+    # block spam/enumeration and avoidable mail-provider cost (rate configured
+    # under REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]).
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "resend_verification"
 
     @extend_schema(request=ResendVerificationSerializer, responses=None)
     def post(self, request: Request) -> Response:

@@ -118,6 +118,12 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Per-view scoped throttles. Anonymous, email-sending endpoints are rate
+    # limited by client IP so they can't be abused to spam inboxes / run up
+    # mail-provider cost.
+    "DEFAULT_THROTTLE_RATES": {
+        "resend_verification": "2/day",
+    },
 }
 
 SIMPLE_JWT = {

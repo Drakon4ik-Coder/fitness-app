@@ -16,3 +16,11 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 GOOGLE_OAUTH_CLIENT_IDS = ["test-client-id"]
+
+# Throttles share a process-wide cache that would otherwise leak between
+# tests; disable by default and re-enable per-test where rate limiting is the
+# thing under test.
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_THROTTLE_RATES": {"resend_verification": None},
+}
