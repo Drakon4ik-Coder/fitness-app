@@ -275,8 +275,9 @@ def test_expired_verification_token_does_not_verify(settings) -> None:
     raw_token = EmailVerificationToken.issue(user)
     client = APIClient()
 
-    client.get(f"/api/v1/auth/verify/{raw_token}")
+    response = client.get(f"/api/v1/auth/verify/{raw_token}")
 
+    assert response.status_code == 200  # renders a friendly "expired" page
     user.refresh_from_db()
     assert user.email_verified is False
 
