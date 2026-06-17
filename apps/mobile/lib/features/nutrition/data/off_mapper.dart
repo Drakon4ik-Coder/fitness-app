@@ -20,7 +20,7 @@ class OffMapper {
   }) {
     final barcode = product['code']?.toString();
     final name = _bestName(product);
-    final brands = _stringValue(product['brands']) ?? '';
+    final brands = _brandsValue(product['brands']) ?? '';
     final locale = localeLanguage?.trim().toLowerCase();
     final result = _selectImage(product, locale);
 
@@ -156,6 +156,20 @@ class OffMapper {
     if (value is! String) return null;
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  // The barcode endpoint returns brands as a comma-separated string, while the
+  // Search-a-licious endpoint returns them as a list. Normalize both to a
+  // single comma-separated string.
+  String? _brandsValue(dynamic value) {
+    if (value is List) {
+      final joined = value
+          .map((e) => e?.toString().trim() ?? '')
+          .where((e) => e.isNotEmpty)
+          .join(', ');
+      return joined.isEmpty ? null : joined;
+    }
+    return _stringValue(value);
   }
 
   String _buildContentHash({

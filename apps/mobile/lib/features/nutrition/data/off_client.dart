@@ -33,7 +33,6 @@ class OffClient {
   })  : _countryTag = _normalizeCountryTag(
           country ?? EnvironmentConfig.offCountry,
         ),
-        _userAgent = userAgent ?? EnvironmentConfig.offUserAgent,
         _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
         _dio = dio ??
             Dio(
@@ -46,6 +45,9 @@ class OffClient {
             );
 
   static const String _baseUrl = 'https://world.openfoodfacts.org';
+  // Text search uses the Search-a-licious backend instead of the legacy
+  // /api/v2/search endpoint, which is chronically overloaded and returns 503s.
+  static const String _searchUrl = 'https://search.openfoodfacts.org/search';
   static const List<String> _fields = [
     'code',
     'product_name',
@@ -74,7 +76,6 @@ class OffClient {
 
   final Dio _dio;
   final String _countryTag;
-  final String _userAgent;
   final OffRateLimiter _rateLimiter;
 
   Future<OffProductResponse?> fetchProduct(String barcode) async {
@@ -121,7 +122,7 @@ class OffClient {
       final response = await _rateLimiter.run(
         _searchKey(query),
         () => _dio.get<Map<String, dynamic>>(
-          '/api/v2/search',
+          _searchUrl,
           queryParameters: _buildSearchParams(
             query,
             pageSize: pageSize,
@@ -144,35 +145,34 @@ class OffClient {
     required int pageSize,
     String? categoryTag,
   }) {
-    final params = <String, dynamic>{
-      'search_terms': query,
+    // Search-a-licious uses a Lucene-style query string. Tag filters are
+    // appended to `q` as `field:"value"` clauses; the value must be quoted
+    // because the tag values themselves contain a colon (e.g. en:beverages).
+    final clauses = <String>[];
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isNotEmpty) {
+      clauses.add(trimmedQuery);
+    }
+    if (_countryTag.isNotEmpty) {
+      clauses.add('countries_tags:"$_countryTag"');
+    }
+    final trimmedCategory = categoryTag?.trim();
+    if (trimmedCategory != null && trimmedCategory.isNotEmpty) {
+      clauses.add('categories_tags:"$trimmedCategory"');
+    }
+    return <String, dynamic>{
+      'q': clauses.join(' '),
       'lc': 'en',
-      'user_agent': _userAgent,
       'fields': _fields.join(','),
       'page_size': pageSize,
     };
-    int tagIndex = 0;
-    void addTagFilter(String type, String tag) {
-      params['tagtype_$tagIndex'] = type;
-      params['tag_contains_$tagIndex'] = 'contains';
-      params['tag_$tagIndex'] = tag;
-      tagIndex++;
-    }
-
-    if (_countryTag.isNotEmpty) {
-      addTagFilter('countries', _countryTag);
-    }
-    if (categoryTag != null && categoryTag.trim().isNotEmpty) {
-      addTagFilter('categories', categoryTag.trim());
-    }
-    return params;
   }
 
   List<OffProductResponse> _parseSearchResponse(Map<String, dynamic>? data) {
     if (data == null) {
       return [];
     }
-    final products = data['products'];
+    final products = data['hits'];
     if (products is! List) {
       return [];
     }

@@ -184,7 +184,7 @@ void main() {
     expect(item.servingSizeG, 42);
   });
 
-  test('handles non-string brands safely', () {
+  test('joins list brands from Search-a-licious into a string', () {
     final mapper = OffMapper();
     final product = {
       'code': '555555',
@@ -197,7 +197,7 @@ void main() {
       rawJson: '{"product": {"product_name": "Test Bar"}}',
     );
 
-    expect(item.brands, '');
+    expect(item.brands, 'Brand A, Brand B');
   });
 
   test('returns null imageUrl when no org or front image present', () {
