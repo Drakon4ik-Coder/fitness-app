@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 2 * * 1"  # weekly (Mon 02:00 UTC) — catches unpinned tooling/base-image drift
   workflow_dispatch:
 
 jobs:
