@@ -72,7 +72,11 @@ jobs:
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
-        run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=APP_ENV=prod
+        run: |
+          flutter build apk --release \
+            --build-number=${{ github.run_number }} \
+            --dart-define=APP_ENV=prod \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
 
       - name: Upload APK as GitHub Release
         uses: softprops/action-gh-release@v2
