@@ -170,22 +170,32 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
+          // Fill the viewport and let the content center itself. The scroll
+          // view only engages as a safety net when the keyboard is open, the
+          // device is short, or Dynamic Type is enlarged.
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.xl,
             vertical: AppSpacing.lg,
           ),
-          child: Form(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - AppSpacing.lg * 2,
+            ),
+            child: IntrinsicHeight(
+              child: Form(
             key: _formKey,
             child: AutofillGroup(
                 child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: AppSpacing.xl),
+                  const Spacer(),
 
                   // Brand header
                   const Center(child: BrandMark()),
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.sm),
                   Center(
                     child: Text(
                       'SYMBIO',
@@ -196,7 +206,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Title
                   Text(
@@ -215,7 +225,7 @@ class _LoginPageState extends State<LoginPage> {
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Email label
                   Text(
@@ -250,7 +260,7 @@ class _LoginPageState extends State<LoginPage> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: AppSpacing.xl),
+                  const SizedBox(height: AppSpacing.lg),
 
                   // Password label row with forgot password
                   Row(
@@ -314,7 +324,7 @@ class _LoginPageState extends State<LoginPage> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Login button
                   FilledButton(
@@ -344,7 +354,33 @@ class _LoginPageState extends State<LoginPage> {
                           )
                         : const Text('LOGIN'),
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
+
+                  // Error feedback shown directly below the action that
+                  // triggered it, so it stays visible without scrolling.
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    InlineBanner(
+                      message: _errorMessage!,
+                      tone: InlineBannerTone.error,
+                    ),
+                    if (_showResend) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      TextButton(
+                        onPressed: _isResending ? null : _resendVerification,
+                        child: _isResending
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: colorScheme.primary,
+                                ),
+                              )
+                            : const Text('Resend verification email'),
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Divider with "OR CONTINUE WITH"
                   Row(
@@ -373,7 +409,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.xl),
+                  const SizedBox(height: AppSpacing.lg),
 
                   // Social sign-in providers (more can be added beside Google)
                   Row(
@@ -390,7 +426,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Footer: New to Symbio?
                   Row(
@@ -425,37 +461,17 @@ class _LoginPageState extends State<LoginPage> {
                     ],
                   ),
 
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: AppSpacing.xl),
-                    InlineBanner(
-                      message: _errorMessage!,
-                      tone: InlineBannerTone.error,
-                    ),
-                    if (_showResend) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      TextButton(
-                        onPressed: _isResending ? null : _resendVerification,
-                        child: _isResending
-                            ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: colorScheme.primary,
-                                ),
-                              )
-                            : const Text('Resend verification email'),
-                      ),
-                    ],
-                  ],
-
-                  const SizedBox(height: AppSpacing.xl),
+                  const Spacer(),
                 ],
               ),
             ),
+              ),
+            ),
+          ),
+              );
+            },
           ),
         ),
-      ),
       ),
     );
   }
