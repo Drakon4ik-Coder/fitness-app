@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'tokens.dart';
 
@@ -134,6 +135,8 @@ class LuminaHealthTheme {
       surfaceContainerHighest: LuminaHealthColors.surfaceContainerHighest,
     );
 
+    final textTheme = _buildTextTheme(scheme);
+
     // The Design.md specifically requests: Input style with surface-container-highest and rounded-md corner
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -145,11 +148,13 @@ class LuminaHealthTheme {
       brightness: Brightness.dark,
       colorScheme: scheme,
       scaffoldBackgroundColor: scheme.surface,
+      textTheme: textTheme,
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: scheme.onSurface,
         surfaceTintColor: Colors.transparent,
+        titleTextStyle: textTheme.titleLarge,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -173,6 +178,9 @@ class LuminaHealthTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
+          elevation: 8,
+          shadowColor: scheme.primary.withValues(alpha: 0.5),
+          textStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
@@ -182,6 +190,9 @@ class LuminaHealthTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
+          elevation: 8,
+          shadowColor: scheme.primary.withValues(alpha: 0.5),
+          textStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
@@ -217,5 +228,42 @@ class LuminaHealthTheme {
   static LuminaHealthEffects effectsOf(BuildContext context) {
     return Theme.of(context).extension<LuminaHealthEffects>() ??
         LuminaHealthEffects.fallback;
+  }
+
+  /// Typography: Space Grotesk for display/headline/title (geometric, athletic,
+  /// reads well at HUD numeric sizes) paired with Inter for body and the
+  /// letter-spaced labels. Display and headline roles use tabular figures so
+  /// live-updating numbers (kcal, macros) don't shift horizontally.
+  static TextTheme _buildTextTheme(ColorScheme scheme) {
+    final base = ThemeData(brightness: Brightness.dark).textTheme.apply(
+          bodyColor: scheme.onSurface,
+          displayColor: scheme.onSurface,
+        );
+    final body = GoogleFonts.interTextTheme(base);
+    const tabular = <FontFeature>[FontFeature.tabularFigures()];
+
+    TextStyle numeric(TextStyle? style, FontWeight weight) {
+      return GoogleFonts.spaceGrotesk(
+        textStyle: style,
+        fontWeight: weight,
+        fontFeatures: tabular,
+      );
+    }
+
+    TextStyle title(TextStyle? style, FontWeight weight) {
+      return GoogleFonts.spaceGrotesk(textStyle: style, fontWeight: weight);
+    }
+
+    return body.copyWith(
+      displayLarge: numeric(body.displayLarge, FontWeight.w800),
+      displayMedium: numeric(body.displayMedium, FontWeight.w800),
+      displaySmall: numeric(body.displaySmall, FontWeight.w700),
+      headlineLarge: numeric(body.headlineLarge, FontWeight.w700),
+      headlineMedium: numeric(body.headlineMedium, FontWeight.w700),
+      headlineSmall: numeric(body.headlineSmall, FontWeight.w700),
+      titleLarge: title(body.titleLarge, FontWeight.w700),
+      titleMedium: title(body.titleMedium, FontWeight.w600),
+      titleSmall: title(body.titleSmall, FontWeight.w600),
+    );
   }
 }

@@ -137,7 +137,7 @@ REST_FRAMEWORK: dict[str, Any] = {
         # Tighter per-view scopes for sensitive anonymous endpoints.
         "resend_verification": "2/day",  # sends an email per call
         "login": "5/min",  # credential brute-force / password spray
-        "register": "2/day",  # sends a verification email per call
+        "register": "2/min",  # sends a verification email per call
         "google": "10/min",  # outbound token verification to Google per call
     },
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
@@ -691,12 +692,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        backgroundColor: scheme.surface.withValues(alpha: 0.8),
+        backgroundColor: scheme.surface.withValues(alpha: 0.7),
         flexibleSpace: ClipRect(
           child: BackdropFilter(
-            filter: ColorFilter.mode(Colors.black.withValues(alpha: 0.1), BlendMode.dstOut),
-            // Use flutter standard BackdropFilter if we had a child
-            child: Container(color: Colors.transparent),
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: const SizedBox.expand(),
           ),
         ),
         elevation: 0,
@@ -818,9 +818,24 @@ class _AddFoodPageState extends State<AddFoodPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _MacroSummaryRow(label: 'Protein', value: '${totalProtein.round()}g', color: scheme.secondary, progress: 0.7),
-                        _MacroSummaryRow(label: 'Carbs', value: '${totalCarbs.round()}g', color: scheme.tertiary, progress: 0.5),
-                        _MacroSummaryRow(label: 'Fats', value: '${totalFats.round()}g', color: scheme.primary, progress: 0.25),
+                        _MacroSummaryRow(
+                          label: 'Protein',
+                          value: '${totalProtein.round()}g',
+                          color: scheme.secondary,
+                          progress: (totalProtein / _proteinRefG).clamp(0.0, 1.0),
+                        ),
+                        _MacroSummaryRow(
+                          label: 'Carbs',
+                          value: '${totalCarbs.round()}g',
+                          color: scheme.tertiary,
+                          progress: (totalCarbs / _carbsRefG).clamp(0.0, 1.0),
+                        ),
+                        _MacroSummaryRow(
+                          label: 'Fats',
+                          value: '${totalFats.round()}g',
+                          color: scheme.primary,
+                          progress: (totalFats / _fatsRefG).clamp(0.0, 1.0),
+                        ),
                       ],
                     ),
                   ),
@@ -1053,6 +1068,13 @@ class _MacroSummaryRow extends StatelessWidget {
     );
   }
 }
+
+// Per-meal reference macro amounts used to fill the summary bars. These give
+// the progress bars a meaningful scale (roughly one meal's worth) until
+// per-user targets are wired up.
+const double _proteinRefG = 40;
+const double _carbsRefG = 80;
+const double _fatsRefG = 30;
 
 enum MealType { breakfast, lunch, dinner, snacks }
 enum _FoodResultOrigin { local, backend, off }

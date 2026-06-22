@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
@@ -180,15 +181,19 @@ class _LoginPageState extends State<LoginPage> {
                 child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Brand header
-                  Text(
-                    'SYMBIO',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 3,
+                  const Center(child: BrandMark()),
+                  const SizedBox(height: AppSpacing.lg),
+                  Center(
+                    child: Text(
+                      'SYMBIO',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 4,
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xxl),
@@ -318,6 +323,8 @@ class _LoginPageState extends State<LoginPage> {
                       minimumSize: const Size.fromHeight(52),
                       backgroundColor: colorScheme.primary,
                       foregroundColor: colorScheme.onPrimary,
+                      elevation: 8,
+                      shadowColor: colorScheme.primary.withValues(alpha: 0.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
@@ -368,31 +375,20 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: AppSpacing.xl),
 
-                  // Google login button
-                  OutlinedButton.icon(
-                    onPressed: _isLoading ? null : _googleSubmit,
-                    icon: const Text(
-                      'G',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
+                  // Social sign-in providers (more can be added beside Google)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SocialAuthButton(
+                        semanticLabel: 'Continue with Google',
+                        onPressed: _isLoading ? null : _googleSubmit,
+                        child: SvgPicture.asset(
+                          'assets/brand/google_g.svg',
+                          width: 24,
+                          height: 24,
+                        ),
                       ),
-                    ),
-                    label: const Text('GOOGLE'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      side: BorderSide(
-                        color: colorScheme.outline.withValues(alpha: 0.5),
-                      ),
-                      foregroundColor: colorScheme.onSurface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      textStyle: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.xxl),
 

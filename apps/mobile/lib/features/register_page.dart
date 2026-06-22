@@ -141,15 +141,19 @@ class _RegisterPageState extends State<RegisterPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.xl),
 
                   // Brand header
-                  Text(
-                    'SYMBIO',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 3,
+                  const Center(child: BrandMark()),
+                  const SizedBox(height: AppSpacing.lg),
+                  Center(
+                    child: Text(
+                      'SYMBIO',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 4,
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xxl),
@@ -223,6 +227,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     obscureText: _obscurePassword,
                     textInputAction: TextInputAction.done,
                     onFieldSubmitted: (_) => _submit(),
+                    onChanged: (_) => setState(() {}),
                     autofillHints: const [AutofillHints.newPassword],
                     decoration: InputDecoration(
                       labelText: "Password",
@@ -255,6 +260,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       return null;
                     },
                   ),
+                  PasswordStrengthMeter(password: _passwordController.text),
                   const SizedBox(height: AppSpacing.xxl),
 
                   // Create Account button
@@ -264,6 +270,8 @@ class _RegisterPageState extends State<RegisterPage> {
                       minimumSize: const Size.fromHeight(52),
                       backgroundColor: colorScheme.primary,
                       foregroundColor: colorScheme.onPrimary,
+                      elevation: 8,
+                      shadowColor: colorScheme.primary.withValues(alpha: 0.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
