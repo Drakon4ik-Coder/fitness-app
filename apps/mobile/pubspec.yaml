@@ -57,6 +57,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.1
+  flutter_native_splash: ^2.4.1
 
 # App icon generation config. Run: dart run flutter_launcher_icons
 flutter_launcher_icons:
@@ -66,6 +67,21 @@ flutter_launcher_icons:
   adaptive_icon_background: "#050E17"
   adaptive_icon_foreground: "assets/icon/icon_foreground.png"
   remove_alpha_ios: true
+
+# Native splash config. Run: dart run flutter_native_splash:create
+# Generates crisp, correctly-sized splash assets for every platform
+# (incl. Android 12+ values-v31) so the OS no longer upscales the launcher
+# icon. The app is dark-only, so light and dark variants are identical.
+flutter_native_splash:
+  color: "#050E17"
+  image: assets/icon/icon_foreground.png
+  color_dark: "#050E17"
+  image_dark: assets/icon/icon_foreground.png
+  android_12:
+    color: "#050E17"
+    image: assets/icon/icon_foreground.png
+    color_dark: "#050E17"
+    image_dark: assets/icon/icon_foreground.png
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

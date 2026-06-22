@@ -5,6 +5,7 @@ import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'features/nutrition/nutrition_today_page.dart';
 import 'features/login_page.dart';
+import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
 
 void main() {
@@ -99,9 +100,27 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
+      // Mirror the native splash (brand background + SYMBIO mark) so there is
+      // no jarring flash between the OS splash and the Flutter loading state.
+      final colorScheme = Theme.of(context).colorScheme;
+      return Scaffold(
+        backgroundColor: colorScheme.surfaceContainerLowest,
         body: Center(
-          child: CircularProgressIndicator(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const BrandMark(),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
