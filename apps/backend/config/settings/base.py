@@ -206,3 +206,12 @@ PASSWORD_RESET_TTL = timedelta(hours=env.int("PASSWORD_RESET_TTL_HOURS", default
 # fall back to the host of the incoming request (correct in prod behind the
 # public domain; fine in dev with the console email backend).
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="").rstrip("/")
+
+# Android Digital Asset Links, served at /.well-known/assetlinks.json. Declaring
+# the app here lets Google Password Manager share a saved login between this
+# website and the app (so the same credential autofills in both). The
+# fingerprints are the SHA-256 of each signing certificate (debug, upload, and
+# Play App Signing) — public values, supplied comma-separated. With none set the
+# endpoint returns an empty statement list (valid JSON that asserts nothing).
+ANDROID_APP_PACKAGE = env("ANDROID_APP_PACKAGE", default="uk.drakon4ik.symbio")
+ANDROID_CERT_FINGERPRINTS = env.list("ANDROID_CERT_FINGERPRINTS", default=[])

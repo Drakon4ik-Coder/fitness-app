@@ -1,4 +1,4 @@
-package com.drakon4ik.fitness_app
+package uk.drakon4ik.symbio
 
 import io.flutter.embedding.android.FlutterActivity
 
