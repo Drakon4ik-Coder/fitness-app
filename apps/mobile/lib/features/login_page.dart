@@ -7,6 +7,7 @@ import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
 import '../core/google_auth_service.dart';
 
+import 'forgot_password_page.dart';
 import 'register_page.dart';
 import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
@@ -275,9 +276,19 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                       GestureDetector(
-                        onTap: () {
-                          // Forgot password action placeholder
-                        },
+                        onTap: _isLoading
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => ForgotPasswordPage(
+                                      authService: widget.authService,
+                                      initialEmail:
+                                          _emailController.text.trim(),
+                                    ),
+                                  ),
+                                );
+                              },
                         child: Text(
                           'FORGOT PASSWORD?',
                           style: theme.textTheme.labelSmall?.copyWith(

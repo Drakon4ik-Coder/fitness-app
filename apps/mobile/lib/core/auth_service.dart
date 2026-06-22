@@ -96,6 +96,23 @@ class AuthService {
     }
   }
 
+  /// Asks the backend to email a password-reset link. Like
+  /// [resendVerification], the endpoint is intentionally silent about whether
+  /// the account exists (to avoid account enumeration), so this only throws on
+  /// a network/server failure.
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await _dio.post(
+        '/api/v1/auth/password-reset',
+        data: {'email': email},
+      );
+    } on DioException {
+      throw AuthException('Could not send the email. Please try again later.');
+    } catch (_) {
+      throw AuthException('Could not send the email. Please try again later.');
+    }
+  }
+
   Future<AuthTokens> googleLogin(String idToken) async {
     try {
       final response = await _dio.post(
