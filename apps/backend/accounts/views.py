@@ -21,16 +21,24 @@ from google.auth import exceptions as google_exceptions
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
-from accounts.models import EmailVerificationToken
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+
+from accounts.models import EmailVerificationToken, PasswordResetToken
 from accounts.serializers import (
     UserRegistrationSerializer,
     UserSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
+    PasswordResetRequestSerializer,
     ResendVerificationSerializer,
     TokenPairSerializer,
 )
-from accounts.services import create_user_with_defaults, send_verification_email
+from accounts.services import (
+    create_user_with_defaults,
+    send_password_reset_email,
+    send_verification_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +229,102 @@ class ResendVerificationView(APIView):
         return Response(
             {"detail": "If that email needs verifying, a link is on its way."}
         )
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    # Anonymous + sends an email on every call, so rate limit by client IP to
+    # block spam/enumeration and avoidable mail-provider cost.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_reset"
+
+    @extend_schema(request=PasswordResetRequestSerializer, responses=None)
+    def post(self, request: Request) -> Response:
+        body = PasswordResetRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        email = body.validated_data["email"].lower()
+
+        user = User.objects.filter(email__iexact=email).first()
+        # Only active accounts get a link; deactivated users must not be able to
+        # regain access this way.
+        if user is not None and user.is_active:
+            try:
+                send_password_reset_email(user, request=request)
+            except Exception:
+                logger.exception("Failed to send password-reset email to %s", email)
+
+        # Always 200, regardless of whether the email exists, so the endpoint
+        # can't be used to enumerate accounts.
+        return Response(
+            {"detail": "If that email has an account, a reset link is on its way."}
+        )
+
+
+@require_http_methods(["GET", "POST"])
+def reset_password(request: HttpRequest, token: str) -> HttpResponse:
+    """Landing page the password-reset link points to.
+
+    A GET shows the new-password form; the password is changed on POST. Like
+    :func:`verify_email`, no token is consumed on GET so email security
+    scanners that pre-fetch links with GET can't invalidate a live reset.
+    """
+    token_obj = (
+        PasswordResetToken.objects.select_related("user")
+        .filter(token_hash=PasswordResetToken.hash_token(token))
+        .first()
+    )
+
+    if token_obj is None:
+        return _reset_result(request, "invalid")
+    if token_obj.used_at is not None:
+        return _reset_result(request, "used")
+    if token_obj.is_expired:
+        return _reset_result(request, "expired")
+
+    if request.method == "GET":
+        return render(request, "accounts/password_reset_form.html")
+
+    # POST: validate the new password before consuming the token, so a weak
+    # password just re-renders the form with the token still usable.
+    password = request.POST.get("password", "")
+    user = token_obj.user
+
+    try:
+        validate_password(password, user=user)
+    except ValidationError as exc:
+        return render(
+            request,
+            "accounts/password_reset_form.html",
+            {"errors": exc.messages},
+        )
+
+    # Consume the token with a single conditional UPDATE so concurrent submits
+    # can't both succeed: only the request that flips used_at from NULL wins.
+    claimed = PasswordResetToken.objects.filter(
+        pk=token_obj.pk, used_at__isnull=True
+    ).update(used_at=timezone.now())
+    if not claimed:
+        return _reset_result(request, "used")
+
+    user.set_password(password)
+    # Receiving the email proves inbox ownership, so an unverified account
+    # becomes verified here — same proof the verification link provides.
+    fields = ["password"]
+    if not user.email_verified:
+        user.email_verified = True
+        fields.append("email_verified")
+    user.save(update_fields=fields)
+
+    # Invalidate any other outstanding reset links for this user.
+    PasswordResetToken.objects.filter(user=user, used_at__isnull=True).update(
+        used_at=timezone.now()
+    )
+
+    return _reset_result(request, "success")
+
+
+def _reset_result(request: HttpRequest, result: str) -> HttpResponse:
+    return render(request, "accounts/password_reset_result.html", {"result": result})
 
 
 class MeView(APIView):

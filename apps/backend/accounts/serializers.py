@@ -65,6 +65,10 @@ class ResendVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
 class TokenPairSerializer(serializers.Serializer):
     access = serializers.CharField()
     refresh = serializers.CharField()

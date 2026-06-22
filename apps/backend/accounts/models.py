@@ -97,3 +97,39 @@ class EmailVerificationToken(models.Model):
 
     def __str__(self) -> str:
         return f"verification for {self.user.email}"
+
+
+class PasswordResetToken(models.Model):
+    """Single-use, expiring token backing the password-reset link.
+
+    Mirrors :class:`EmailVerificationToken`: only the SHA-256 hash is stored so
+    a database leak can't be turned into live reset links, and the raw token
+    travels only in the emailed URL. Reset tokens are shorter-lived than
+    verification tokens (``PASSWORD_RESET_TTL``) since they grant a credential
+    change.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="password_reset_tokens"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    @staticmethod
+    def hash_token(raw: str) -> str:
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    @classmethod
+    def issue(cls, user: "User") -> str:
+        """Create a token for ``user`` and return the raw value for the URL."""
+        raw = secrets.token_urlsafe(32)
+        cls.objects.create(user=user, token_hash=cls.hash_token(raw))
+        return raw
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.created_at + settings.PASSWORD_RESET_TTL
+
+    def __str__(self) -> str:
+        return f"password reset for {self.user.email}"

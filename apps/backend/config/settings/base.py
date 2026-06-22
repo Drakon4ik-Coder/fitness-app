@@ -136,6 +136,7 @@ REST_FRAMEWORK: dict[str, Any] = {
         "user": "100/min",
         # Tighter per-view scopes for sensitive anonymous endpoints.
         "resend_verification": "2/day",  # sends an email per call
+        "password_reset": "3/hour",  # sends an email per call
         "login": "5/min",  # credential brute-force / password spray
         "register": "2/min",  # sends a verification email per call
         "google": "10/min",  # outbound token verification to Google per call
@@ -196,6 +197,10 @@ DEFAULT_FROM_EMAIL = env(
 EMAIL_VERIFICATION_TTL = timedelta(
     hours=env.int("EMAIL_VERIFICATION_TTL_HOURS", default=24)
 )
+
+# How long an emailed password-reset link stays valid. Shorter than the
+# verification TTL because it grants a credential change.
+PASSWORD_RESET_TTL = timedelta(hours=env.int("PASSWORD_RESET_TTL_HOURS", default=1))
 
 # Absolute base URL used to build verification links in emails. When empty we
 # fall back to the host of the incoming request (correct in prod behind the

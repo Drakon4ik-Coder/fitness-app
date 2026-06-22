@@ -7,7 +7,7 @@ from django.db import transaction
 from django.template.loader import render_to_string
 from django.urls import reverse
 
-from accounts.models import EmailVerificationToken, User
+from accounts.models import EmailVerificationToken, PasswordResetToken, User
 from preferences.models import UserPreferences
 
 
@@ -60,6 +60,42 @@ def send_verification_email(user: User, *, request=None) -> None:
     html_body = render_to_string("accounts/email/verification_email.html", context)
     message = EmailMultiAlternatives(
         subject="Verify your Symbio email",
+        body=text_body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+    message.attach_alternative(html_body, "text/html")
+    message.send()
+
+
+def build_password_reset_url(raw_token: str, *, request=None) -> str:
+    """Absolute URL the user taps to reset their password.
+
+    Same host-resolution rules as :func:`build_verification_url`: prefer the
+    configured PUBLIC_BASE_URL, otherwise derive the host from the request, and
+    raise if neither is available rather than email a broken relative link.
+    """
+    path = reverse("reset-password", args=[raw_token])
+    if settings.PUBLIC_BASE_URL:
+        return f"{settings.PUBLIC_BASE_URL}{path}"
+    if request is not None:
+        return request.build_absolute_uri(path)
+    raise ImproperlyConfigured(
+        "Cannot build an absolute password-reset URL: set PUBLIC_BASE_URL or "
+        "call with a request to derive the host."
+    )
+
+
+def send_password_reset_email(user: User, *, request=None) -> None:
+    """Issue a fresh token and email the password-reset link to ``user``."""
+    raw_token = PasswordResetToken.issue(user)
+    reset_url = build_password_reset_url(raw_token, request=request)
+    context = {"reset_url": reset_url, "user": user}
+
+    text_body = render_to_string("accounts/email/password_reset_email.txt", context)
+    html_body = render_to_string("accounts/email/password_reset_email.html", context)
+    message = EmailMultiAlternatives(
+        subject="Reset your Symbio password",
         body=text_body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[user.email],

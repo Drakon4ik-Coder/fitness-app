@@ -26,6 +26,7 @@ REST_FRAMEWORK = {
         "anon": None,
         "user": None,
         "resend_verification": None,
+        "password_reset": None,
         "login": None,
         "register": None,
         "google": None,
