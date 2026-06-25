@@ -117,6 +117,7 @@ class OffClient {
     String query, {
     int pageSize = 10,
     String? categoryTag,
+    CancelToken? cancelToken,
   }) async {
     try {
       final response = await _rateLimiter.run(
@@ -128,12 +129,19 @@ class OffClient {
             pageSize: pageSize,
             categoryTag: categoryTag,
           ),
+          // Forwarded so a superseded live search aborts the socket and frees
+          // rate-limit budget instead of completing and being discarded.
+          cancelToken: cancelToken,
         ),
       );
       return _parseSearchResponse(response.data);
     } on OffRateLimitException {
       rethrow;
     } on DioException catch (error) {
+      // A cancelled request must stay a cancel — never convert it into a
+      // user-facing OffException, or the live path would surface an error
+      // string for routine supersede-cancellation (RESEARCH Pitfall 4).
+      if (CancelToken.isCancel(error)) rethrow;
       throw OffException(_formatDioMessage(error, 'Unable to search OFF.'));
     } catch (_) {
       throw OffException('Unable to search OFF.');

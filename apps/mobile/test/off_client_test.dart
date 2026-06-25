@@ -54,4 +54,36 @@ void main() {
 
     expect(rateLimiter.callCount, 1);
   });
+
+  test(
+      'searchProducts rethrows a cancel DioException (isCancel) instead of '
+      'wrapping it into OffException', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          // Keep the request pending until the token is cancelled, then mirror
+          // Dio's own cancel propagation by rejecting with the cancel error.
+          options.cancelToken?.whenCancel.then((err) => handler.reject(err));
+        },
+      ),
+    );
+
+    // Fresh limiter (never OffRateLimiter.shared) so timestamps don't leak.
+    final client = OffClient(dio: dio, rateLimiter: OffRateLimiter());
+    final token = CancelToken();
+    final future = client.searchProducts('apple', cancelToken: token);
+    token.cancel('superseded');
+
+    await expectLater(
+      future,
+      throwsA(
+        isA<DioException>().having(
+          (error) => CancelToken.isCancel(error),
+          'isCancel',
+          isTrue,
+        ),
+      ),
+    );
+  });
 }
