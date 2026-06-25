@@ -13,6 +13,7 @@ import 'data/off_client.dart';
 import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
+import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
 
 const String _filterRecent = 'Recent';
@@ -62,7 +63,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   final TextEditingController _searchController = TextEditingController();
   final OffMapper _offMapper = OffMapper();
   final OffImageDownloader _imageDownloader = OffImageDownloader();
-  Timer? _debounce;
+  late final LiveSearchController _liveSearch;
   Timer? _offBlockTimer;
 
   static const Duration _scanCooldown = Duration(seconds: 3);
@@ -72,8 +73,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   MealType _selectedMeal = MealType.breakfast;
   String _selectedFilter = _filterRecent;
-  
-  // Track actual items instead of search result indices 
+
+  // Track actual items instead of search result indices
   final List<FoodItem> _addedItems = [];
 
   bool _isBackendLoading = false;
@@ -91,13 +92,37 @@ class _AddFoodPageState extends State<AddFoodPage> {
   @override
   void initState() {
     super.initState();
+    // The controller owns the shared 300ms debounce + per-query CancelToken +
+    // 2-char floor (D-06/D-07/D-08). The page hands it `setState`-driven setters
+    // so debounced backend/OFF results flow back into the existing merge fields.
+    _liveSearch = LiveSearchController(
+      offClient: widget.offClient,
+      foodsApi: widget.foodsApi,
+      offMapper: _offMapper,
+      onBackendResults: (results) {
+        if (!mounted) return;
+        setState(() => _backendResults = results);
+      },
+      onOffResults: (results) {
+        if (!mounted) return;
+        setState(() => _offResults = results);
+      },
+      onLoadingChanged: ({required bool backend, required bool off}) {
+        if (!mounted) return;
+        setState(() {
+          _isBackendLoading = backend;
+          _isOffLoading = off;
+        });
+      },
+      onUnauthorized: widget.onLogout,
+    );
     _searchController.addListener(_handleSearchChange);
     _loadFilterResults();
   }
 
   @override
   void dispose() {
-    _debounce?.cancel();
+    _liveSearch.dispose();
     _offBlockTimer?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -127,7 +152,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
     if (_ignoreSearchChange) return;
     final query = _searchController.text.trim();
     if (query.isEmpty) {
-      _debounce?.cancel();
+      // Clear pending online work and reset the result fields, then fall back
+      // to the recent/favorites list.
+      _liveSearch.onQueryChanged('');
       setState(() {
         _backendResults = [];
         _offResults = [];
@@ -146,11 +173,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
       _message = null;
       _messageTone = null;
     });
+    // Local cache stays instant + un-debounced (D-06); the controller owns the
+    // shared 300ms debounce that fires backend typeahead + OFF together.
     _loadLocalSearch(query);
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
-      _loadBackendSearch(query);
-    });
+    _liveSearch.onQueryChanged(query);
   }
 
   Future<void> _loadFilterResults() async {
@@ -173,40 +199,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
-  Future<void> _loadBackendSearch(String query) async {
-    if (!mounted) return;
-    setState(() {
-      _isBackendLoading = true;
-      _message = null;
-      _messageTone = null;
-    });
-    try {
-      final results = await widget.foodsApi.typeahead(query);
-      if (!mounted) return;
-      if (_searchController.text.trim() != query) {
-        setState(() => _isBackendLoading = false);
-        return;
-      }
-      setState(() {
-        _backendResults = results;
-        _isBackendLoading = false;
-      });
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
-        if (!mounted) return;
-        setState(() => _isBackendLoading = false);
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _isBackendLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.error;
-      });
-    }
-  }
-
   void _selectMeal(MealType meal) {
     setState(() {
       _selectedMeal = meal;
@@ -226,7 +218,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       _addedItems.add(item);
     });
   }
-  
+
   void _removeItem(int index) {
     setState(() {
       _addedItems.removeAt(index);
@@ -236,9 +228,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   Future<void> _openScanPage() async {
     FocusScope.of(context).unfocus();
     final barcode = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => const NutritionScanPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const NutritionScanPage()),
     );
     if (barcode == null || barcode.trim().isEmpty) return;
     await _handleBarcodeScan(barcode.trim());
@@ -314,109 +304,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
   }
 
-  Future<void> _searchOnline() async {
-    final query = _searchController.text.trim();
-    if (query.isEmpty) return;
-    if (_isOffRateLimited) {
-      setState(() {
-        _message = 'OpenFoodFacts is temporarily rate limited. Try again soon.';
-        _messageTone = InlineBannerTone.info;
-      });
-      return;
-    }
-    final queryLower = query.toLowerCase();
-    setState(() {
-      _isOffLoading = true;
-      _message = null;
-      _messageTone = null;
-    });
-    try {
-      final locale = Localizations.localeOf(context).languageCode;
-      final baseResults = await widget.offClient.searchProducts(query);
-      List<OffProductResponse> effectiveResults = baseResults;
-      final bool hasCategoryMatch = _hasCategoryMatch(baseResults, queryLower);
-      if (baseResults.isEmpty || !hasCategoryMatch) {
-        final categoryTags = categoryTagsForQuery(queryLower);
-        for (final tag in categoryTags) {
-          try {
-            final categoryResults = await widget.offClient.searchProducts(query, categoryTag: tag);
-            if (categoryResults.isNotEmpty) {
-              effectiveResults = categoryResults;
-              break;
-            }
-          } catch (_) {}
-        }
-      }
-
-      final filteredResults = effectiveResults.where((result) => _isEnglishResult(result.product)).toList();
-      final preferredResults = filteredResults.isEmpty ? effectiveResults : filteredResults;
-      final candidates = <_OffSearchCandidate>[];
-      for (final result in preferredResults) {
-        final item = _offMapper.mapProduct(
-          product: result.product,
-          rawJson: result.rawJson,
-          localeLanguage: locale,
-        );
-        if (item.barcode == null || item.barcode!.isEmpty) continue;
-        candidates.add(_OffSearchCandidate(item: item, product: result.product));
-      }
-      final narrowedCandidates = _preferWholeFoodCandidates(candidates, queryLower);
-      final items = narrowedCandidates.map((c) => c.item).toList();
-      items.sort((a, b) => _nameMatchScore(b.name, queryLower) - _nameMatchScore(a.name, queryLower));
-      if (!mounted) return;
-      if (_searchController.text.trim() != query) {
-        setState(() => _isOffLoading = false);
-        return;
-      }
-      setState(() {
-        _offResults = items;
-        _isOffLoading = false;
-        if (items.isEmpty) {
-          _message = 'No OpenFoodFacts matches found.';
-          _messageTone = InlineBannerTone.info;
-        }
-      });
-      if (items.isEmpty) return;
-      final stored = await _ingestOffResults(items);
-      if (!mounted) return;
-      if (_searchController.text.trim() != query) return;
-      setState(() {
-        _offResults = stored;
-      });
-    } on OffRateLimitException catch (error) {
-      if (!mounted) return;
-      _applyOffLimit(error);
-      setState(() {
-        _isOffLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.info;
-      });
-    } on OffException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _isOffLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.error;
-      });
-    }
-  }
-
-  Future<List<FoodItem>> _ingestOffResults(List<FoodItem> items) async {
-    final stored = <FoodItem>[];
-    for (final item in items) {
-      try {
-        stored.add((await widget.foodsApi.ingestFood(item)).item);
-      } on ApiException catch (error) {
-        if (error.isUnauthorized) {
-          await widget.onLogout();
-          return stored.isEmpty ? items : stored;
-        }
-        stored.add(item);
-      }
-    }
-    return stored;
-  }
-
   Future<FoodItem?> _tryUploadImages(FoodItem item) async {
     final backendId = item.backendId;
     final imageUrl = item.imageUrl;
@@ -433,7 +320,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   Future<void> _submitItems() async {
     if (_addedItems.isEmpty) return;
-    
+
     setState(() {
       _isSubmitting = true;
       _message = null;
@@ -557,55 +444,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
   }
 
   String? _resultKey(FoodItem item) {
-    if (item.barcode != null && item.barcode!.isNotEmpty) return 'barcode:${item.barcode}';
+    if (item.barcode != null && item.barcode!.isNotEmpty) {
+      return 'barcode:${item.barcode}';
+    }
     if (item.backendId != null) return 'backend:${item.backendId}';
     if (item.externalId.isNotEmpty) return 'external:${item.externalId}';
     return null;
-  }
-
-  bool _isEnglishResult(Map<String, dynamic> product) {
-    final lang = product['lang'];
-    if (lang is String && lang.toLowerCase() == 'en') return true;
-    final nameEn = product['product_name_en'];
-    if (nameEn is String && nameEn.trim().isNotEmpty) return true;
-    return false;
-  }
-
-  bool _hasCategoryMatch(List<OffProductResponse> results, String queryLower) {
-    for (final result in results) {
-      if (_matchesCategoryQuery(result.product, queryLower)) return true;
-    }
-    return false;
-  }
-
-  List<_OffSearchCandidate> _preferWholeFoodCandidates(List<_OffSearchCandidate> candidates, String queryLower) {
-    if (candidates.isEmpty || queryLower.contains(' ')) return candidates;
-    final categoryMatches = candidates.where((c) => _matchesCategoryQuery(c.product, queryLower)).toList();
-    if (categoryMatches.isNotEmpty) return categoryMatches;
-    final nameMatches = candidates.where((c) => _isSimpleNameMatch(c.item.name, queryLower)).toList();
-    if (nameMatches.isNotEmpty) return nameMatches;
-    return candidates;
-  }
-
-  bool _matchesCategoryQuery(Map<String, dynamic> product, String queryLower) {
-    final tags = product['categories_tags'];
-    if (tags is! List) return false;
-    final singular = queryLower;
-    final plural = queryLower.endsWith('s') ? queryLower : '${queryLower}s';
-    for (final tag in tags) {
-      if (tag is! String) continue;
-      final lower = tag.toLowerCase();
-      if (lower == 'en:$singular' || lower == 'en:$plural') return true;
-    }
-    return false;
-  }
-
-  bool _isSimpleNameMatch(String name, String queryLower) {
-    final normalized = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').trim();
-    if (normalized == queryLower || normalized == '${queryLower}s') return true;
-    final parts = normalized.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
-    if (parts.isEmpty || parts.length > 2) return false;
-    return parts.contains(queryLower);
   }
 
   int _nameMatchScore(String name, String queryLower) {
@@ -614,7 +458,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
     int score = 0;
     if (nameLower == queryLower) score += 400;
     if (nameLower.startsWith(queryLower)) score += 300;
-    final wordMatch = RegExp(r'\b' + RegExp.escape(queryLower)).hasMatch(nameLower);
+    final wordMatch = RegExp(
+      r'\b' + RegExp.escape(queryLower),
+    ).hasMatch(nameLower);
     if (wordMatch) {
       score += 200;
     } else if (nameLower.contains(queryLower)) {
@@ -627,13 +473,19 @@ class _AddFoodPageState extends State<AddFoodPage> {
   int _resultScore(_FoodResult result, String queryLower) {
     int score = _nameMatchScore(result.item.name, queryLower);
     switch (result.origin) {
-      case _FoodResultOrigin.off: score += 5; break;
-      case _FoodResultOrigin.backend: score += 3; break;
-      case _FoodResultOrigin.local: score += 1; break;
+      case _FoodResultOrigin.off:
+        score += 5;
+        break;
+      case _FoodResultOrigin.backend:
+        score += 3;
+        break;
+      case _FoodResultOrigin.local:
+        score += 1;
+        break;
     }
     return score;
   }
-  
+
   void _showMealSelector() {
     // Just a simple bottom sheet or dialog to select MealType.
     showModalBottomSheet(
@@ -686,8 +538,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
       totalCarbs += item.carbsG100g ?? 0.0;
       totalFats += item.fatG100g ?? 0.0;
     }
-    
-    final mealLabel = _selectedMeal.name[0].toUpperCase() + _selectedMeal.name.substring(1);
+
+    final mealLabel =
+        _selectedMeal.name[0].toUpperCase() + _selectedMeal.name.substring(1);
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -714,13 +567,19 @@ class _AddFoodPageState extends State<AddFoodPage> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.check, color: canSubmit ? scheme.primary : scheme.outlineVariant),
+            icon: Icon(
+              Icons.check,
+              color: canSubmit ? scheme.primary : scheme.outlineVariant,
+            ),
             onPressed: canSubmit ? _submitItems : null,
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.md,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -729,7 +588,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
               onTap: _showMealSelector,
               borderRadius: BorderRadius.circular(AppRadius.lg),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.md,
+                ),
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -822,7 +684,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
                           label: 'Protein',
                           value: '${totalProtein.round()}g',
                           color: scheme.secondary,
-                          progress: (totalProtein / _proteinRefG).clamp(0.0, 1.0),
+                          progress: (totalProtein / _proteinRefG).clamp(
+                            0.0,
+                            1.0,
+                          ),
                         ),
                         _MacroSummaryRow(
                           label: 'Carbs',
@@ -842,7 +707,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 ),
               ],
             ),
-            
+
             // Added Items List
             if (_addedItems.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.lg),
@@ -867,7 +732,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   margin: const EdgeInsets.only(bottom: AppSpacing.xs),
                   padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                    color: scheme.surfaceContainerHighest.withValues(
+                      alpha: 0.4,
+                    ),
                     borderRadius: BorderRadius.circular(AppRadius.lg),
                   ),
                   child: Row(
@@ -902,32 +769,21 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 );
               }),
             ],
-            
+
             const SizedBox(height: AppSpacing.lg),
 
             // Search Bar
             if (_message != null) ...[
-              InlineBanner(message: _message!, tone: _messageTone ?? InlineBannerTone.info),
+              InlineBanner(
+                message: _message!,
+                tone: _messageTone ?? InlineBannerTone.info,
+              ),
               const SizedBox(height: AppSpacing.md),
             ],
             GlassSearchBar(
               controller: _searchController,
               onScan: _isOffRateLimited ? null : _openScanPage,
             ),
-            if (hasQuery) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _isOffLoading || _isOffRateLimited ? null : _searchOnline,
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.secondary,
-                  ),
-                  icon: const Icon(Icons.public),
-                  label: const Text('Search online'),
-                ),
-              ),
-            ],
             if (_isBackendLoading || _isOffLoading) ...[
               const SizedBox(height: AppSpacing.sm),
               LinearProgressIndicator(
@@ -938,7 +794,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
             ],
 
             const SizedBox(height: AppSpacing.lg),
-            
+
             // Food Grid (Quick Add / Search Results)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
@@ -962,12 +818,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
                         minimumSize: Size.zero,
                       ),
                       onPressed: () {
-                         _selectFilter(
-                           _selectedFilter == _filterFavorites ? _filterRecent : _filterFavorites
-                         );
+                        _selectFilter(
+                          _selectedFilter == _filterFavorites
+                              ? _filterRecent
+                              : _filterFavorites,
+                        );
                       },
                       child: Text(
-                        _selectedFilter == _filterFavorites ? 'View Recent' : 'View Favorites',
+                        _selectedFilter == _filterFavorites
+                            ? 'View Recent'
+                            : 'View Favorites',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: scheme.primary,
                           fontWeight: FontWeight.bold,
@@ -978,7 +838,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
-            
+
             if (results.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
@@ -1010,7 +870,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   );
                 },
               ),
-              
+
             const SizedBox(height: 100), // padding for bottom nav space if any
           ],
         ),
@@ -1077,42 +937,30 @@ const double _carbsRefG = 80;
 const double _fatsRefG = 30;
 
 enum MealType { breakfast, lunch, dinner, snacks }
+
 enum _FoodResultOrigin { local, backend, off }
 
 class _FoodResult {
-  const _FoodResult({
-    required this.item,
-    required this.origin,
-  });
+  const _FoodResult({required this.item, required this.origin});
 
   final FoodItem item;
   final _FoodResultOrigin origin;
 }
 
-class _OffSearchCandidate {
-  const _OffSearchCandidate({
-    required this.item,
-    required this.product,
-  });
-
-  final FoodItem item;
-  final Map<String, dynamic> product;
-}
-
 class _FoodCard extends StatelessWidget {
-  const _FoodCard({
-    required this.item,
-    required this.onTap,
-  });
+  const _FoodCard({required this.item, required this.onTap});
 
   final _FoodResult item;
   final VoidCallback onTap;
 
   IconData _originIcon(_FoodResultOrigin origin) {
     switch (origin) {
-      case _FoodResultOrigin.local: return Icons.history;
-      case _FoodResultOrigin.backend: return Icons.cloud;
-      case _FoodResultOrigin.off: return Icons.public;
+      case _FoodResultOrigin.local:
+        return Icons.history;
+      case _FoodResultOrigin.backend:
+        return Icons.cloud;
+      case _FoodResultOrigin.off:
+        return Icons.public;
     }
   }
 
@@ -1121,7 +969,7 @@ class _FoodCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final radius = BorderRadius.circular(AppRadius.lg * 1.5);
-    
+
     final kcal = item.item.kcal100g?.round();
     final kcalLabel = kcal == null ? 'kcal n/a' : '$kcal kcal / 100g';
     final imageUrl = item.item.imageUrl?.trim().isNotEmpty == true
@@ -1154,7 +1002,8 @@ class _FoodCard extends StatelessWidget {
                     child: Image.network(
                       imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox.shrink(),
                     ),
                   ),
                   Positioned.fill(
