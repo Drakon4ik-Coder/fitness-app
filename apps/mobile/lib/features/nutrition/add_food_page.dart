@@ -874,6 +874,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
+                            _FoodThumb(
+                              url:
+                                  added.item.imageUrl?.trim().isNotEmpty == true
+                                  ? added.item.imageUrl!.trim()
+                                  : null,
+                            ),
+                            const SizedBox(width: AppSpacing.md),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1297,6 +1304,28 @@ class _FoodCard extends StatelessWidget {
   }
 }
 
+/// Small rounded food image used in the added-items rows and the amount sheet
+/// header, so the card a user tapped stays visually identifiable while they
+/// review/edit it. Reuses [_FoodImage] for the URL/placeholder/error handling.
+class _FoodThumb extends StatelessWidget {
+  const _FoodThumb({required this.url, this.size = 44});
+
+  final String? url;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: _FoodImage(url: url),
+      ),
+    );
+  }
+}
+
 /// Fills a food card with its photo. Shows a neutral food placeholder when no
 /// image URL is known, and — when an image URL exists but fails to load — a
 /// tappable red reload button that evicts the cached failure and retries.
@@ -1414,6 +1443,11 @@ class _AmountSheetState extends State<_AmountSheet> {
 
   bool get _hasServing => _serving != null;
   bool get _hasPiece => _piece != null;
+
+  String? get _imageUrl {
+    final url = widget.item.imageUrl?.trim();
+    return (url != null && url.isNotEmpty) ? url : null;
+  }
 
   // A serving is only worth showing alongside pieces when it spans more than one
   // piece (e.g. serving = 2 eggs); otherwise the two units are identical.
@@ -1555,22 +1589,36 @@ class _AmountSheetState extends State<_AmountSheet> {
                 ),
               ),
             ),
-            Text(
-              widget.item.name,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              widget.item.kcal100g == null
-                  ? 'Calories per 100g unavailable'
-                  : '${widget.item.kcal100g!.round()} kcal per 100g',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+            Row(
+              children: [
+                _FoodThumb(url: _imageUrl, size: 48),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.item.name,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.item.kcal100g == null
+                            ? 'Calories per 100g unavailable'
+                            : '${widget.item.kcal100g!.round()} kcal per 100g',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.lg),
 
