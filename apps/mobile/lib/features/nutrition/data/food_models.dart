@@ -32,6 +32,107 @@ Object _decodeRawSourceJson(String rawSourceJson) {
   }
 }
 
+/// A food that is naturally counted in discrete pieces (an egg, a burger, a
+/// slice) rather than by weight. OFF never stores nutrition "per piece" — it is
+/// always per 100 g — so a piece is just a named portion of a known gram weight
+/// derived from the free-text `serving_size` (e.g. "2 eggs (105 g)").
+class PieceDescriptor {
+  const PieceDescriptor({required this.gramsPerPiece, required this.unit});
+
+  /// Weight of a single piece in grams (servingGrams / pieceCount).
+  final double gramsPerPiece;
+
+  /// Singular, lower-cased noun for one piece, e.g. "egg", "burger", "slice".
+  final String unit;
+}
+
+// Measure words that look like a leading count but are units/portions, not
+// countable pieces. "2 eggs" is a piece; "1 serving"/"100 g"/"1 cup" is not.
+const Set<String> _measureWords = {
+  'g', 'gr', 'gram', 'grams', 'kg', 'mg', 'ml', 'l', 'cl', 'dl', 'oz', 'lb',
+  'fl', 'floz', 'cup', 'cups', 'tbsp', 'tsp', 'tbs', 'teaspoon', 'teaspoons',
+  'tablespoon', 'tablespoons', 'serving', 'servings', 'serv', 'portion',
+  'portions', 'glass', 'glasses',
+};
+
+final RegExp _gramUnitRegExp = RegExp(
+  r'([\d.,]+)\s*(?:g|ml)\b',
+  caseSensitive: false,
+);
+
+/// A leading `count noun` at the start of a serving text where the noun is a
+/// countable piece, e.g. "2 eggs ..." -> (2, "egg"). Returns null for measure
+/// words ("1 serving", "100 g") so they are never mistaken for pieces.
+({double count, String unit})? parseLeadingPiece(String? text) {
+  if (text == null) return null;
+  final match = RegExp(
+    r'^\s*([\d]+(?:[.,]\d+)?)\s*([a-zA-Z][a-zA-Z\-]*)',
+  ).firstMatch(text.trim());
+  if (match == null) return null;
+  final count = double.tryParse(match.group(1)!.replaceAll(',', '.'));
+  if (count == null || count <= 0) return null;
+  var noun = match.group(2)!.toLowerCase();
+  if (_measureWords.contains(noun)) return null;
+  // Singularize a trailing plural "s" for display ("eggs" -> "egg") while
+  // keeping short nouns intact ("bar" stays "bar").
+  if (noun.length > 3 && noun.endsWith('s')) {
+    noun = noun.substring(0, noun.length - 1);
+  }
+  return (count: count, unit: noun);
+}
+
+/// The grams (or millilitres, treated equivalently) explicitly stated in a
+/// serving text. Prefers a number attached to a g/ml unit ("1 egg (50 g)" -> 50,
+/// "355ml" -> 355). Falls back to a bare number only when the text has no
+/// leading piece count the number could really be — so "30" -> 30 but "1 egg"
+/// -> null (the "1" counts eggs, not grams). This is what stops a bare
+/// "1 egg" from being read as a 1-gram serving.
+double? gramsFromServingText(String? text) {
+  if (text == null) return null;
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return null;
+  final unitMatch = _gramUnitRegExp.firstMatch(trimmed);
+  if (unitMatch != null) {
+    return double.tryParse(unitMatch.group(1)!.replaceAll(',', '.'));
+  }
+  if (parseLeadingPiece(trimmed) != null) return null;
+  final any = RegExp(r'([\d.,]+)').firstMatch(trimmed);
+  if (any == null) return null;
+  return double.tryParse(any.group(1)!.replaceAll(',', '.'));
+}
+
+/// Derives a [PieceDescriptor] from OFF's free-text `serving_size`. Requires
+/// both a leading piece count AND an explicit g/ml weight in the text (e.g.
+/// "2 eggs (105 g)"), so a bare "1 egg" yields no piece rather than a bogus
+/// 1 g/egg. Conservative by design: a missing piece is better than a wrong one.
+PieceDescriptor? parsePieceDescriptor(String? servingSizeText) {
+  final leading = parseLeadingPiece(servingSizeText);
+  if (leading == null) return null;
+  final unitMatch = _gramUnitRegExp.firstMatch(servingSizeText!.trim());
+  if (unitMatch == null) return null;
+  final grams = double.tryParse(unitMatch.group(1)!.replaceAll(',', '.'));
+  if (grams == null || grams <= 0) return null;
+  final gramsPerPiece = grams / leading.count;
+  // Guard against implausible per-piece weights from malformed text.
+  if (gramsPerPiece < 1 || gramsPerPiece > 2000) return null;
+  return PieceDescriptor(gramsPerPiece: gramsPerPiece, unit: leading.unit);
+}
+
+// Pulls the free-text `serving_size` out of a stored OFF raw-source blob,
+// whether it sits at the top level or nested under `product`.
+String? _servingSizeTextFromRaw(String rawSourceJson) {
+  final decoded = _decodeRawSourceJson(rawSourceJson);
+  if (decoded is! Map) return null;
+  final direct = decoded['serving_size'];
+  if (direct is String && direct.trim().isNotEmpty) return direct;
+  final product = decoded['product'];
+  if (product is Map) {
+    final nested = product['serving_size'];
+    if (nested is String && nested.trim().isNotEmpty) return nested;
+  }
+  return null;
+}
+
 Map<String, dynamic>? _decodeNutrimentsJson(String? nutrimentsRaw) {
   if (nutrimentsRaw == null) {
     return null;
@@ -71,6 +172,9 @@ class FoodItem {
     this.fiberG100g,
     this.saltG100g,
     this.servingSizeG,
+    this.gramsPerPiece,
+    this.pieceUnit,
+    this.completeness,
     required this.rawSourceJson,
     this.nutrimentsJson,
     this.lastUsedAt,
@@ -95,6 +199,14 @@ class FoodItem {
   final double? fiberG100g;
   final double? saltG100g;
   final double? servingSizeG;
+  // Weight of one countable piece in grams, when the food is naturally counted
+  // in pieces (an egg, a burger). Null for weight-only foods.
+  final double? gramsPerPiece;
+  // Singular noun for one piece ("egg", "burger"), paired with [gramsPerPiece].
+  final String? pieceUnit;
+  // OFF data `completeness` in [0,1] for ranking/filtering live search results.
+  // Transient: only set on freshly mapped OFF hits, never persisted.
+  final double? completeness;
   final String rawSourceJson;
   final Map<String, dynamic>? nutrimentsJson;
   final DateTime? lastUsedAt;
@@ -119,6 +231,9 @@ class FoodItem {
     double? fiberG100g,
     double? saltG100g,
     double? servingSizeG,
+    double? gramsPerPiece,
+    String? pieceUnit,
+    double? completeness,
     String? rawSourceJson,
     Map<String, dynamic>? nutrimentsJson,
     DateTime? lastUsedAt,
@@ -143,6 +258,9 @@ class FoodItem {
       fiberG100g: fiberG100g ?? this.fiberG100g,
       saltG100g: saltG100g ?? this.saltG100g,
       servingSizeG: servingSizeG ?? this.servingSizeG,
+      gramsPerPiece: gramsPerPiece ?? this.gramsPerPiece,
+      pieceUnit: pieceUnit ?? this.pieceUnit,
+      completeness: completeness ?? this.completeness,
       rawSourceJson: rawSourceJson ?? this.rawSourceJson,
       nutrimentsJson: nutrimentsJson ?? this.nutrimentsJson,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
@@ -170,6 +288,8 @@ class FoodItem {
       'fiber_g_100g': fiberG100g,
       'salt_g_100g': saltG100g,
       'serving_size_g': servingSizeG,
+      'grams_per_piece': gramsPerPiece,
+      'piece_unit': pieceUnit,
       'raw_source_json': rawSourceJson,
       'nutriments_json':
           nutrimentsJson == null ? null : jsonEncode(nutrimentsJson),
@@ -238,6 +358,8 @@ class FoodItem {
       fiberG100g: parseNullableDouble(map['fiber_g_100g']),
       saltG100g: parseNullableDouble(map['salt_g_100g']),
       servingSizeG: parseNullableDouble(map['serving_size_g']),
+      gramsPerPiece: parseNullableDouble(map['grams_per_piece']),
+      pieceUnit: map['piece_unit'] as String?,
       rawSourceJson: (map['raw_source_json'] as String?) ?? '{}',
       nutrimentsJson: _decodeNutrimentsJson(nutrimentsRaw),
       lastUsedAt: map['last_used_at'] == null
@@ -281,6 +403,10 @@ class FoodItem {
             : nutrimentsRaw is String
                 ? _decodeNutrimentsJson(nutrimentsRaw)
                 : null;
+    // The backend has no dedicated piece columns, so re-derive the piece
+    // descriptor from the round-tripped raw serving_size text.
+    final servingSizeG = parseNullableDouble(map['serving_size_g']);
+    final piece = parsePieceDescriptor(_servingSizeTextFromRaw(rawJson));
     return FoodItem(
       backendId: backendId,
       source: (map['source'] as String?) ?? offSource,
@@ -301,7 +427,9 @@ class FoodItem {
       sugarsG100g: parseNullableDouble(map['sugars_g_100g']),
       fiberG100g: parseNullableDouble(map['fiber_g_100g']),
       saltG100g: parseNullableDouble(map['salt_g_100g']),
-      servingSizeG: parseNullableDouble(map['serving_size_g']),
+      servingSizeG: servingSizeG,
+      gramsPerPiece: piece?.gramsPerPiece,
+      pieceUnit: piece?.unit,
       rawSourceJson: rawJson,
       nutrimentsJson: nutrimentsJson,
     );

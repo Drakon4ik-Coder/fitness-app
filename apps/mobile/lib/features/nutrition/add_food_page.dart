@@ -75,6 +75,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
   MealType _selectedMeal = MealType.breakfast;
   String _selectedFilter = _filterRecent;
 
+  // Result key currently being enriched via an OFF fetch (shows a card spinner).
+  String? _enrichingKey;
+
   // Track actual items (with their per-item amount) instead of search indices
   final List<_AddedFood> _addedItems = [];
 
@@ -226,21 +229,70 @@ class _AddFoodPageState extends State<AddFoodPage> {
   bool _isAdded(FoodItem item) => _indexOfAdded(item) >= 0;
 
   double _defaultGramsFor(FoodItem item) {
+    // Prefer one whole piece (an egg, a burger), then one serving, then 100 g.
+    final piece = item.gramsPerPiece;
+    if (piece != null && piece > 0) return piece;
     final serving = item.servingSizeG;
     return (serving != null && serving > 0) ? serving : 100.0;
   }
 
+  // OFF text search can't return serving data, so an OFF result starts without a
+  // serving/piece size. Fetch the full product the moment it's tapped so the
+  // amount sheet can offer pieces/servings and the quick-add default is sane.
+  bool _needsEnrich(_FoodResult result) {
+    return result.origin == _FoodResultOrigin.off &&
+        result.item.barcode != null &&
+        result.item.barcode!.isNotEmpty &&
+        result.item.servingSizeG == null &&
+        !_isOffRateLimited;
+  }
+
+  Future<FoodItem> _enrich(FoodItem item) async {
+    final barcode = item.barcode;
+    if (barcode == null || barcode.isEmpty) return item;
+    try {
+      final response = await widget.offClient.fetchProduct(barcode);
+      if (response == null || !mounted) return item;
+      final locale = Localizations.localeOf(context).languageCode;
+      return _offMapper.mapProduct(
+        product: response.product,
+        rawJson: response.rawJson,
+        localeLanguage: locale,
+      );
+    } on OffRateLimitException catch (error) {
+      if (mounted) _applyOffLimit(error);
+      return item;
+    } on OffException {
+      return item;
+    }
+  }
+
   // One-tap quick add: tapping a result immediately logs it with a smart
-  // default (1 serving when known, else 100 g) and offers Undo. The amount can
-  // be fine-tuned later by tapping the item in the Added list. If the food is
+  // default (1 piece/serving when known, else 100 g). The amount can be
+  // fine-tuned later by tapping the item in the Added list. If the food is
   // already added we open its editor instead, so it can never be added twice.
-  Future<void> _onResultTap(FoodItem item) async {
+  // OFF results are enriched first (a short fetch) so their default lands on a
+  // whole piece/serving rather than a raw 100 g.
+  Future<void> _onResultTap(_FoodResult result) async {
     FocusScope.of(context).unfocus();
-    final existingIndex = _indexOfAdded(item);
+    final existingIndex = _indexOfAdded(result.item);
     if (existingIndex >= 0) {
       await _editAddedItem(existingIndex);
       return;
     }
+
+    var item = result.item;
+    if (_needsEnrich(result)) {
+      final key = _resultKey(item);
+      if (key == null || _enrichingKey != null) return;
+      setState(() => _enrichingKey = key);
+      item = await _enrich(item);
+      if (!mounted) return;
+      setState(() => _enrichingKey = null);
+      // The user may have navigated/removed in the meantime; re-check.
+      if (_indexOfAdded(item) >= 0) return;
+    }
+
     HapticFeedback.selectionClick();
     setState(() {
       _addedItems.add(_AddedFood(item: item, grams: _defaultGramsFor(item)));
@@ -489,7 +541,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
     addItems(_localResults, _FoodResultOrigin.local);
     addItems(_backendResults, _FoodResultOrigin.backend);
-    addItems(_offResults, _FoodResultOrigin.off);
+    addItems(_offResultsForDisplay(), _FoodResultOrigin.off);
     final queryLower = trimmed.toLowerCase();
     results.sort((a, b) {
       final scoreA = _resultScore(a, queryLower);
@@ -500,6 +552,18 @@ class _AddFoodPageState extends State<AddFoodPage> {
       return a.item.name.compareTo(b.item.name);
     });
     return results;
+  }
+
+  // OFF search returns many low-quality duplicates of popular foods, some with
+  // miscoded calories (e.g. a Big Mac stored as 540 kcal/100g). OFF's own
+  // `completeness` score tracks this well, so drop hits below a quality floor —
+  // but never hide everything, so an obscure (only) match still shows.
+  static const double _offCompletenessFloor = 0.5;
+  List<FoodItem> _offResultsForDisplay() {
+    final good = _offResults
+        .where((i) => (i.completeness ?? 0) >= _offCompletenessFloor)
+        .toList();
+    return good.isNotEmpty ? good : _offResults;
   }
 
   String? _resultKey(FoodItem item) {
@@ -542,6 +606,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
         score += 1;
         break;
     }
+    // Break ties toward higher-quality OFF entries so the best-filled duplicate
+    // (correct calories) surfaces above sparser ones. Capped below the name-match
+    // gradations so relevance still dominates.
+    score += ((result.item.completeness ?? 0) * 50).round();
     return score;
   }
 
@@ -790,10 +858,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 final added = entry.value;
                 final grams = added.grams;
                 final kcal = ((added.item.kcal100g ?? 0) * grams / 100).round();
-                final amountLabel = _amountLabel(
-                  grams,
-                  added.item.servingSizeG,
-                );
+                final amountLabel = _amountLabel(grams, added.item);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                   child: Material(
@@ -975,7 +1040,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   return _FoodCard(
                     item: item,
                     isAdded: _isAdded(item.item),
-                    onTap: () => _onResultTap(item.item),
+                    isEnriching: _enrichingKey != null &&
+                        _resultKey(item.item) == _enrichingKey,
+                    onTap: () => _onResultTap(item),
                   );
                 },
               ),
@@ -1071,13 +1138,26 @@ String _formatAmount(double value) {
       : value.toStringAsFixed(1);
 }
 
-/// Human label for a logged amount. When the food has a known serving size the
-/// amount reads in servings with grams in parentheses ("1 serving (215 g)"),
-/// otherwise it falls back to plain grams ("150 g").
-String _amountLabel(double grams, double? servingSizeG) {
-  if (servingSizeG != null && servingSizeG > 0) {
-    final servings = grams / servingSizeG;
-    final unit = (servings - 1).abs() < 0.001 ? 'serving' : 'servings';
+/// Pluralizes a piece/serving noun by count ("egg" -> "eggs" at 2).
+String _pluralize(String unit, double count) {
+  final singular = (count - 1).abs() < 0.001;
+  return singular ? unit : '${unit}s';
+}
+
+/// Human label for a logged amount. Reads in pieces when the food is counted in
+/// pieces ("2 eggs (105 g)"), else in servings ("1 serving (215 g)"), else in
+/// plain grams ("150 g"). Grams always shown in parentheses for transparency.
+String _amountLabel(double grams, FoodItem item) {
+  final piece = item.gramsPerPiece;
+  if (piece != null && piece > 0 && item.pieceUnit != null) {
+    final count = grams / piece;
+    final unit = _pluralize(item.pieceUnit!, count);
+    return '${_formatAmount(count)} $unit (${_formatAmount(grams)} g)';
+  }
+  final serving = item.servingSizeG;
+  if (serving != null && serving > 0) {
+    final servings = grams / serving;
+    final unit = _pluralize('serving', servings);
     return '${_formatAmount(servings)} $unit (${_formatAmount(grams)} g)';
   }
   return '${_formatAmount(grams)} g';
@@ -1100,22 +1180,13 @@ class _FoodCard extends StatelessWidget {
     required this.item,
     required this.onTap,
     this.isAdded = false,
+    this.isEnriching = false,
   });
 
   final _FoodResult item;
   final VoidCallback onTap;
   final bool isAdded;
-
-  IconData _originIcon(_FoodResultOrigin origin) {
-    switch (origin) {
-      case _FoodResultOrigin.local:
-        return Icons.history;
-      case _FoodResultOrigin.backend:
-        return Icons.cloud;
-      case _FoodResultOrigin.off:
-        return Icons.public;
-    }
-  }
+  final bool isEnriching;
 
   @override
   Widget build(BuildContext context) {
@@ -1123,23 +1194,20 @@ class _FoodCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final radius = BorderRadius.circular(AppRadius.lg * 1.5);
 
-    final kcal = item.item.kcal100g?.round();
-    final kcalLabel = kcal == null ? 'kcal n/a' : '$kcal kcal / 100g';
     final imageUrl = item.item.imageUrl?.trim().isNotEmpty == true
         ? item.item.imageUrl!.trim()
         : null;
-    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
 
     return Semantics(
       button: true,
       label: isAdded
           ? '${item.item.name}, added. Edit amount'
-          : 'Add ${item.item.name}, $kcalLabel',
+          : 'Add ${item.item.name}',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: radius,
-          onTap: onTap,
+          onTap: isEnriching ? null : onTap,
           child: Ink(
             decoration: BoxDecoration(
               color: scheme.surfaceContainerLow,
@@ -1154,35 +1222,37 @@ class _FoodCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (hasImage) ...[
-                    Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const SizedBox.shrink(),
-                    ),
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.8),
-                            ],
-                          ),
+                  // Image / placeholder / retry layer.
+                  _FoodImage(url: imageUrl),
+                  // Bottom gradient keeps the white name text legible over both
+                  // real photos and the placeholder.
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.8),
+                          ],
                         ),
                       ),
                     ),
-                  ] else
-                    Container(
-                      color: scheme.surfaceContainerHigh,
-                      child: Center(
-                        child: Icon(
-                          _originIcon(item.origin),
-                          color: scheme.onSurfaceVariant,
-                          size: 32,
+                  ),
+                  if (isEnriching)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        child: Center(
+                          child: SizedBox(
+                            width: 26,
+                            height: 26,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: scheme.onPrimary,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -1207,29 +1277,14 @@ class _FoodCard extends StatelessWidget {
                     left: AppSpacing.sm,
                     right: AppSpacing.sm,
                     bottom: AppSpacing.sm,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.item.name,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          kcalLabel.toUpperCase(),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 10,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                    child: Text(
+                      item.item.name,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -1242,16 +1297,90 @@ class _FoodCard extends StatelessWidget {
   }
 }
 
-enum _AmountUnit { servings, grams }
+/// Fills a food card with its photo. Shows a neutral food placeholder when no
+/// image URL is known, and — when an image URL exists but fails to load — a
+/// tappable red reload button that evicts the cached failure and retries.
+class _FoodImage extends StatefulWidget {
+  const _FoodImage({required this.url});
+
+  final String? url;
+
+  @override
+  State<_FoodImage> createState() => _FoodImageState();
+}
+
+class _FoodImageState extends State<_FoodImage> {
+  // Bumped on each manual retry; folded into the Image key so a new element is
+  // created and the network fetch is re-attempted.
+  int _attempt = 0;
+
+  Future<void> _retry() async {
+    final url = widget.url;
+    if (url != null && url.isNotEmpty) {
+      await NetworkImage(url).evict();
+    }
+    if (mounted) setState(() => _attempt++);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final url = widget.url;
+    if (url == null || url.isEmpty) {
+      return _placeholder(scheme);
+    }
+    return Image.network(
+      url,
+      key: ValueKey('$url#$_attempt'),
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, progress) =>
+          progress == null ? child : _placeholder(scheme),
+      errorBuilder: (context, error, stackTrace) => _errorState(scheme),
+    );
+  }
+
+  Widget _placeholder(ColorScheme scheme) {
+    return Container(
+      color: scheme.surfaceContainerHigh,
+      child: Center(
+        child: Icon(
+          Icons.restaurant_menu,
+          color: scheme.onSurfaceVariant,
+          size: 32,
+        ),
+      ),
+    );
+  }
+
+  Widget _errorState(ColorScheme scheme) {
+    return Container(
+      color: scheme.surfaceContainerHigh,
+      child: Center(
+        child: IconButton(
+          onPressed: _retry,
+          tooltip: 'Retry loading image',
+          icon: const Icon(Icons.refresh),
+          color: scheme.error,
+          style: IconButton.styleFrom(
+            backgroundColor: scheme.error.withValues(alpha: 0.12),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _AmountUnit { pieces, servings, grams }
 
 /// Bottom sheet for choosing how much of a food to log. Re-used for both adding
 /// a new item and editing the amount of an already-added one.
 ///
 /// Designed to be keyboard-free for the common case: a +/- stepper and quick
 /// presets cover most edits with zero typing (so the sheet no longer fights the
-/// keyboard animation on open). For foods with a known serving size a
-/// Servings/Grams toggle lets the user think in pieces/servings instead of raw
-/// grams. The number stays tappable for a precise custom value.
+/// keyboard animation on open). For foods counted in pieces (eggs, burgers) or
+/// with a known serving size, a Pieces/Servings/Grams toggle lets the user
+/// think in whole units instead of raw grams. The number stays tappable for a
+/// precise custom value.
 class _AmountSheet extends StatefulWidget {
   const _AmountSheet({
     required this.item,
@@ -1276,12 +1405,48 @@ class _AmountSheetState extends State<_AmountSheet> {
     return (serving != null && serving > 0) ? serving : null;
   }
 
+  double? get _piece {
+    final piece = widget.item.gramsPerPiece;
+    return (piece != null && piece > 0 && widget.item.pieceUnit != null)
+        ? piece
+        : null;
+  }
+
   bool get _hasServing => _serving != null;
+  bool get _hasPiece => _piece != null;
+
+  // A serving is only worth showing alongside pieces when it spans more than one
+  // piece (e.g. serving = 2 eggs); otherwise the two units are identical.
+  bool get _servingDiffersFromPiece =>
+      _hasServing && (!_hasPiece || (_serving! - _piece!).abs() / _serving! > 0.01);
+
+  // Units offered in the toggle, in display order. Always ends with Grams.
+  List<_AmountUnit> get _units => [
+        if (_hasPiece) _AmountUnit.pieces,
+        if (_servingDiffersFromPiece) _AmountUnit.servings,
+        _AmountUnit.grams,
+      ];
+
+  // Grams represented by one of the given unit.
+  double _gramsPerUnit(_AmountUnit unit) {
+    switch (unit) {
+      case _AmountUnit.pieces:
+        return _piece!;
+      case _AmountUnit.servings:
+        return _serving!;
+      case _AmountUnit.grams:
+        return 1;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _unit = _hasServing ? _AmountUnit.servings : _AmountUnit.grams;
+    _unit = _hasPiece
+        ? _AmountUnit.pieces
+        : _hasServing
+            ? _AmountUnit.servings
+            : _AmountUnit.grams;
     _controller = TextEditingController(
       text: _formatAmount(_valueForGrams(widget.initialGrams)),
     );
@@ -1294,9 +1459,7 @@ class _AmountSheetState extends State<_AmountSheet> {
     super.dispose();
   }
 
-  double _valueForGrams(double grams) {
-    return _unit == _AmountUnit.servings ? grams / _serving! : grams;
-  }
+  double _valueForGrams(double grams) => grams / _gramsPerUnit(_unit);
 
   double? get _value {
     final value = double.tryParse(_controller.text.trim().replaceAll(',', '.'));
@@ -1307,14 +1470,13 @@ class _AmountSheetState extends State<_AmountSheet> {
   double? get _grams {
     final value = _value;
     if (value == null) return null;
-    return _unit == _AmountUnit.servings ? value * _serving! : value;
+    return value * _gramsPerUnit(_unit);
   }
 
-  double get _step => _unit == _AmountUnit.servings ? 1.0 : 10.0;
+  double get _step => _unit == _AmountUnit.grams ? 10.0 : 1.0;
 
-  List<double> get _presets => _unit == _AmountUnit.servings
-      ? const [1, 2, 3]
-      : const [50, 100, 150, 200];
+  List<double> get _presets =>
+      _unit == _AmountUnit.grams ? const [50, 100, 150, 200] : const [1, 2, 3];
 
   void _setText(double value) {
     _controller.text = _formatAmount(value);
@@ -1331,11 +1493,11 @@ class _AmountSheetState extends State<_AmountSheet> {
   }
 
   void _setUnit(_AmountUnit unit) {
-    if (unit == _unit || !_hasServing) return;
+    if (unit == _unit) return;
     final grams = _grams ?? widget.initialGrams;
     setState(() {
       _unit = unit;
-      _setText(unit == _AmountUnit.servings ? grams / _serving! : grams);
+      _setText(grams / _gramsPerUnit(unit));
     });
   }
 
@@ -1357,9 +1519,7 @@ class _AmountSheetState extends State<_AmountSheet> {
     final carbs = (widget.item.carbsG100g ?? 0) * factor;
     final fats = (widget.item.fatG100g ?? 0) * factor;
 
-    final unitLabel = _unit == _AmountUnit.grams
-        ? 'grams'
-        : ((_value ?? 0) == 1 ? 'serving' : 'servings');
+    final unitLabel = _unitNoun(_value ?? 0);
     final conversion = _conversionLabel(grams);
 
     return Padding(
@@ -1414,16 +1574,18 @@ class _AmountSheetState extends State<_AmountSheet> {
             ),
             const SizedBox(height: AppSpacing.lg),
 
-            // Unit toggle (only when the food has a known serving size)
-            if (_hasServing) ...[
+            // Unit toggle (shown when more than one unit is available, e.g. a
+            // food counted in pieces or with a known serving size).
+            if (_units.length > 1) ...[
               SegmentedButton<_AmountUnit>(
-                segments: const [
-                  ButtonSegment(
-                    value: _AmountUnit.servings,
-                    label: Text('Servings'),
-                  ),
-                  ButtonSegment(value: _AmountUnit.grams, label: Text('Grams')),
-                ],
+                segments: _units
+                    .map(
+                      (u) => ButtonSegment(
+                        value: u,
+                        label: Text(_segmentLabel(u)),
+                      ),
+                    )
+                    .toList(),
                 selected: {_unit},
                 onSelectionChanged: (s) => _setUnit(s.first),
                 showSelectedIcon: false,
@@ -1484,9 +1646,9 @@ class _AmountSheetState extends State<_AmountSheet> {
               runSpacing: AppSpacing.sm,
               children: _presets.map((preset) {
                 final selected = (_value ?? -1) == preset;
-                final label = _unit == _AmountUnit.servings
-                    ? '${_formatAmount(preset)}×'
-                    : '${_formatAmount(preset)}g';
+                final label = _unit == _AmountUnit.grams
+                    ? '${_formatAmount(preset)}g'
+                    : '${_formatAmount(preset)}×';
                 return ChoiceChip(
                   label: Text(label),
                   selected: selected,
@@ -1602,15 +1764,46 @@ class _AmountSheetState extends State<_AmountSheet> {
     );
   }
 
+  // Capitalized plural label for a unit toggle segment ("Eggs", "Servings",
+  // "Grams").
+  String _segmentLabel(_AmountUnit unit) {
+    switch (unit) {
+      case _AmountUnit.pieces:
+        final noun = '${widget.item.pieceUnit!}s';
+        return noun[0].toUpperCase() + noun.substring(1);
+      case _AmountUnit.servings:
+        return 'Servings';
+      case _AmountUnit.grams:
+        return 'Grams';
+    }
+  }
+
+  // The noun shown under the stepper, agreeing in number with [count].
+  String _unitNoun(double count) {
+    switch (_unit) {
+      case _AmountUnit.pieces:
+        return _pluralize(widget.item.pieceUnit!, count);
+      case _AmountUnit.servings:
+        return _pluralize('serving', count);
+      case _AmountUnit.grams:
+        return 'grams';
+    }
+  }
+
   String? _conversionLabel(double? grams) {
     if (grams == null) return null;
-    if (_unit == _AmountUnit.servings) {
+    // In a piece/serving unit, the helpful conversion is the raw grams.
+    if (_unit != _AmountUnit.grams) {
       return '${_formatAmount(grams)} g';
+    }
+    // In grams, show the closest piece (preferred) or serving equivalent.
+    if (_hasPiece) {
+      final count = grams / _piece!;
+      return '≈ ${_formatAmount(count)} ${_pluralize(widget.item.pieceUnit!, count)}';
     }
     if (_hasServing) {
       final servings = grams / _serving!;
-      final unit = (servings - 1).abs() < 0.001 ? 'serving' : 'servings';
-      return '≈ ${_formatAmount(servings)} $unit';
+      return '≈ ${_formatAmount(servings)} ${_pluralize('serving', servings)}';
     }
     return null;
   }

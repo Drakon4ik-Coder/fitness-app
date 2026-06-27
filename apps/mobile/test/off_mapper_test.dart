@@ -216,4 +216,133 @@ void main() {
     expect(item.imageUrl, isNull);
     expect(item.imageSignature, isNull);
   });
+
+  test('derives a piece descriptor from a piece-counted serving', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '111',
+        'product_name': 'Eggs',
+        'serving_size': '2 eggs (105 g)',
+        'serving_quantity': 105,
+        'nutriments': {'energy-kcal_100g': 143},
+      },
+      rawJson: '{"product": {"product_name": "Eggs"}}',
+    );
+
+    expect(item.servingSizeG, 105);
+    expect(item.gramsPerPiece, closeTo(52.5, 0.001));
+    expect(item.pieceUnit, 'egg');
+  });
+
+  test('treats a single piece as one whole unit', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '222',
+        'product_name': 'Big Mac',
+        'serving_size': '1 burger (215 g)',
+        'serving_quantity': 215,
+        'nutriments': {'energy-kcal_100g': 250},
+      },
+      rawJson: '{"product": {"product_name": "Big Mac"}}',
+    );
+
+    expect(item.gramsPerPiece, 215);
+    expect(item.pieceUnit, 'burger');
+  });
+
+  test('does not treat measure words (serving/g) as pieces', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '333',
+        'product_name': 'Chips',
+        'serving_size': '1 serving (28 g)',
+        'serving_quantity': 28,
+        'nutriments': {'energy-kcal_100g': 500},
+      },
+      rawJson: '{"product": {"product_name": "Chips"}}',
+    );
+
+    expect(item.servingSizeG, 28);
+    expect(item.gramsPerPiece, isNull);
+    expect(item.pieceUnit, isNull);
+  });
+
+  test('drops an inconsistent serving via the kcal sanity guard', () {
+    final mapper = OffMapper();
+    // 250 kcal/100g over a 232 g serving implies ~580 kcal/serving, but the
+    // serving energy says 50 — the serving is untrustworthy and is dropped.
+    final item = mapper.mapProduct(
+      product: {
+        'code': '444',
+        'product_name': 'Suspect Burger',
+        'serving_size': '1 burger (232 g)',
+        'serving_quantity': 232,
+        'nutriments': {
+          'energy-kcal_100g': 250,
+          'energy-kcal_serving': 50,
+        },
+      },
+      rawJson: '{"product": {"product_name": "Suspect Burger"}}',
+    );
+
+    expect(item.servingSizeG, isNull);
+    expect(item.gramsPerPiece, isNull);
+  });
+
+  test('ignores a bare piece count with no weight (no 1 g/egg)', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '666',
+        'product_name': 'Eggs',
+        'serving_size': '1 egg',
+        'serving_quantity': 1,
+        'nutriments': {'energy-kcal_100g': 143},
+      },
+      rawJson: '{"product": {"product_name": "Eggs"}}',
+    );
+
+    expect(item.servingSizeG, isNull);
+    expect(item.gramsPerPiece, isNull);
+    expect(item.pieceUnit, isNull);
+  });
+
+  test('reads completeness for search-result ranking', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '777',
+        'product_name': 'Big Mac',
+        'completeness': 0.875,
+        'nutriments': {'energy-kcal_100g': 228},
+      },
+      rawJson: '{"product": {"product_name": "Big Mac"}}',
+    );
+
+    expect(item.completeness, 0.875);
+  });
+
+  test('keeps a serving whose energy is consistent', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '555',
+        'product_name': 'Good Burger',
+        'serving_size': '1 burger (232 g)',
+        'serving_quantity': 232,
+        'nutriments': {
+          'energy-kcal_100g': 250,
+          'energy-kcal_serving': 580,
+        },
+      },
+      rawJson: '{"product": {"product_name": "Good Burger"}}',
+    );
+
+    expect(item.servingSizeG, 232);
+    expect(item.gramsPerPiece, 232);
+    expect(item.pieceUnit, 'burger');
+  });
 }
