@@ -1,10 +1,11 @@
 BACKEND_DIR := apps/backend
 MOBILE_DIR := apps/mobile
+APP_ID := uk.drakon4ik.symbio
 
-.PHONY: up migrate shell clean-db test test-docker build-prod fmt lint check \
-	check-backend check-mobile fmt-backend fmt-mobile lint-backend lint-mobile \
-	typecheck-backend test-backend test-mobile backend-contract backend-install \
-	dev-phone dev-local
+.PHONY: up migrate shell clean-db clean-mobile-db test test-docker build-prod \
+	fmt lint check check-backend check-mobile fmt-backend fmt-mobile \
+	lint-backend lint-mobile typecheck-backend test-backend test-mobile \
+	backend-contract backend-install dev-phone dev-local
 
 rebuild-backend:
 	docker compose build --no-cache --pull backend
@@ -35,6 +36,13 @@ shell:
 clean-db:
 	docker compose exec backend python manage.py flush --no-input
 	@echo "Database data cleared."
+
+# Delete the on-device local food cache (sqflite foods.db + journal/wal).
+# Needs a debug build installed on a connected device/emulator and adb on PATH.
+# The app recreates an empty DB on next launch.
+clean-mobile-db:
+	adb shell "run-as $(APP_ID) sh -c 'rm -f app_flutter/foods.db*'"
+	@echo "Local food DB cleared. Restart the app to recreate it."
 
 check:
 	@echo "==> check"

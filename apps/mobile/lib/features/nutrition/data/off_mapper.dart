@@ -25,8 +25,9 @@ class OffMapper {
     final result = _selectImage(product, locale);
 
     final nutriments = product['nutriments'];
-    final nutrimentsJson =
-        nutriments is Map<String, dynamic> ? nutriments : null;
+    final nutrimentsJson = nutriments is Map<String, dynamic>
+        ? nutriments
+        : null;
 
     final kcal100g = _kcalPer100g(nutrimentsJson);
     final protein = _readNutriment(nutrimentsJson, 'proteins_100g');
@@ -35,7 +36,13 @@ class OffMapper {
     final sugars = _readNutriment(nutrimentsJson, 'sugars_100g');
     final fiber = _readNutriment(nutrimentsJson, 'fiber_100g');
     final salt = _readNutriment(nutrimentsJson, 'salt_100g');
-    final servingSize = _parseServingSize(product['serving_size']);
+    // `serving_quantity` is OFF's reliable numeric grams-per-serving. Fall back
+    // to parsing the free-text `serving_size` only when it's missing, since that
+    // text often starts with a piece count (e.g. "1 burger (215 g)") that would
+    // otherwise be mistaken for the gram weight.
+    final servingSize =
+        _parseServingQuantity(product['serving_quantity']) ??
+        _parseServingSize(product['serving_size']);
     final imageSignature = result.signature;
     final contentHash = _buildContentHash(
       source: offSource,
@@ -59,8 +66,9 @@ class OffMapper {
       barcode: barcode,
       name: name,
       brands: brands,
-      imageUrl:
-          result.url != null && result.url!.isNotEmpty ? result.url : null,
+      imageUrl: result.url != null && result.url!.isNotEmpty
+          ? result.url
+          : null,
       imageSignature: imageSignature,
       contentHash: contentHash,
       kcal100g: kcal100g,
@@ -237,7 +245,8 @@ class OffMapper {
   }
 
   double? _kcalPer100g(Map<String, dynamic>? nutriments) {
-    final energy = _readNutriment(nutriments, 'energy-kcal_100g') ??
+    final energy =
+        _readNutriment(nutriments, 'energy-kcal_100g') ??
         _readNutriment(nutriments, 'energy-kcal_value');
     if (energy != null) return energy;
     final protein = _readNutriment(nutriments, 'proteins_100g') ?? 0;
@@ -252,13 +261,26 @@ class OffMapper {
     return parseNullableDouble(nutriments[key]);
   }
 
+  double? _parseServingQuantity(dynamic value) {
+    final parsed = parseNullableDouble(value);
+    if (parsed == null || parsed <= 0) return null;
+    return parsed;
+  }
+
   double? _parseServingSize(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toDouble();
     if (value is! String) return null;
     final trimmed = value.trim();
     if (trimmed.isEmpty) return null;
-    final match = RegExp(r'([\d.,]+)').firstMatch(trimmed);
+    // Prefer a number directly attached to a gram/millilitre unit (e.g. the
+    // "215" in "1 burger (215 g)"); only fall back to the first number when no
+    // unit-qualified value is present.
+    final unitMatch = RegExp(
+      r'([\d.,]+)\s*(?:g|ml)\b',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    final match = unitMatch ?? RegExp(r'([\d.,]+)').firstMatch(trimmed);
     if (match == null) return null;
     final number = match.group(1)?.replaceAll(',', '.');
     if (number == null) return null;

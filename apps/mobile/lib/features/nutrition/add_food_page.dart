@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/tokens.dart';
@@ -74,8 +75,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
   MealType _selectedMeal = MealType.breakfast;
   String _selectedFilter = _filterRecent;
 
-  // Track actual items instead of search result indices
-  final List<FoodItem> _addedItems = [];
+  // Track actual items (with their per-item amount) instead of search indices
+  final List<_AddedFood> _addedItems = [];
 
   bool _isBackendLoading = false;
   bool _isOffLoading = false;
@@ -213,16 +214,72 @@ class _AddFoodPageState extends State<AddFoodPage> {
     _loadFilterResults();
   }
 
-  void _appendResult(FoodItem item) {
+  int _indexOfAdded(FoodItem item) {
+    final key = _resultKey(item);
+    if (key == null) return -1;
+    for (var i = 0; i < _addedItems.length; i++) {
+      if (_resultKey(_addedItems[i].item) == key) return i;
+    }
+    return -1;
+  }
+
+  bool _isAdded(FoodItem item) => _indexOfAdded(item) >= 0;
+
+  double _defaultGramsFor(FoodItem item) {
+    final serving = item.servingSizeG;
+    return (serving != null && serving > 0) ? serving : 100.0;
+  }
+
+  // One-tap quick add: tapping a result immediately logs it with a smart
+  // default (1 serving when known, else 100 g) and offers Undo. The amount can
+  // be fine-tuned later by tapping the item in the Added list. If the food is
+  // already added we open its editor instead, so it can never be added twice.
+  Future<void> _onResultTap(FoodItem item) async {
+    FocusScope.of(context).unfocus();
+    final existingIndex = _indexOfAdded(item);
+    if (existingIndex >= 0) {
+      await _editAddedItem(existingIndex);
+      return;
+    }
+    HapticFeedback.selectionClick();
     setState(() {
-      _addedItems.add(item);
+      _addedItems.add(_AddedFood(item: item, grams: _defaultGramsFor(item)));
     });
   }
 
-  void _removeItem(int index) {
+  Future<void> _editAddedItem(int index) async {
+    final entry = _addedItems[index];
+    final result = await _showAmountSheet(
+      item: entry.item,
+      initialGrams: entry.grams,
+      isEditing: true,
+    );
+    if (result == null || !mounted) return;
     setState(() {
-      _addedItems.removeAt(index);
+      if (result.removed) {
+        _addedItems.removeAt(index);
+      } else if (result.grams != null) {
+        _addedItems[index] = _AddedFood(item: entry.item, grams: result.grams!);
+      }
     });
+  }
+
+  Future<_AmountResult?> _showAmountSheet({
+    required FoodItem item,
+    required double initialGrams,
+    required bool isEditing,
+  }) {
+    return showModalBottomSheet<_AmountResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AmountSheet(
+        item: item,
+        initialGrams: initialGrams,
+        isEditing: isEditing,
+      ),
+    );
   }
 
   Future<void> _openScanPage() async {
@@ -337,7 +394,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
         now.minute,
       );
 
-      for (FoodItem selected in _addedItems) {
+      for (final added in _addedItems) {
+        FoodItem selected = added.item;
         bool imagesOk = false;
         if (selected.backendId == null) {
           if (selected.contentHash.isNotEmpty) {
@@ -376,7 +434,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         await widget.nutritionApi.createEntry(
           foodItemId: selected.backendId!,
           mealType: _selectedMeal.name,
-          quantityG: 100, // Hardcoded for now
+          quantityG: added.grams,
           consumedAt: consumedAt,
         );
 
@@ -386,6 +444,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       }
 
       if (!mounted) return;
+      HapticFeedback.mediumImpact();
       Navigator.of(context).pop(true);
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
@@ -526,17 +585,18 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final hasQuery = query.trim().isNotEmpty;
     final canSubmit = !_isSubmitting && _addedItems.isNotEmpty;
 
-    // Calculate totals based on 100g per selected item for now
+    // Totals scale each item's per-100g macros by its chosen amount.
     double totalEnergy = 0;
     double totalProtein = 0;
     double totalCarbs = 0;
     double totalFats = 0;
 
-    for (final item in _addedItems) {
-      totalEnergy += item.kcal100g ?? 0.0;
-      totalProtein += item.proteinG100g ?? 0.0;
-      totalCarbs += item.carbsG100g ?? 0.0;
-      totalFats += item.fatG100g ?? 0.0;
+    for (final entry in _addedItems) {
+      final factor = entry.grams / 100.0;
+      totalEnergy += (entry.item.kcal100g ?? 0.0) * factor;
+      totalProtein += (entry.item.proteinG100g ?? 0.0) * factor;
+      totalCarbs += (entry.item.carbsG100g ?? 0.0) * factor;
+      totalFats += (entry.item.fatG100g ?? 0.0) * factor;
     }
 
     final mealLabel =
@@ -556,6 +616,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.chevron_left, color: scheme.primary),
+          tooltip: 'Back',
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -565,16 +626,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
             color: scheme.onSurface,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.check,
-              color: canSubmit ? scheme.primary : scheme.outlineVariant,
-            ),
-            onPressed: canSubmit ? _submitItems : null,
-          ),
-        ],
       ),
+      bottomNavigationBar: _addedItems.isEmpty
+          ? null
+          : _LogBar(
+              itemCount: _addedItems.length,
+              totalKcal: totalEnergy.round(),
+              mealLabel: mealLabel,
+              isSubmitting: _isSubmitting,
+              onSubmit: canSubmit ? _submitItems : null,
+            ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
@@ -726,45 +787,67 @@ class _AddFoodPageState extends State<AddFoodPage> {
               const SizedBox(height: AppSpacing.sm),
               ..._addedItems.asMap().entries.map((entry) {
                 final index = entry.key;
-                final item = entry.value;
-                final kcal = item.kcal100g?.round() ?? 0;
-                return Container(
-                  margin: const EdgeInsets.only(bottom: AppSpacing.xs),
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
+                final added = entry.value;
+                final grams = added.grams;
+                final kcal = ((added.item.kcal100g ?? 0) * grams / 100).round();
+                final amountLabel = _amountLabel(
+                  grams,
+                  added.item.servingSizeG,
+                );
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                  child: Material(
                     color: scheme.surfaceContainerHighest.withValues(
                       alpha: 0.4,
                     ),
                     borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      onTap: () => _editAddedItem(index),
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              item.name,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    added.item.name,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    '$amountLabel • $kcal kcal',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            Text(
-                              '100g • $kcal kcal',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
+                            Icon(
+                              Icons.edit_outlined,
+                              size: 18,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            IconButton(
+                              icon: Icon(
+                                Icons.remove_circle,
+                                color: scheme.error,
                               ),
+                              tooltip: 'Remove ${added.item.name}',
+                              onPressed: () =>
+                                  setState(() => _addedItems.removeAt(index)),
+                              visualDensity: VisualDensity.compact,
                             ),
                           ],
                         ),
                       ),
-                      IconButton(
-                        icon: Icon(Icons.remove_circle, color: scheme.error),
-                        onPressed: () => _removeItem(index),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
+                    ),
                   ),
                 );
               }),
@@ -841,13 +924,38 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
             if (results.isEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
                 child: Center(
-                  child: Text(
-                    'No foods found.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        hasQuery ? Icons.search_off : Icons.restaurant_menu,
+                        size: 40,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        hasQuery
+                            ? 'No foods found for "${query.trim()}"'
+                            : 'Search for a food or scan a barcode',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if (hasQuery) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          'Try a different spelling or scan the package.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               )
@@ -866,12 +974,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   final item = results[index];
                   return _FoodCard(
                     item: item,
-                    onTap: () => _appendResult(item.item),
+                    isAdded: _isAdded(item.item),
+                    onTap: () => _onResultTap(item.item),
                   );
                 },
               ),
 
-            const SizedBox(height: 100), // padding for bottom nav space if any
+            const SizedBox(height: AppSpacing.xl),
           ],
         ),
       ),
@@ -947,11 +1056,55 @@ class _FoodResult {
   final _FoodResultOrigin origin;
 }
 
+/// A food the user has chosen to log, paired with the amount (grams) to log.
+class _AddedFood {
+  const _AddedFood({required this.item, required this.grams});
+
+  final FoodItem item;
+  final double grams;
+}
+
+/// Formats a number without a trailing `.0` and at most one decimal place.
+String _formatAmount(double value) {
+  return value == value.roundToDouble()
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
+}
+
+/// Human label for a logged amount. When the food has a known serving size the
+/// amount reads in servings with grams in parentheses ("1 serving (215 g)"),
+/// otherwise it falls back to plain grams ("150 g").
+String _amountLabel(double grams, double? servingSizeG) {
+  if (servingSizeG != null && servingSizeG > 0) {
+    final servings = grams / servingSizeG;
+    final unit = (servings - 1).abs() < 0.001 ? 'serving' : 'servings';
+    return '${_formatAmount(servings)} $unit (${_formatAmount(grams)} g)';
+  }
+  return '${_formatAmount(grams)} g';
+}
+
+/// Outcome of the amount bottom sheet: either a saved [grams] amount or a
+/// request to [removed] the item from the meal.
+class _AmountResult {
+  const _AmountResult._({this.grams, this.removed = false});
+
+  factory _AmountResult.save(double grams) => _AmountResult._(grams: grams);
+  factory _AmountResult.remove() => const _AmountResult._(removed: true);
+
+  final double? grams;
+  final bool removed;
+}
+
 class _FoodCard extends StatelessWidget {
-  const _FoodCard({required this.item, required this.onTap});
+  const _FoodCard({
+    required this.item,
+    required this.onTap,
+    this.isAdded = false,
+  });
 
   final _FoodResult item;
   final VoidCallback onTap;
+  final bool isAdded;
 
   IconData _originIcon(_FoodResultOrigin origin) {
     switch (origin) {
@@ -977,91 +1130,629 @@ class _FoodCard extends StatelessWidget {
         : null;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: radius,
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerLow,
-            borderRadius: radius,
-            border: Border.all(color: Colors.transparent),
-          ),
-          child: ClipRRect(
-            borderRadius: radius,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (hasImage) ...[
-                  ColorFiltered(
-                    colorFilter: const ColorFilter.mode(
-                      Colors.grey,
-                      BlendMode.saturation,
-                    ),
-                    child: Image.network(
+    return Semantics(
+      button: true,
+      label: isAdded
+          ? '${item.item.name}, added. Edit amount'
+          : 'Add ${item.item.name}, $kcalLabel',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: radius,
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow,
+              borderRadius: radius,
+              border: Border.all(
+                color: isAdded ? scheme.primary : Colors.transparent,
+                width: isAdded ? 2 : 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (hasImage) ...[
+                    Image.network(
                       imageUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) =>
                           const SizedBox.shrink(),
                     ),
-                  ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.8),
-                          ],
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.8),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ] else
-                  Container(
-                    color: scheme.surfaceContainerHigh,
-                    child: Center(
-                      child: Icon(
-                        _originIcon(item.origin),
-                        color: scheme.onSurfaceVariant,
-                        size: 32,
-                      ),
-                    ),
-                  ),
-                Positioned(
-                  left: AppSpacing.sm,
-                  right: AppSpacing.sm,
-                  bottom: AppSpacing.sm,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.item.name,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        kcalLabel.toUpperCase(),
-                        style: theme.textTheme.labelSmall?.copyWith(
+                  ] else
+                    Container(
+                      color: scheme.surfaceContainerHigh,
+                      child: Center(
+                        child: Icon(
+                          _originIcon(item.origin),
                           color: scheme.onSurfaceVariant,
-                          fontSize: 10,
+                          size: 32,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
+                    ),
+                  if (isAdded)
+                    Positioned(
+                      top: AppSpacing.sm,
+                      right: AppSpacing.sm,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.check,
+                          size: 14,
+                          color: scheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    left: AppSpacing.sm,
+                    right: AppSpacing.sm,
+                    bottom: AppSpacing.sm,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.item.name,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          kcalLabel.toUpperCase(),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 10,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _AmountUnit { servings, grams }
+
+/// Bottom sheet for choosing how much of a food to log. Re-used for both adding
+/// a new item and editing the amount of an already-added one.
+///
+/// Designed to be keyboard-free for the common case: a +/- stepper and quick
+/// presets cover most edits with zero typing (so the sheet no longer fights the
+/// keyboard animation on open). For foods with a known serving size a
+/// Servings/Grams toggle lets the user think in pieces/servings instead of raw
+/// grams. The number stays tappable for a precise custom value.
+class _AmountSheet extends StatefulWidget {
+  const _AmountSheet({
+    required this.item,
+    required this.initialGrams,
+    required this.isEditing,
+  });
+
+  final FoodItem item;
+  final double initialGrams;
+  final bool isEditing;
+
+  @override
+  State<_AmountSheet> createState() => _AmountSheetState();
+}
+
+class _AmountSheetState extends State<_AmountSheet> {
+  late final TextEditingController _controller;
+  late _AmountUnit _unit;
+
+  double? get _serving {
+    final serving = widget.item.servingSizeG;
+    return (serving != null && serving > 0) ? serving : null;
+  }
+
+  bool get _hasServing => _serving != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _unit = _hasServing ? _AmountUnit.servings : _AmountUnit.grams;
+    _controller = TextEditingController(
+      text: _formatAmount(_valueForGrams(widget.initialGrams)),
+    );
+    _controller.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  double _valueForGrams(double grams) {
+    return _unit == _AmountUnit.servings ? grams / _serving! : grams;
+  }
+
+  double? get _value {
+    final value = double.tryParse(_controller.text.trim().replaceAll(',', '.'));
+    if (value == null || value <= 0) return null;
+    return value;
+  }
+
+  double? get _grams {
+    final value = _value;
+    if (value == null) return null;
+    return _unit == _AmountUnit.servings ? value * _serving! : value;
+  }
+
+  double get _step => _unit == _AmountUnit.servings ? 1.0 : 10.0;
+
+  List<double> get _presets => _unit == _AmountUnit.servings
+      ? const [1, 2, 3]
+      : const [50, 100, 150, 200];
+
+  void _setText(double value) {
+    _controller.text = _formatAmount(value);
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
+  }
+
+  void _bump(int direction) {
+    final current = _value ?? 0;
+    var next = current + direction * _step;
+    if (next < _step) next = _step;
+    _setText(next);
+  }
+
+  void _setUnit(_AmountUnit unit) {
+    if (unit == _unit || !_hasServing) return;
+    final grams = _grams ?? widget.initialGrams;
+    setState(() {
+      _unit = unit;
+      _setText(unit == _AmountUnit.servings ? grams / _serving! : grams);
+    });
+  }
+
+  void _submit() {
+    final grams = _grams;
+    if (grams == null) return;
+    Navigator.of(context).pop(_AmountResult.save(grams));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final grams = _grams;
+    final factor = (grams ?? 0) / 100.0;
+
+    final kcal = ((widget.item.kcal100g ?? 0) * factor).round();
+    final protein = (widget.item.proteinG100g ?? 0) * factor;
+    final carbs = (widget.item.carbsG100g ?? 0) * factor;
+    final fats = (widget.item.fatG100g ?? 0) * factor;
+
+    final unitLabel = _unit == _AmountUnit.grams
+        ? 'grams'
+        : ((_value ?? 0) == 1 ? 'serving' : 'servings');
+    final conversion = _conversionLabel(grams);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.lg * 1.5),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.lg,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Drag handle
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            Text(
+              widget.item.name,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              widget.item.kcal100g == null
+                  ? 'Calories per 100g unavailable'
+                  : '${widget.item.kcal100g!.round()} kcal per 100g',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Unit toggle (only when the food has a known serving size)
+            if (_hasServing) ...[
+              SegmentedButton<_AmountUnit>(
+                segments: const [
+                  ButtonSegment(
+                    value: _AmountUnit.servings,
+                    label: Text('Servings'),
+                  ),
+                  ButtonSegment(value: _AmountUnit.grams, label: Text('Grams')),
+                ],
+                selected: {_unit},
+                onSelectionChanged: (s) => _setUnit(s.first),
+                showSelectedIcon: false,
+                style: ButtonStyle(visualDensity: VisualDensity.compact),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+
+            // Stepper: −  [ number ]  +
+            Row(
+              children: [
+                IconButton.filledTonal(
+                  onPressed: () => _bump(-1),
+                  iconSize: 24,
+                  tooltip: 'Decrease',
+                  icon: const Icon(Icons.remove),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    textAlign: TextAlign.center,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _submit(),
+                    style: theme.textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                IconButton.filledTonal(
+                  onPressed: () => _bump(1),
+                  iconSize: 24,
+                  tooltip: 'Increase',
+                  icon: const Icon(Icons.add),
                 ),
               ],
             ),
+            Center(
+              child: Text(
+                conversion == null ? unitLabel : '$unitLabel  •  $conversion',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Quick presets
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: _presets.map((preset) {
+                final selected = (_value ?? -1) == preset;
+                final label = _unit == _AmountUnit.servings
+                    ? '${_formatAmount(preset)}×'
+                    : '${_formatAmount(preset)}g';
+                return ChoiceChip(
+                  label: Text(label),
+                  selected: selected,
+                  showCheckmark: false,
+                  onSelected: (_) => _setText(preset),
+                  backgroundColor: scheme.surfaceContainerLow,
+                  selectedColor: scheme.primary,
+                  labelStyle: theme.textTheme.labelLarge?.copyWith(
+                    color: selected ? scheme.onPrimary : scheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  side: BorderSide.none,
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Live preview
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        '$kcal',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: scheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'kcal',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      _MacroPill(
+                        label: 'P',
+                        value: protein,
+                        color: scheme.secondary,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      _MacroPill(
+                        label: 'C',
+                        value: carbs,
+                        color: scheme.tertiary,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      _MacroPill(
+                        label: 'F',
+                        value: fats,
+                        color: scheme.primary,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Primary action
+            SizedBox(
+              height: 52,
+              child: FilledButton(
+                onPressed: grams == null ? null : _submit,
+                style: FilledButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
+                child: Text(
+                  widget.isEditing ? 'Save changes' : 'Add to meal',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.onPrimary,
+                  ),
+                ),
+              ),
+            ),
+            if (widget.isEditing) ...[
+              const SizedBox(height: AppSpacing.xs),
+              TextButton(
+                onPressed: () =>
+                    Navigator.of(context).pop(_AmountResult.remove()),
+                child: Text(
+                  'Remove from meal',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: scheme.error,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String? _conversionLabel(double? grams) {
+    if (grams == null) return null;
+    if (_unit == _AmountUnit.servings) {
+      return '${_formatAmount(grams)} g';
+    }
+    if (_hasServing) {
+      final servings = grams / _serving!;
+      final unit = (servings - 1).abs() < 0.001 ? 'serving' : 'servings';
+      return '≈ ${_formatAmount(servings)} $unit';
+    }
+    return null;
+  }
+}
+
+class _MacroPill extends StatelessWidget {
+  const _MacroPill({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: color,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          '${value.round()}g',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Persistent bottom action bar — the single primary CTA for committing the
+/// meal. Surfaces the live item count + total calories so the user knows
+/// exactly what they are logging, and shows an inline spinner while submitting.
+class _LogBar extends StatelessWidget {
+  const _LogBar({
+    required this.itemCount,
+    required this.totalKcal,
+    required this.mealLabel,
+    required this.isSubmitting,
+    required this.onSubmit,
+  });
+
+  final int itemCount;
+  final int totalKcal;
+  final String mealLabel;
+  final bool isSubmitting;
+  final VoidCallback? onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final itemLabel = itemCount == 1 ? '1 item' : '$itemCount items';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        border: Border(
+          top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.sm,
+            AppSpacing.md,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      itemLabel,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '$totalKcal kcal total',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Flexible(
+                child: FilledButton(
+                  onPressed: isSubmitting ? null : onSubmit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
+                    disabledBackgroundColor: scheme.primary.withValues(
+                      alpha: 0.5,
+                    ),
+                    minimumSize: const Size(0, 52),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xl,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                  ),
+                  child: isSubmitting
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: scheme.onPrimary,
+                          ),
+                        )
+                      : Text(
+                          'Log to $mealLabel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: scheme.onPrimary,
+                          ),
+                        ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

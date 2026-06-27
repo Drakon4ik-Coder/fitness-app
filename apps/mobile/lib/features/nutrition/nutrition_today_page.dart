@@ -57,12 +57,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _selectedDate = DateUtils.dateOnly(DateTime.now());
     _ownsLocalDb = widget.localDb == null;
     _localDb = widget.localDb ?? FoodLocalDb();
-    _foodsApi = widget.foodsApi ??
+    _foodsApi =
+        widget.foodsApi ??
         FoodsApiService(
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
-    _nutritionApi = widget.nutritionApi ??
+    _nutritionApi =
+        widget.nutritionApi ??
         NutritionApiService(
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
@@ -149,7 +151,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
-      lastDate: today, 
+      lastDate: today,
     );
     if (picker == null) return;
     if (picker == _selectedDate) return;
@@ -170,13 +172,24 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Yesterday';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[_selectedDate.month - 1]} ${_selectedDate.day}';
   }
 
   Future<void> _openAddFoodSheet(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
     final didAdd = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AddFoodPage(
@@ -193,13 +206,19 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       return;
     }
     await _loadDay();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Meal logged'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showItemDetails(BuildContext context, _MealItem item) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${item.name} details coming soon.'),
-      ),
+      SnackBar(content: Text('${item.name} details coming soon.')),
     );
   }
 
@@ -292,15 +311,16 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final eatenKcal = totals?.kcal.round() ?? 0;
     final burnedKcal = _burnedKcal;
     final int kcalLeft = math.max(0, _dailyGoalKcal - eatenKcal + burnedKcal);
-    final double ringProgress =
-        math.min(1.0, eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
+    final double ringProgress = math
+        .min(1.0, eatenKcal / _dailyGoalKcal.toDouble())
+        .toDouble();
     final macroSummaries = _buildMacroSummaries(totals);
     final mealSummaries = _buildMealSummaries(context);
     final isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
 
     // Calculate total entries
-    final totalEntries = _dayLog?.meals.values
-            .fold<int>(0, (sum, list) => sum + list.length) ??
+    final totalEntries =
+        _dayLog?.meals.values.fold<int>(0, (sum, list) => sum + list.length) ??
         0;
 
     return AppScaffold(
@@ -309,15 +329,13 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       appBar: AppBar(
         actions: [
           IconButton(
-            onPressed: () => widget.onLogout(), 
-            icon: const Icon(Icons.logout) 
+            onPressed: () => widget.onLogout(),
+            icon: const Icon(Icons.logout),
           ),
         ],
       ),
       body: Container(
-        decoration: BoxDecoration(
-          color: scheme.surface,
-        ),
+        decoration: BoxDecoration(color: scheme.surface),
         child: Stack(
           children: [
             Positioned(
@@ -375,7 +393,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+                        horizontal: AppSpacing.lg,
+                        vertical: AppSpacing.sm,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -390,22 +410,23 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                               Text(
                                 'SYMBIO',
                                 style: theme.textTheme.labelSmall?.copyWith(
-                                  color: LuminaHealthColors.primary
-                                      .withValues(alpha: 0.6),
+                                  color: LuminaHealthColors.primary.withValues(
+                                    alpha: 0.6,
+                                  ),
                                   letterSpacing: 2.0,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 10,
                                 ),
                               ),
                               InkWell(
-                                onTap:() => _pickDate(context),
-                                onDoubleTap:() => _setTodayDate(),
+                                onTap: () => _pickDate(context),
+                                onDoubleTap: () => _setTodayDate(),
                                 borderRadius: BorderRadius.circular(8),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: AppSpacing.sm,
                                     vertical: AppSpacing.xs,
-                                  ), 
+                                  ),
                                   child: Text(
                                     _dateLabel(),
                                     style: theme.textTheme.titleLarge?.copyWith(
@@ -430,7 +451,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+                        horizontal: AppSpacing.lg,
+                        vertical: AppSpacing.md,
+                      ),
                       child: Column(
                         children: [
                           // Central ring
@@ -457,19 +480,19 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                       '$kcalLeft',
                                       style: theme.textTheme.displayLarge
                                           ?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        height: 1,
-                                      ),
+                                            fontWeight: FontWeight.w800,
+                                            height: 1,
+                                          ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       'LEFT',
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2.0,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 2.0,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
                                     ),
                                     const SizedBox(height: 16),
                                     IconButton(
@@ -481,8 +504,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                             .withValues(alpha: 0.1),
                                         foregroundColor: scheme.primary,
                                         side: BorderSide(
-                                          color: scheme.primary
-                                              .withValues(alpha: 0.2),
+                                          color: scheme.primary.withValues(
+                                            alpha: 0.2,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -503,11 +527,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                       'EATEN',
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2.0,
-                                        color: scheme.onSurfaceVariant,
-                                        fontSize: 10,
-                                      ),
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 2.0,
+                                            color: scheme.onSurfaceVariant,
+                                            fontSize: 10,
+                                          ),
                                     ),
                                     Row(
                                       crossAxisAlignment:
@@ -518,17 +542,17 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                           '$eatenKcal',
                                           style: theme.textTheme.headlineLarge
                                               ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: scheme.primary,
-                                          ),
+                                                fontWeight: FontWeight.bold,
+                                                color: scheme.primary,
+                                              ),
                                         ),
                                         const SizedBox(width: 4),
                                         Text(
                                           'kcal',
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
+                                                color: scheme.onSurfaceVariant,
+                                              ),
                                         ),
                                       ],
                                     ),
@@ -543,11 +567,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                       'BURNED',
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2.0,
-                                        color: scheme.onSurfaceVariant,
-                                        fontSize: 10,
-                                      ),
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 2.0,
+                                            color: scheme.onSurfaceVariant,
+                                            fontSize: 10,
+                                          ),
                                     ),
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.end,
@@ -559,17 +583,18 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                           '$burnedKcal',
                                           style: theme.textTheme.headlineLarge
                                               ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: LuminaHealthColors.tertiary,
-                                          ),
+                                                fontWeight: FontWeight.bold,
+                                                color:
+                                                    LuminaHealthColors.tertiary,
+                                              ),
                                         ),
                                         const SizedBox(width: 4),
                                         Text(
                                           'kcal',
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
+                                                color: scheme.onSurfaceVariant,
+                                              ),
                                         ),
                                       ],
                                     ),
@@ -586,14 +611,18 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+                        horizontal: AppSpacing.lg,
+                        vertical: AppSpacing.md,
+                      ),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: scheme.surfaceContainerLow
-                              .withValues(alpha: 0.5),
+                          color: scheme.surfaceContainerLow.withValues(
+                            alpha: 0.5,
+                          ),
                           borderRadius: BorderRadius.circular(AppRadius.lg),
                           border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.05)),
+                            color: Colors.white.withValues(alpha: 0.05),
+                          ),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.white.withValues(alpha: 0.05),
@@ -611,8 +640,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                             final progress = macro.goal > 0
                                 ? (macro.current / macro.goal).clamp(0.0, 1.0)
                                 : 0.0;
-                            final left =
-                                math.max(0, macro.goal - macro.current);
+                            final left = math.max(
+                              0,
+                              macro.goal - macro.current,
+                            );
                             return Expanded(
                               child: Padding(
                                 padding: EdgeInsets.only(
@@ -634,20 +665,20 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                           macro.label.toUpperCase(),
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: scheme.onSurfaceVariant,
-                                            letterSpacing: -0.5,
-                                            fontSize: 10,
-                                          ),
+                                                fontWeight: FontWeight.bold,
+                                                color: scheme.onSurfaceVariant,
+                                                letterSpacing: -0.5,
+                                                fontSize: 10,
+                                              ),
                                         ),
                                         Text(
                                           '${macro.current}g',
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: color,
-                                            fontSize: 10,
-                                          ),
+                                                fontWeight: FontWeight.bold,
+                                                color: color,
+                                                fontSize: 10,
+                                              ),
                                         ),
                                       ],
                                     ),
@@ -658,8 +689,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                           scheme.surfaceContainerHighest,
                                       color: color,
                                       minHeight: 6,
-                                      borderRadius:
-                                          BorderRadius.circular(9999),
+                                      borderRadius: BorderRadius.circular(9999),
                                     ),
                                     const SizedBox(height: AppSpacing.xs),
                                     Align(
@@ -668,10 +698,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                         '${left}g left',
                                         style: theme.textTheme.labelSmall
                                             ?.copyWith(
-                                          color: scheme.onSurface
-                                              .withValues(alpha: 0.6),
-                                          fontSize: 10,
-                                        ),
+                                              color: scheme.onSurface
+                                                  .withValues(alpha: 0.6),
+                                              fontSize: 10,
+                                            ),
                                       ),
                                     ),
                                   ],
@@ -686,8 +716,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                   // Daily Logs Header
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
-                          AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                        AppSpacing.lg,
+                        AppSpacing.sm,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -711,25 +745,21 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                     ),
                   ),
                   SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final meal = mealSummaries[index];
-                        return Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            AppSpacing.lg,
-                            index == 0 ? 0 : AppSpacing.md,
-                            AppSpacing.lg,
-                            0,
-                          ),
-                          child: _MealCard(
-                            meal: meal,
-                            onItemTap: (item) =>
-                                _showItemDetails(context, item),
-                          ),
-                        );
-                      },
-                      childCount: mealSummaries.length,
-                    ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final meal = mealSummaries[index];
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          index == 0 ? 0 : AppSpacing.md,
+                          AppSpacing.lg,
+                          0,
+                        ),
+                        child: _MealCard(
+                          meal: meal,
+                          onItemTap: (item) => _showItemDetails(context, item),
+                        ),
+                      );
+                    }, childCount: mealSummaries.length),
                   ),
                   const SliverToBoxAdapter(
                     child: SizedBox(height: AppSpacing.xxl),
@@ -756,10 +786,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
 }
 
 class _MealCard extends StatelessWidget {
-  const _MealCard({
-    required this.meal,
-    required this.onItemTap,
-  });
+  const _MealCard({required this.meal, required this.onItemTap});
 
   final _MealSummary meal;
   final ValueChanged<_MealItem> onItemTap;
@@ -768,16 +795,20 @@ class _MealCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    
+
     final hasItems = meal.items.isNotEmpty;
-    final firstItemHasImage = hasItems ? (meal.items.first.image?.trim().isNotEmpty ?? false) : false;
+    final firstItemHasImage = hasItems
+        ? (meal.items.first.image?.trim().isNotEmpty ?? false)
+        : false;
     final imageUrl = firstItemHasImage ? meal.items.first.image!.trim() : null;
 
     final fallbackIcon = Container(
       color: scheme.surfaceContainerHigh,
       child: Center(
         child: Icon(
-          hasItems ? meal.items.first.icon ?? Icons.restaurant : Icons.restaurant,
+          hasItems
+              ? meal.items.first.icon ?? Icons.restaurant
+              : Icons.restaurant,
           color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
         ),
       ),
@@ -803,14 +834,17 @@ class _MealCard extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.1),
+                  ),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: imageUrl != null 
+                child: imageUrl != null
                     ? Image.network(
                         imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => fallbackIcon,
+                        errorBuilder: (context, error, stackTrace) =>
+                            fallbackIcon,
                       )
                     : fallbackIcon,
               ),
@@ -840,7 +874,7 @@ class _MealCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      hasItems 
+                      hasItems
                           ? meal.items.map((e) => e.name).join(', ')
                           : 'No foods logged yet.',
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -854,10 +888,7 @@ class _MealCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Icon(
-                Icons.chevron_right,
-                color: scheme.onSurfaceVariant,
-              ),
+              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -915,6 +946,5 @@ class _MealSummary {
   final String time;
   final List<_MealItem> items;
 
-  int get totalKcal =>
-      items.fold<int>(0, (total, item) => total + item.kcal);
+  int get totalKcal => items.fold<int>(0, (total, item) => total + item.kcal);
 }
