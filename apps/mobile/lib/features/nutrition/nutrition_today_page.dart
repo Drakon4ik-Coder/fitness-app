@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -13,6 +12,7 @@ import 'data/food_local_db.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrition_api_service.dart';
 import 'data/off_client.dart';
+import 'widgets/meal_detail_sheet.dart';
 
 class NutritionTodayPage extends StatefulWidget {
   const NutritionTodayPage({
@@ -188,7 +188,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     return '${months[_selectedDate.month - 1]} ${_selectedDate.day}';
   }
 
-  Future<void> _openAddFoodSheet(BuildContext context) async {
+  Future<void> _openAddFoodSheet(
+    BuildContext context, {
+    MealType? initialMeal,
+  }) async {
     final messenger = ScaffoldMessenger.of(context);
     final didAdd = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -199,6 +202,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           offClient: _offClient,
           onLogout: widget.onLogout,
           selectedDate: _selectedDate,
+          initialMeal: initialMeal,
         ),
       ),
     );
@@ -216,10 +220,70 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     );
   }
 
-  void _showItemDetails(BuildContext context, _MealItem item) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${item.name} details coming soon.')),
+  Future<void> _openMealDetails(BuildContext context, _MealSummary meal) async {
+    if (meal.entries.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MealDetailSheet(
+        mealLabel: meal.name,
+        mealIcon: meal.icon,
+        entries: meal.entries,
+        onUpdateQuantity: (entry, grams) => _updateEntryQuantity(entry, grams),
+        onDeleteEntry: (entry) => _deleteEntry(entry),
+        onAddMore: () {
+          Navigator.of(context).pop();
+          _openAddFoodSheet(context, initialMeal: meal.mealType);
+        },
+      ),
     );
+    // Reload after the sheet closes so the calorie ring and macro bars reflect
+    // any edits or deletes made inside it. A no-op refetch when nothing changed.
+    if (!mounted) return;
+    await _loadDay();
+  }
+
+  Future<NutritionEntry?> _updateEntryQuantity(
+    NutritionEntry entry,
+    double grams,
+  ) async {
+    try {
+      return await _nutritionApi.updateEntry(
+        entryId: entry.id,
+        quantityG: grams,
+      );
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        return null;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return null;
+    }
+  }
+
+  Future<bool> _deleteEntry(NutritionEntry entry) async {
+    try {
+      await _nutritionApi.deleteEntry(entry.id);
+      return true;
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        return false;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return false;
+    }
   }
 
   List<_MacroSummary> _buildMacroSummaries(NutritionTotals? totals) {
@@ -248,59 +312,40 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     ];
   }
 
-  List<_MealSummary> _buildMealSummaries(BuildContext context) {
+  List<_MealSummary> _buildMealSummaries() {
     final Map<String, List<NutritionEntry>> meals = _dayLog?.meals ?? {};
-    final localizations = MaterialLocalizations.of(context);
-    final order = <String, IconData>{
-      'breakfast': Icons.breakfast_dining,
-      'lunch': Icons.lunch_dining,
-      'dinner': Icons.dinner_dining,
-      'snacks': Icons.emoji_food_beverage,
-    };
-    final labels = <String, String>{
-      'breakfast': 'Breakfast',
-      'lunch': 'Lunch',
-      'dinner': 'Dinner',
-      'snacks': 'Snacks',
+    final order = <String, ({MealType type, IconData icon, String label})>{
+      'breakfast': (
+        type: MealType.breakfast,
+        icon: Icons.breakfast_dining,
+        label: 'Breakfast',
+      ),
+      'lunch': (type: MealType.lunch, icon: Icons.lunch_dining, label: 'Lunch'),
+      'dinner': (
+        type: MealType.dinner,
+        icon: Icons.dinner_dining,
+        label: 'Dinner',
+      ),
+      'snacks': (
+        type: MealType.snacks,
+        icon: Icons.emoji_food_beverage,
+        label: 'Snacks',
+      ),
     };
 
     final summaries = <_MealSummary>[];
     for (final entry in order.entries) {
-      final mealType = entry.key;
-      final icon = entry.value;
-      final entries = meals[mealType] ?? [];
-      final items = entries
-          .map(
-            (mealEntry) => _MealItem(
-              name: mealEntry.foodItem.name,
-              kcal: mealEntry.kcal.round(),
-              amount: _formatQuantity(mealEntry.quantityG),
-              icon: icon,
-              image: mealEntry.foodItem.imageUrl,
-            ),
-          )
-          .toList();
-      final timeLabel = entries.isEmpty
-          ? 'No entries'
-          : localizations.formatTimeOfDay(
-              TimeOfDay.fromDateTime(entries.first.consumedAt),
-            );
+      final meta = entry.value;
       summaries.add(
         _MealSummary(
-          name: labels[mealType] ?? mealType,
-          time: timeLabel,
-          items: items,
+          name: meta.label,
+          mealType: meta.type,
+          icon: meta.icon,
+          entries: meals[entry.key] ?? const [],
         ),
       );
     }
     return summaries;
-  }
-
-  String _formatQuantity(double quantityG) {
-    if (quantityG == quantityG.roundToDouble()) {
-      return '${quantityG.toInt()} g';
-    }
-    return '${quantityG.toStringAsFixed(1)} g';
   }
 
   @override
@@ -310,12 +355,20 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final totals = _dayLog?.totals;
     final eatenKcal = totals?.kcal.round() ?? 0;
     final burnedKcal = _burnedKcal;
-    final int kcalLeft = math.max(0, _dailyGoalKcal - eatenKcal + burnedKcal);
-    final double ringProgress = math
-        .min(1.0, eatenKcal / _dailyGoalKcal.toDouble())
-        .toDouble();
+    // Exercise adds to the day's budget; "remaining" can now go negative, which
+    // we surface as an over-budget amount rather than clamping to zero.
+    final int kcalBudget = _dailyGoalKcal + burnedKcal;
+    final int kcalRemaining = kcalBudget - eatenKcal;
+    final bool kcalOver = kcalRemaining < 0;
+    final int kcalCenterValue = kcalRemaining.abs();
+    final double ringProgress = kcalBudget > 0
+        ? (eatenKcal / kcalBudget).clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final Color ringColor = kcalOver
+        ? LuminaHealthColors.warning
+        : scheme.primary;
     final macroSummaries = _buildMacroSummaries(totals);
-    final mealSummaries = _buildMealSummaries(context);
+    final mealSummaries = _buildMealSummaries();
     final isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
 
     // Calculate total entries
@@ -469,29 +522,36 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                   thickness: 12,
                                   trackColor: scheme.surfaceContainerHighest
                                       .withValues(alpha: 0.5),
-                                  progressColor: scheme.primary,
-                                  glowColor: scheme.primary,
+                                  progressColor: ringColor,
+                                  glowColor: ringColor,
                                   glowLevel: PulseGlowLevel.high,
                                 ),
                                 Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      '$kcalLeft',
+                                      kcalOver
+                                          ? '+$kcalCenterValue'
+                                          : '$kcalCenterValue',
                                       style: theme.textTheme.displayLarge
                                           ?.copyWith(
                                             fontWeight: FontWeight.w800,
                                             height: 1,
+                                            color: kcalOver
+                                                ? LuminaHealthColors.warning
+                                                : null,
                                           ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'LEFT',
+                                      kcalOver ? 'OVER' : 'LEFT',
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
                                             fontWeight: FontWeight.bold,
                                             letterSpacing: 2.0,
-                                            color: scheme.onSurfaceVariant,
+                                            color: kcalOver
+                                                ? LuminaHealthColors.warning
+                                                : scheme.onSurfaceVariant,
                                           ),
                                     ),
                                     const SizedBox(height: 16),
@@ -636,14 +696,23 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         padding: const EdgeInsets.all(AppSpacing.md),
                         child: Row(
                           children: macroSummaries.map((macro) {
-                            final color = _macroAccent(macro.type);
+                            final accent = _macroAccent(macro.type);
+                            final over = macro.current - macro.goal;
+                            final isOver = over > 0;
                             final progress = macro.goal > 0
                                 ? (macro.current / macro.goal).clamp(0.0, 1.0)
                                 : 0.0;
-                            final left = math.max(
-                              0,
-                              macro.goal - macro.current,
-                            );
+                            final treatment = isOver
+                                ? _macroOverTreatment(macro.type)
+                                : null;
+                            final barColor = treatment?.barColor ?? accent;
+                            final valueColor = treatment?.textColor ?? accent;
+                            final statusText = isOver
+                                ? '+${over}g ${treatment!.suffix}'
+                                : '${macro.goal - macro.current}g left';
+                            final statusColor =
+                                treatment?.textColor ??
+                                scheme.onSurface.withValues(alpha: 0.6);
                             return Expanded(
                               child: Padding(
                                 padding: EdgeInsets.only(
@@ -676,7 +745,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
                                                 fontWeight: FontWeight.bold,
-                                                color: color,
+                                                color: valueColor,
                                                 fontSize: 10,
                                               ),
                                         ),
@@ -687,7 +756,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                       value: progress.toDouble(),
                                       backgroundColor:
                                           scheme.surfaceContainerHighest,
-                                      color: color,
+                                      color: barColor,
                                       minHeight: 6,
                                       borderRadius: BorderRadius.circular(9999),
                                     ),
@@ -695,12 +764,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                     Align(
                                       alignment: Alignment.centerRight,
                                       child: Text(
-                                        '${left}g left',
+                                        statusText,
                                         style: theme.textTheme.labelSmall
                                             ?.copyWith(
-                                              color: scheme.onSurface
-                                                  .withValues(alpha: 0.6),
+                                              color: statusColor,
                                               fontSize: 10,
+                                              fontWeight: isOver
+                                                  ? FontWeight.bold
+                                                  : null,
                                             ),
                                       ),
                                     ),
@@ -756,7 +827,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         ),
                         child: _MealCard(
                           meal: meal,
-                          onItemTap: (item) => _showItemDetails(context, item),
+                          onTap: () => _openMealDetails(context, meal),
                         ),
                       );
                     }, childCount: mealSummaries.length),
@@ -783,32 +854,60 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         return LuminaHealthColors.tertiary;
     }
   }
+
+  // How each macro reads once its goal is exceeded. The semantics differ per
+  // nutrient: hitting protein is a goal to celebrate, going over fat is a
+  // cautionary warning, and exceeding carbs is neutral information.
+  ({Color textColor, Color barColor, String suffix}) _macroOverTreatment(
+    MacroType type,
+  ) {
+    switch (type) {
+      case MacroType.protein:
+        return (
+          textColor: LuminaHealthColors.primary,
+          barColor: LuminaHealthColors.primary,
+          suffix: '✓',
+        );
+      case MacroType.fat:
+        return (
+          textColor: LuminaHealthColors.warning,
+          barColor: LuminaHealthColors.warning,
+          suffix: 'over',
+        );
+      case MacroType.carbs:
+        return (
+          textColor: LuminaHealthColors.onSurfaceVariant,
+          barColor: LuminaHealthColors.secondary,
+          suffix: 'over',
+        );
+    }
+  }
 }
 
 class _MealCard extends StatelessWidget {
-  const _MealCard({required this.meal, required this.onItemTap});
+  const _MealCard({required this.meal, required this.onTap});
 
   final _MealSummary meal;
-  final ValueChanged<_MealItem> onItemTap;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
-    final hasItems = meal.items.isNotEmpty;
-    final firstItemHasImage = hasItems
-        ? (meal.items.first.image?.trim().isNotEmpty ?? false)
-        : false;
-    final imageUrl = firstItemHasImage ? meal.items.first.image!.trim() : null;
+    final hasItems = meal.entries.isNotEmpty;
+    final firstImage = hasItems
+        ? meal.entries.first.foodItem.imageUrl?.trim()
+        : null;
+    final imageUrl = (firstImage != null && firstImage.isNotEmpty)
+        ? firstImage
+        : null;
 
     final fallbackIcon = Container(
       color: scheme.surfaceContainerHigh,
       child: Center(
         child: Icon(
-          hasItems
-              ? meal.items.first.icon ?? Icons.restaurant
-              : Icons.restaurant,
+          meal.icon,
           color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
         ),
       ),
@@ -817,7 +916,7 @@ class _MealCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: hasItems ? () => onItemTap(meal.items.first) : null,
+        onTap: hasItems ? onTap : null,
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: Container(
           decoration: BoxDecoration(
@@ -875,7 +974,7 @@ class _MealCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       hasItems
-                          ? meal.items.map((e) => e.name).join(', ')
+                          ? meal.entries.map((e) => e.foodItem.name).join(', ')
                           : 'No foods logged yet.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
@@ -919,32 +1018,19 @@ class _MacroSummary {
   final int goal;
 }
 
-class _MealItem {
-  const _MealItem({
-    required this.name,
-    required this.kcal,
-    required this.amount,
-    this.icon,
-    this.image,
-  });
-
-  final String name;
-  final int kcal;
-  final String amount;
-  final IconData? icon;
-  final String? image;
-}
-
 class _MealSummary {
   const _MealSummary({
     required this.name,
-    required this.time,
-    required this.items,
+    required this.mealType,
+    required this.icon,
+    required this.entries,
   });
 
   final String name;
-  final String time;
-  final List<_MealItem> items;
+  final MealType mealType;
+  final IconData icon;
+  final List<NutritionEntry> entries;
 
-  int get totalKcal => items.fold<int>(0, (total, item) => total + item.kcal);
+  int get totalKcal =>
+      entries.fold<int>(0, (total, entry) => total + entry.kcal.round());
 }

@@ -126,6 +126,47 @@ class NutritionApiService {
     }
   }
 
+  Future<NutritionEntry> updateEntry({
+    required int entryId,
+    double? quantityG,
+    String? mealType,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/api/v1/nutrition/entries/$entryId',
+        data: {
+          if (quantityG != null) 'quantity_g': quantityG,
+          if (mealType != null) 'meal_type': mealType,
+        },
+      );
+      final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw ApiException('Unexpected response from server.');
+      }
+      return _parseEntry(data);
+    } on DioException catch (error) {
+      throw ApiException(
+        'Unable to update entry.',
+        statusCode: error.response?.statusCode,
+      );
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw ApiException('Unable to update entry.');
+    }
+  }
+
+  Future<void> deleteEntry(int entryId) async {
+    try {
+      await _dio.delete<void>('/api/v1/nutrition/entries/$entryId');
+    } on DioException catch (error) {
+      throw ApiException(
+        'Unable to delete entry.',
+        statusCode: error.response?.statusCode,
+      );
+    }
+  }
+
   NutritionDayLog _parseDayLog(Map<String, dynamic> data) {
     final totalsRaw = data['totals'] as Map<String, dynamic>? ?? {};
     final totals = NutritionTotals(
@@ -154,7 +195,10 @@ class NutritionApiService {
 
   NutritionEntry _parseEntry(Map<String, dynamic> data) {
     final foodItemRaw = data['food_item'] as Map<String, dynamic>? ?? {};
-    final foodItem = FoodItem.fromBackendSummary(foodItemRaw);
+    // Use the detailed mapper so each logged entry carries full per-100g macros
+    // and a derived piece/serving descriptor — the meal-details editor reuses the
+    // same amount sheet (stepper, unit toggle, live macro preview) as add-food.
+    final foodItem = FoodItem.fromBackendDetail(foodItemRaw);
     return NutritionEntry(
       id: data['id'] as int,
       mealType: data['meal_type'] as String? ?? '',

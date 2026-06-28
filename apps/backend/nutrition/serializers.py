@@ -3,7 +3,7 @@ from typing import Any
 from rest_framework import serializers
 
 from foods.models import FoodItem
-from foods.serializers import FoodItemCompactSerializer
+from foods.serializers import FoodItemSerializer
 from nutrition.models import MealEntry
 from nutrition.utils import calculate_macros, serialize_decimal
 
@@ -24,8 +24,23 @@ class MealEntryCreateSerializer(serializers.Serializer):
         return MealEntry.objects.create(user=user, **validated_data)
 
 
+class MealEntryUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MealEntry
+        fields = ("meal_type", "quantity_g")
+        extra_kwargs = {
+            "meal_type": {"required": False},
+            "quantity_g": {"required": False},
+        }
+
+    def validate_quantity_g(self, value: Any) -> Any:
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Quantity must be greater than zero.")
+        return value
+
+
 class MealEntrySerializer(serializers.ModelSerializer):
-    food_item = FoodItemCompactSerializer()
+    food_item = FoodItemSerializer()
     kcal = serializers.SerializerMethodField()
 
     class Meta:

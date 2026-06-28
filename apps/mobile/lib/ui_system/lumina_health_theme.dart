@@ -6,6 +6,9 @@ import 'tokens.dart';
 class LuminaHealthColors {
   static const Color background = Color(0xFF0E0E0E);
   static const Color error = Color(0xFFFF7351);
+  // Amber warning, used for "over goal" states that are cautionary but not
+  // errors (e.g. calories or fat past the daily target).
+  static const Color warning = Color(0xFFFFB020);
   static const Color errorContainer = Color(0xFFB92902);
   static const Color onError = Color(0xFF450900);
   static const Color onErrorContainer = Color(0xFFFFD2C8);

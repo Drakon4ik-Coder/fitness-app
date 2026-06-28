@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -15,6 +16,7 @@ from nutrition.models import MealEntry
 from nutrition.serializers import (
     MealEntryCreateSerializer,
     MealEntrySerializer,
+    MealEntryUpdateSerializer,
     NutritionDaySerializer,
 )
 from nutrition.utils import calculate_macros, serialize_decimal
@@ -39,8 +41,43 @@ class MealEntryCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         entry = serializer.save()
-        output = MealEntrySerializer(entry)
+        output = MealEntrySerializer(entry, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+
+class MealEntryDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_entry(self, request: Request, pk: int) -> MealEntry:
+        return get_object_or_404(MealEntry, pk=pk, user=request.user)
+
+    @extend_schema(
+        request=MealEntryUpdateSerializer,
+        responses={
+            200: MealEntrySerializer,
+            400: OpenApiResponse(description="Invalid payload"),
+            401: OpenApiResponse(description="Unauthorized"),
+            404: OpenApiResponse(description="Entry not found"),
+        },
+    )
+    def patch(self, request: Request, pk: int) -> Response:
+        entry = self._get_entry(request, pk)
+        serializer = MealEntryUpdateSerializer(entry, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        entry = serializer.save()
+        return Response(MealEntrySerializer(entry, context={"request": request}).data)
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Entry deleted"),
+            401: OpenApiResponse(description="Unauthorized"),
+            404: OpenApiResponse(description="Entry not found"),
+        },
+    )
+    def delete(self, request: Request, pk: int) -> Response:
+        entry = self._get_entry(request, pk)
+        entry.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class NutritionDayView(APIView):
@@ -111,5 +148,5 @@ class NutritionDayView(APIView):
                 "snacks": meals[MealEntry.MEAL_SNACKS],
             },
         }
-        serializer = NutritionDaySerializer(response_data)
+        serializer = NutritionDaySerializer(response_data, context={"request": request})
         return Response(serializer.data)
