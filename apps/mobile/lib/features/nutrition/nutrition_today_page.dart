@@ -7,6 +7,7 @@ import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_page.dart';
+import 'meal_suggestion.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/foods_api_service.dart';
@@ -47,6 +48,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final OffClient _offClient;
 
   NutritionDayLog? _dayLog;
+  // Per-meal windows learned from the user's own history; null until loaded (or
+  // if the fetch fails), in which case the smart guess uses population defaults.
+  Map<MealType, MealWindow>? _mealWindows;
   Timer? _spinnerTimer;
   bool _showSpinner = false;
   String? _errorMessage;
@@ -71,6 +75,18 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         );
     _offClient = widget.offClient ?? OffClient();
     _loadDay();
+    _loadMealTimes();
+  }
+
+  // Best-effort: a failure just leaves the smart meal guess on its defaults.
+  Future<void> _loadMealTimes() async {
+    try {
+      final learned = await _nutritionApi.fetchMealTimes();
+      if (!mounted) return;
+      setState(() => _mealWindows = buildMealWindows(learned));
+    } on ApiException {
+      // Ignore — defaults are a fine fallback.
+    }
   }
 
   @override
@@ -193,6 +209,15 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     MealType? initialMeal,
   }) async {
     final messenger = ScaffoldMessenger.of(context);
+    // When opened from the generic "+" (no explicit meal), guess the meal from
+    // the time of day and what's already been logged today.
+    final meal =
+        initialMeal ??
+        suggestMealType(
+          now: DateTime.now(),
+          mealsLogged: _dayLog?.meals ?? const {},
+          windows: _mealWindows,
+        );
     final didAdd = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AddFoodPage(
@@ -202,7 +227,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           offClient: _offClient,
           onLogout: widget.onLogout,
           selectedDate: _selectedDate,
-          initialMeal: initialMeal,
+          initialMeal: meal,
         ),
       ),
     );

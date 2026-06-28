@@ -33,5 +33,16 @@ class MealEntry(models.Model):
     consumed_at = models.DateTimeField(default=timezone.now)
     quantity_g = models.DecimalField(max_digits=8, decimal_places=2)
 
+    class Meta:
+        # Both the day view (consumed_at__date) and the meal-times stats
+        # (consumed_at__gte window per user) filter a user's rows by time, so a
+        # composite index turns those into range scans.
+        indexes = [
+            models.Index(
+                fields=["user", "consumed_at"],
+                name="meal_entry_user_time_idx",
+            ),
+        ]
+
     def __str__(self) -> str:
         return f"{self.user_id} {self.meal_type} {self.food_item_id}"

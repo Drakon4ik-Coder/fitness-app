@@ -1,7 +1,9 @@
-from datetime import date
+from datetime import date, timedelta, tzinfo
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -17,11 +19,32 @@ from nutrition.serializers import (
     MealEntryCreateSerializer,
     MealEntrySerializer,
     MealEntryUpdateSerializer,
+    MealTimesSerializer,
     NutritionDaySerializer,
 )
-from nutrition.utils import calculate_macros, serialize_decimal
+from nutrition.utils import (
+    calculate_macros,
+    serialize_decimal,
+    summarize_meal_time,
+)
 
 User = get_user_model()
+
+_UTC = ZoneInfo("UTC")
+
+
+def _user_zone(user: object) -> tzinfo:
+    """The user's IANA timezone, or UTC if unset/invalid.
+
+    Meal entries are stored as true UTC instants; both the day grouping and the
+    meal-time stats convert them back to this zone to recover the wall-clock time
+    the user actually experienced.
+    """
+    name = getattr(user, "timezone", None) or "UTC"
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return _UTC
 
 
 class MealEntryCreateView(APIView):
@@ -41,6 +64,9 @@ class MealEntryCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         entry = serializer.save()
+        # A new entry can shift the learned meal times; drop the cached value so
+        # the next fetch recomputes (esp. important while a new user's habits form).
+        cache.delete(meal_times_cache_key(entry.user_id, str(_user_zone(request.user))))
         output = MealEntrySerializer(entry, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
 
@@ -99,6 +125,10 @@ class NutritionDayView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
+        assert isinstance(request.user, User)
+        user = request.user
+        zone = _user_zone(user)
+
         date_raw = request.query_params.get("date")
         if date_raw:
             try:
@@ -109,15 +139,16 @@ class NutritionDayView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            target_date = timezone.localdate()
+            target_date = timezone.localdate(timezone=zone)
 
-        assert isinstance(request.user, User)
-        user = request.user
-        entries = (
-            MealEntry.objects.filter(user=user, consumed_at__date=target_date)
-            .select_related("food_item")
-            .order_by("consumed_at")
-        )
+        # consumed_at is true UTC; the __date lookup uses the active timezone, so
+        # grouping happens on the user's local calendar day, not UTC's.
+        with timezone.override(zone):
+            entries = list(
+                MealEntry.objects.filter(user=user, consumed_at__date=target_date)
+                .select_related("food_item")
+                .order_by("consumed_at")
+            )
 
         meals: dict[str, list[MealEntry]] = {
             MealEntry.MEAL_BREAKFAST: [],
@@ -149,4 +180,78 @@ class NutritionDayView(APIView):
             },
         }
         serializer = NutritionDaySerializer(response_data, context={"request": request})
+        return Response(serializer.data)
+
+
+def meal_times_cache_key(user_id: int, tz_name: str) -> str:
+    # The tz is part of the key: change zones and the learned hours change too, so
+    # a new key naturally supersedes the old (which simply ages out via TTL).
+    return f"nutrition:meal_times:{user_id}:{tz_name}"
+
+
+# Typical meal times drift over days, not seconds, and a stale value only nudges
+# a default dropdown — so a day-long TTL is the real freshness guarantee. We also
+# bust the key on entry create (best-effort: global with a shared cache backend
+# like Redis, per-process otherwise), so a new user's habits surface promptly.
+MEAL_TIMES_CACHE_TTL = 60 * 60 * 24
+
+# Only recent habits matter; older entries shouldn't anchor a window the user
+# has since drifted away from.
+MEAL_TIMES_LOOKBACK_DAYS = 90
+
+
+def compute_meal_times(user_id: int, zone: tzinfo) -> dict[str, dict[str, float | int]]:
+    since = timezone.now() - timedelta(days=MEAL_TIMES_LOOKBACK_DAYS)
+    rows = MealEntry.objects.filter(
+        user_id=user_id,
+        consumed_at__gte=since,
+        meal_type__in=[
+            MealEntry.MEAL_BREAKFAST,
+            MealEntry.MEAL_LUNCH,
+            MealEntry.MEAL_DINNER,
+        ],
+    ).values_list("meal_type", "consumed_at")
+
+    hours_by_meal: dict[str, list[float]] = {}
+    for meal_type, consumed_at in rows:
+        # consumed_at is a true UTC instant; convert to the user's zone to recover
+        # the wall-clock hour they experienced — the "when do I eat" signal.
+        local = consumed_at.astimezone(zone)
+        hours_by_meal.setdefault(meal_type, []).append(local.hour + local.minute / 60.0)
+
+    meal_times: dict[str, dict[str, float | int]] = {}
+    for meal_type, hours in hours_by_meal.items():
+        summary = summarize_meal_time(hours)
+        if summary is not None:
+            meal_times[meal_type] = summary
+    return meal_times
+
+
+class MealTimesView(APIView):
+    """Per-user typical meal times, learned from recent logging history.
+
+    Powers the app's smart meal-type guess: the client centers each meal's
+    window on the user's own median time, falling back to population defaults
+    for any meal it hasn't seen enough of. The result is cached per user since
+    it changes only slowly (see MEAL_TIMES_CACHE_TTL).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={
+            200: MealTimesSerializer,
+            401: OpenApiResponse(description="Unauthorized"),
+        },
+    )
+    def get(self, request: Request) -> Response:
+        assert isinstance(request.user, User)
+        user = request.user
+        zone = _user_zone(user)
+        key = meal_times_cache_key(user.pk, str(zone))
+        meal_times = cache.get(key)
+        if meal_times is None:
+            meal_times = compute_meal_times(user.pk, zone)
+            cache.set(key, meal_times, MEAL_TIMES_CACHE_TTL)
+        serializer = MealTimesSerializer({"meal_times": meal_times})
         return Response(serializer.data)

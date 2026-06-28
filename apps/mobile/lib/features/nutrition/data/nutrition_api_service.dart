@@ -49,6 +49,20 @@ class NutritionDayLog {
   final Map<String, List<NutritionEntry>> meals;
 }
 
+/// A learned typical time for one meal type, derived from the user's history.
+/// [typicalHour] and [halfWidth] are fractional hours (e.g. 12.5 == 12:30).
+class MealTimeStat {
+  const MealTimeStat({
+    required this.typicalHour,
+    required this.halfWidth,
+    required this.sampleCount,
+  });
+
+  final double typicalHour;
+  final double halfWidth;
+  final int sampleCount;
+}
+
 class NutritionApiService {
   NutritionApiService({
     required String accessToken,
@@ -93,6 +107,43 @@ class NutritionApiService {
     }
   }
 
+  /// Per-meal typical times learned from the user's history. Meals without
+  /// enough history are simply absent from the map (caller uses its defaults).
+  Future<Map<String, MealTimeStat>> fetchMealTimes() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/v1/nutrition/meal-times',
+      );
+      final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw ApiException('Unexpected response from server.');
+      }
+      final raw = data['meal_times'] as Map<String, dynamic>? ?? {};
+      final result = <String, MealTimeStat>{};
+      for (final entry in raw.entries) {
+        final value = entry.value;
+        if (value is! Map<String, dynamic>) continue;
+        final typical = parseNullableDouble(value['typical_hour']);
+        if (typical == null) continue;
+        result[entry.key] = MealTimeStat(
+          typicalHour: typical,
+          halfWidth: parseNullableDouble(value['half_width']) ?? 2.0,
+          sampleCount: (value['sample_count'] as num?)?.toInt() ?? 0,
+        );
+      }
+      return result;
+    } on DioException catch (error) {
+      throw ApiException(
+        'Unable to load meal times.',
+        statusCode: error.response?.statusCode,
+      );
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw ApiException('Unable to load meal times.');
+    }
+  }
+
   Future<NutritionEntry> createEntry({
     required int foodItemId,
     required String mealType,
@@ -106,7 +157,11 @@ class NutritionApiService {
           'food_item_id': foodItemId,
           'meal_type': mealType,
           'quantity_g': quantityG,
-          if (consumedAt != null) 'consumed_at': consumedAt.toIso8601String(),
+          // Send the true UTC instant (Z-suffixed). The server stores UTC and
+          // converts back to the user's reported timezone for day grouping and
+          // meal-time stats — so callers pass a local DateTime and we normalize.
+          if (consumedAt != null)
+            'consumed_at': consumedAt.toUtc().toIso8601String(),
         },
       );
       final data = response.data;

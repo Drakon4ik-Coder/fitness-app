@@ -45,6 +45,9 @@ dependencies:
   google_sign_in: ^7.2.0
   google_fonts: ^6.2.1
   flutter_svg: ^2.0.10+1
+  # Reports the device's IANA timezone (e.g. "Europe/Kyiv") so the backend can
+  # convert UTC meal timestamps back to the user's wall clock.
+  flutter_timezone: ^4.1.0
 
 dev_dependencies:
   flutter_test:

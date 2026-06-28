@@ -48,6 +48,11 @@ class User(AbstractUser):
 
     email_verified = models.BooleanField(default=False)
 
+    # IANA timezone (e.g. "Europe/Kyiv"), reported by the client. Meal entries are
+    # stored as true UTC; this is how the server recovers the user's wall-clock
+    # time for day grouping and meal-time stats. UTC until the app reports one.
+    timezone = models.CharField(max_length=64, default="UTC")
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

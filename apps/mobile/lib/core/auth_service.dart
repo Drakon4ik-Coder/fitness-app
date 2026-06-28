@@ -182,6 +182,25 @@ class AuthService {
     }
   }
 
+  /// Reports the device's IANA timezone to the backend (PATCH /auth/me).
+  ///
+  /// Best-effort: the server defaults users to UTC, and a failed report just
+  /// means meal day-grouping/stats stay on the last known zone until next launch.
+  Future<void> updateTimezone({
+    required String accessToken,
+    required String timezone,
+  }) async {
+    try {
+      await _dio.patch(
+        '/api/v1/auth/me',
+        data: {'timezone': timezone},
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+    } on DioException {
+      // Ignore — non-critical and retried on the next launch.
+    }
+  }
+
   /// Extracts the first field error message from a DRF validation response.
   ///
   /// DRF returns errors as `{ "field": ["message", ...], ... }`. We surface the

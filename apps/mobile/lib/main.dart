@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 
 import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
@@ -66,6 +67,7 @@ class _AuthGateState extends State<AuthGate> {
           : null;
       _isLoading = false;
     });
+    if (token != null) _reportTimezone(token);
   }
 
   Future<void> _handleLoggedIn() async {
@@ -84,6 +86,21 @@ class _AuthGateState extends State<AuthGate> {
             )
           : null;
     });
+    if (token != null) _reportTimezone(token);
+  }
+
+  /// Tell the backend the device's IANA timezone so it can convert UTC meal
+  /// timestamps back to the user's wall clock. Best-effort and non-blocking.
+  Future<void> _reportTimezone(String accessToken) async {
+    try {
+      final timezone = await FlutterTimezone.getLocalTimezone();
+      await _authService.updateTimezone(
+        accessToken: accessToken,
+        timezone: timezone,
+      );
+    } catch (_) {
+      // Non-critical; the backend keeps the last known zone (UTC by default).
+    }
   }
 
   Future<void> _handleLogout() async {

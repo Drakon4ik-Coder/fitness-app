@@ -77,3 +77,15 @@ class NutritionDaySerializer(serializers.Serializer):
     date = serializers.DateField()
     totals = NutritionTotalsSerializer()
     meals = NutritionMealsSerializer()
+
+
+class MealTimeStatSerializer(serializers.Serializer):
+    typical_hour = serializers.FloatField()
+    half_width = serializers.FloatField()
+    sample_count = serializers.IntegerField()
+
+
+class MealTimesSerializer(serializers.Serializer):
+    # Only meals with enough history appear; absent meals fall back to the
+    # client's population defaults.
+    meal_times = serializers.DictField(child=MealTimeStatSerializer())

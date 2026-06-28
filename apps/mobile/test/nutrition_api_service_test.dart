@@ -76,6 +76,46 @@ void main() {
     expect(entry.foodItem.name, 'Editable Food');
   });
 
+  test('createEntry sends consumed_at as a true UTC instant', () async {
+    late RequestOptions captured;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          captured = options;
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 201,
+              data: {
+                'id': 1,
+                'meal_type': 'lunch',
+                'consumed_at': '2024-06-01T11:30:00Z',
+                'quantity_g': 100,
+                'kcal': 200,
+                'food_item': {'id': 7, 'name': 'F', 'kcal_100g': 200},
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final service = NutritionApiService(accessToken: 'token', dio: dio);
+    // A local wall-clock time with a +2h offset; the server must receive the
+    // equivalent UTC instant (Z-suffixed), not the naive local string.
+    final localNoon = DateTime.parse('2024-06-01T13:30:00+02:00');
+    await service.createEntry(
+      foodItemId: 7,
+      mealType: 'lunch',
+      quantityG: 100,
+      consumedAt: localNoon,
+    );
+
+    final sent = (captured.data as Map)['consumed_at'] as String;
+    expect(sent, '2024-06-01T11:30:00.000Z');
+  });
+
   test('updateEntry wraps a Dio error in ApiException', () async {
     final dio = Dio();
     dio.interceptors.add(

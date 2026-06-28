@@ -28,6 +28,7 @@ from accounts.models import EmailVerificationToken, PasswordResetToken
 from accounts.serializers import (
     UserRegistrationSerializer,
     UserSerializer,
+    UserUpdateSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
     PasswordResetRequestSerializer,
@@ -334,3 +335,10 @@ class MeView(APIView):
     def get(self, request: Request) -> Response:
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+
+    @extend_schema(request=UserUpdateSerializer, responses=UserSerializer)
+    def patch(self, request: Request) -> Response:
+        serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserSerializer(user).data)

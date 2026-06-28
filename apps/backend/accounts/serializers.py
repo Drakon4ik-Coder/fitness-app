@@ -54,7 +54,25 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "email", "display_name")
+        fields = ("id", "email", "display_name", "timezone")
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ("display_name", "timezone")
+        extra_kwargs = {
+            "display_name": {"required": False},
+            "timezone": {"required": False},
+        }
+
+    def validate_timezone(self, value: str) -> str:
+        # Reject unknown zones so _user_zone never silently falls back later.
+        from zoneinfo import available_timezones
+
+        if value not in available_timezones():
+            raise serializers.ValidationError("Unknown timezone.")
+        return value
 
 
 class GoogleLoginSerializer(serializers.Serializer):
