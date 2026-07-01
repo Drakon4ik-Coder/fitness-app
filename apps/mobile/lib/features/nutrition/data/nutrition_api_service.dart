@@ -85,16 +85,23 @@ class NutritionApiService {
   }
 
   Future<NutritionDayLog> fetchDay(DateTime date) async {
+    return parseDayLog(await fetchDayRaw(date));
+  }
+
+  /// Fetches the raw `/day` payload without parsing. The page caches this map
+  /// verbatim (stale-while-revalidate) and parses it via [parseDayLog], so the
+  /// cached bytes are exactly what the server sent — no lossy round-trip.
+  Future<Map<String, dynamic>> fetchDayRaw(DateTime date) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/nutrition/day',
-        queryParameters: {'date': _formatDate(date)},
+        queryParameters: {'date': formatDate(date)},
       );
       final data = response.data;
       if (data is! Map<String, dynamic>) {
         throw ApiException('Unexpected response from server.');
       }
-      return _parseDayLog(data);
+      return data;
     } on DioException catch (error) {
       throw ApiException(
         'Unable to load nutrition data.',
@@ -222,7 +229,9 @@ class NutritionApiService {
     }
   }
 
-  NutritionDayLog _parseDayLog(Map<String, dynamic> data) {
+  /// Parses a raw `/day` payload (from the network or the local cache) into a
+  /// [NutritionDayLog]. Public so the page can parse cached maps directly.
+  NutritionDayLog parseDayLog(Map<String, dynamic> data) {
     final totalsRaw = data['totals'] as Map<String, dynamic>? ?? {};
     final totals = NutritionTotals(
       kcal: parseNullableDouble(totalsRaw['kcal']) ?? 0,
@@ -264,7 +273,9 @@ class NutritionApiService {
     );
   }
 
-  String _formatDate(DateTime date) {
+  /// `YYYY-MM-DD` for the day endpoint. Also the cache key, so both the request
+  /// and its cached copy are keyed identically.
+  static String formatDate(DateTime date) {
     final year = date.year.toString().padLeft(4, '0');
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');

@@ -8,10 +8,12 @@ import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_page.dart';
 import 'meal_suggestion.dart';
+import 'nutrition_detail_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrition_api_service.dart';
+import 'data/nutrition_day_cache.dart';
 import 'data/off_client.dart';
 import 'widgets/meal_detail_sheet.dart';
 
@@ -24,6 +26,7 @@ class NutritionTodayPage extends StatefulWidget {
     this.localDb,
     this.foodsApi,
     this.nutritionApi,
+    this.dayCache,
     this.offClient,
   });
 
@@ -33,6 +36,7 @@ class NutritionTodayPage extends StatefulWidget {
   final FoodLocalDb? localDb;
   final FoodsApiService? foodsApi;
   final NutritionApiService? nutritionApi;
+  final NutritionDayCache? dayCache;
   final OffClient? offClient;
 
   @override
@@ -45,6 +49,8 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final bool _ownsLocalDb;
   late final FoodsApiService _foodsApi;
   late final NutritionApiService _nutritionApi;
+  late final NutritionDayCache _dayCache;
+  late final bool _ownsDayCache;
   late final OffClient _offClient;
 
   NutritionDayLog? _dayLog;
@@ -73,9 +79,22 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
+    _ownsDayCache = widget.dayCache == null;
+    _dayCache = widget.dayCache ?? NutritionDayCache();
     _offClient = widget.offClient ?? OffClient();
     _loadDay();
     _loadMealTimes();
+  }
+
+  /// Logs out, first wiping the local day cache so the next user on this device
+  /// can't briefly see the previous user's log (the cache isn't per-user).
+  Future<void> _handleLogout() async {
+    try {
+      await _dayCache.clear();
+    } catch (_) {
+      // Best-effort — never block logout on a cache wipe.
+    }
+    await widget.onLogout();
   }
 
   // Best-effort: a failure just leaves the smart meal guess on its defaults.
@@ -104,44 +123,98 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (_ownsLocalDb) {
       _localDb.close();
     }
+    if (_ownsDayCache) {
+      _dayCache.close();
+    }
     super.dispose();
   }
 
   Future<void> _loadDay() async {
     _spinnerTimer?.cancel();
+    // Snapshot the date: the cache read and network fetch are async, so the user
+    // may switch days before they return. We discard results for a stale date.
+    final date = _selectedDate;
+    final dateKey = NutritionApiService.formatDate(date);
     setState(() {
       _showSpinner = false;
       _errorMessage = null;
     });
-    _spinnerTimer = Timer(const Duration(seconds: 1), () {
-      if (!mounted) return;
-      setState(() => _showSpinner = true);
-    });
+
+    // 1. Stale: render the cached day instantly so there's no blank screen and
+    //    offline opens still show data. Best-effort — a cache miss or failure
+    //    just falls through to the spinner + network path below.
+    final bool hadCache = await _showCachedDay(dateKey, date);
+
+    // Only show the loading bar if we have nothing on screen yet; with a cache
+    // hit the refresh happens silently underneath the already-rendered day.
+    if (!hadCache) {
+      _spinnerTimer = Timer(const Duration(seconds: 1), () {
+        if (!mounted || date != _selectedDate) return;
+        setState(() => _showSpinner = true);
+      });
+    }
+
+    // 2. Revalidate against the server and refresh the cache.
     try {
-      final dayLog = await _nutritionApi.fetchDay(_selectedDate);
-      if (!mounted) {
+      final raw = await _nutritionApi.fetchDayRaw(date);
+      if (!mounted || date != _selectedDate) {
         return;
       }
       setState(() {
-        _dayLog = dayLog;
+        _dayLog = _nutritionApi.parseDayLog(raw);
         _showSpinner = false;
+        _errorMessage = null;
       });
+      await _writeCache(dateKey, raw);
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
-        await widget.onLogout();
+        await _handleLogout();
         if (!mounted) return;
         setState(() => _showSpinner = false);
         return;
       }
-      if (!mounted) {
+      if (!mounted || date != _selectedDate) {
         return;
       }
       setState(() {
         _showSpinner = false;
-        _errorMessage = error.message;
+        // Don't bury a usable cached view under an error banner — offline reads
+        // should keep working. Only surface the error when there's nothing to
+        // show for this day.
+        if (!hadCache) {
+          _errorMessage = error.message;
+        }
       });
     } finally {
       _spinnerTimer?.cancel();
+    }
+  }
+
+  /// Renders the cached payload for [dateKey] if present and still the selected
+  /// day. Returns whether a usable cached day was shown. Best-effort: any cache
+  /// or parse failure is swallowed so the network path takes over.
+  Future<bool> _showCachedDay(String dateKey, DateTime date) async {
+    try {
+      final cached = await _dayCache.read(dateKey);
+      if (cached == null || !mounted || date != _selectedDate) {
+        return false;
+      }
+      final cachedLog = _nutritionApi.parseDayLog(cached);
+      setState(() {
+        _dayLog = cachedLog;
+        _errorMessage = null;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _writeCache(String dateKey, Map<String, dynamic> raw) async {
+    try {
+      await _dayCache.write(dateKey, raw);
+    } catch (_) {
+      // Best-effort cache; failing to persist never breaks the view.
     }
   }
 
@@ -225,7 +298,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           foodsApi: _foodsApi,
           nutritionApi: _nutritionApi,
           offClient: _offClient,
-          onLogout: widget.onLogout,
+          onLogout: _handleLogout,
           selectedDate: _selectedDate,
           initialMeal: meal,
         ),
@@ -270,6 +343,21 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     await _loadDay();
   }
 
+  void _openNutrientDetail(BuildContext context) {
+    final entries =
+        _dayLog?.meals.values.expand((list) => list).toList() ??
+        const <NutritionEntry>[];
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NutritionDetailPage(
+          dateLabel: _dateLabel(),
+          eatenKcal: _dayLog?.totals.kcal.round() ?? 0,
+          entries: entries,
+        ),
+      ),
+    );
+  }
+
   Future<NutritionEntry?> _updateEntryQuantity(
     NutritionEntry entry,
     double grams,
@@ -281,7 +369,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       );
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
-        await widget.onLogout();
+        await _handleLogout();
         return null;
       }
       if (mounted) {
@@ -299,7 +387,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       return true;
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
-        await widget.onLogout();
+        await _handleLogout();
         return false;
       }
       if (mounted) {
@@ -407,7 +495,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       appBar: AppBar(
         actions: [
           IconButton(
-            onPressed: () => widget.onLogout(),
+            onPressed: () => _handleLogout(),
             icon: const Icon(Icons.logout),
           ),
         ],
@@ -805,6 +893,50 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                               ),
                             );
                           }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Full nutrient breakdown entry point
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.lg,
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => _openNutrientDetail(context),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                              vertical: AppSpacing.md,
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.insights,
+                                  size: 18,
+                                  color: scheme.primary,
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  child: Text(
+                                    'View full nutrients',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: scheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_right,
+                                  color: scheme.primary,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
