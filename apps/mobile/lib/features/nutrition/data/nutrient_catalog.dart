@@ -311,6 +311,24 @@ List<NutrientTotal> nutrientTotalsFromServer(Map<String, dynamic> nutrients) {
   ];
 }
 
+/// Catalog-aligned totals for a single food at a given [grams] amount, read from
+/// its stored OFF nutriments blob. Powers the "check the nutrition before adding"
+/// preview in the amount sheet. Nutrients the food lacks become `null` totals.
+List<NutrientTotal> nutrientTotalsForItem(FoodItem item, double grams) {
+  final nutriments = item.nutrimentsJson;
+  final factor = grams / 100.0;
+  return [
+    for (final spec in kNutrientCatalog)
+      NutrientTotal(
+        spec: spec,
+        amount: () {
+          final per100 = nutrientPer100g(spec, nutriments);
+          return per100 == null ? null : per100 * factor;
+        }(),
+      ),
+  ];
+}
+
 /// Aggregates every catalog nutrient across a day's logged entries, scaling each
 /// food's per-100g value by the logged quantity. A nutrient only counts entries
 /// that actually carry data for it; if none do, its total is `null` ("no data").

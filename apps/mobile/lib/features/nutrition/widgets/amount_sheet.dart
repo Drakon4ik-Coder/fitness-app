@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../ui_system/tokens.dart';
 import '../data/food_models.dart';
+import '../data/nutrient_catalog.dart';
+import 'nutrient_breakdown_view.dart';
 
 /// Formats a number without a trailing `.0` and at most one decimal place.
 String formatAmount(double value) {
@@ -183,6 +185,7 @@ class AmountSheet extends StatefulWidget {
 class _AmountSheetState extends State<AmountSheet> {
   late final TextEditingController _controller;
   late AmountUnit _unit;
+  bool _showAllNutrients = false;
 
   double? get _serving {
     final serving = widget.item.servingSizeG;
@@ -309,6 +312,14 @@ class _AmountSheetState extends State<AmountSheet> {
     final carbs = (widget.item.carbsG100g ?? 0) * factor;
     final fats = (widget.item.fatG100g ?? 0) * factor;
 
+    // Full breakdown scaled to the current amount, for the "check the nutrition
+    // before adding" disclosure. Only offered when the food actually carries
+    // detail beyond the macro pills already shown.
+    final nutrientTotals = grams == null
+        ? const <NutrientTotal>[]
+        : nutrientTotalsForItem(widget.item, grams);
+    final hasNutrientDetail = nutrientTotals.any((t) => t.hasData);
+
     final unitLabel = _unitNoun(_value ?? 0);
     final conversion = _conversionLabel(grams);
 
@@ -323,16 +334,22 @@ class _AmountSheetState extends State<AmountSheet> {
             top: Radius.circular(AppRadius.lg * 1.5),
           ),
         ),
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          AppSpacing.sm,
-          AppSpacing.lg,
-          AppSpacing.lg,
+        // Cap the height and scroll so revealing the full nutrient breakdown
+        // never pushes the primary action off-screen.
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.sm,
+            AppSpacing.lg,
+            AppSpacing.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             // Drag handle
             Center(
               child: Container(
@@ -525,6 +542,55 @@ class _AmountSheetState extends State<AmountSheet> {
                 ],
               ),
             ),
+            // Full nutrient breakdown, revealed on demand so the user can check
+            // vitamins/minerals before committing without cluttering the sheet.
+            if (hasNutrientDetail) ...[
+              const SizedBox(height: AppSpacing.sm),
+              InkWell(
+                onTap: () =>
+                    setState(() => _showAllNutrients = !_showAllNutrients),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.sm,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _showAllNutrients
+                            ? 'Hide nutrition facts'
+                            : 'View nutrition facts',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      AnimatedRotation(
+                        turns: _showAllNutrients ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                alignment: Alignment.topCenter,
+                child: _showAllNutrients
+                    ? NutrientBreakdownView(
+                        totals: nutrientTotals,
+                        showEmptyRows: false,
+                      )
+                    : const SizedBox(width: double.infinity),
+              ),
+            ],
             const SizedBox(height: AppSpacing.lg),
 
             // Primary action
@@ -563,6 +629,7 @@ class _AmountSheetState extends State<AmountSheet> {
               ),
             ],
           ],
+          ),
         ),
       ),
     );

@@ -168,8 +168,12 @@ class NutritionDayView(APIView):
         }
         # Generic per-nutrient accumulator, keyed by catalog key. Only nutrients
         # that at least one food actually carried appear (a floor, not an
-        # estimate) — absent keys read as "no data" on the client.
+        # estimate) — absent keys read as "no data" on the client. We also count
+        # how many of the day's foods reported each nutrient so the client can
+        # flag a total as "incomplete" when some foods lack it (macros/core).
         nutrient_sums: dict[str, Decimal] = {}
+        nutrient_reported: dict[str, int] = {}
+        entry_count = len(entries)
 
         for entry in entries:
             meals[entry.meal_type].append(entry)
@@ -180,12 +184,17 @@ class NutritionDayView(APIView):
                 entry.food_item, entry.quantity_g
             ).items():
                 nutrient_sums[key] = nutrient_sums.get(key, Decimal("0")) + value
+                nutrient_reported[key] = nutrient_reported.get(key, 0) + 1
 
         nutrients = {
             key: {
                 "amount": serialize_decimal(value),
                 "unit": _NUTRIENT_SPEC_BY_KEY[key].unit,
                 "group": _NUTRIENT_SPEC_BY_KEY[key].group,
+                # How many foods reported it vs how many were logged, so the
+                # client can show "incomplete" for tracked nutrients.
+                "reported": nutrient_reported.get(key, 0),
+                "total": entry_count,
             }
             for key, value in nutrient_sums.items()
         }
