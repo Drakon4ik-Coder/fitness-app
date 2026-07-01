@@ -410,20 +410,35 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         label: 'Protein',
         current: protein,
         goal: _proteinGoalG,
+        incomplete: _macroIncomplete('protein'),
       ),
       _MacroSummary(
         type: MacroType.carbs,
         label: 'Carbs',
         current: carbs,
         goal: _carbGoalG,
+        incomplete: _macroIncomplete('carbs'),
       ),
       _MacroSummary(
         type: MacroType.fat,
         label: 'Fat',
         current: fat,
         goal: _fatGoalG,
+        incomplete: _macroIncomplete('fat'),
       ),
     ];
+  }
+
+  /// Whether a macro's day total is a floor: some — but not all — of the day's
+  /// foods reported it, so the total silently omits the rest. Read from the
+  /// server's per-nutrient reported/total counts; false when unavailable.
+  bool _macroIncomplete(String key) {
+    final raw = _dayLog?.nutrients?[key];
+    if (raw is! Map) return false;
+    final total = (raw['total'] as num?)?.toInt();
+    final reported = (raw['reported'] as num?)?.toInt();
+    if (total == null || reported == null) return false;
+    return reported > 0 && reported < total;
   }
 
   List<_MealSummary> _buildMealSummaries() {
@@ -812,21 +827,33 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           children: macroSummaries.map((macro) {
                             final accent = _macroAccent(macro.type);
                             final over = macro.current - macro.goal;
-                            final isOver = over > 0;
+                            // A floor total's over/left is unreliable, so the
+                            // incomplete hint takes precedence over over-limit.
+                            final incomplete = macro.incomplete;
+                            final isOver = !incomplete && over > 0;
                             final progress = macro.goal > 0
                                 ? (macro.current / macro.goal).clamp(0.0, 1.0)
                                 : 0.0;
                             final treatment = isOver
                                 ? _macroOverTreatment(macro.type)
                                 : null;
-                            final barColor = treatment?.barColor ?? accent;
-                            final valueColor = treatment?.textColor ?? accent;
-                            final statusText = isOver
-                                ? '+${over}g ${treatment!.suffix}'
-                                : '${macro.goal - macro.current}g left';
-                            final statusColor =
-                                treatment?.textColor ??
-                                scheme.onSurface.withValues(alpha: 0.6);
+                            final barColor = incomplete
+                                ? accent.withValues(alpha: 0.35)
+                                : treatment?.barColor ?? accent;
+                            final valueColor = incomplete
+                                ? scheme.onSurfaceVariant
+                                : treatment?.textColor ?? accent;
+                            final valueText =
+                                '${incomplete ? '~' : ''}${macro.current}g';
+                            final statusText = incomplete
+                                ? 'incomplete'
+                                : isOver
+                                    ? '+${over}g ${treatment!.suffix}'
+                                    : '${macro.goal - macro.current}g left';
+                            final statusColor = incomplete
+                                ? scheme.onSurfaceVariant
+                                : treatment?.textColor ??
+                                    scheme.onSurface.withValues(alpha: 0.6);
                             return Expanded(
                               child: Padding(
                                 padding: EdgeInsets.only(
@@ -855,7 +882,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                               ),
                                         ),
                                         Text(
-                                          '${macro.current}g',
+                                          valueText,
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
                                                 fontWeight: FontWeight.bold,
@@ -885,6 +912,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                                               fontSize: 10,
                                               fontWeight: isOver
                                                   ? FontWeight.bold
+                                                  : null,
+                                              fontStyle: incomplete
+                                                  ? FontStyle.italic
                                                   : null,
                                             ),
                                       ),
@@ -1168,12 +1198,16 @@ class _MacroSummary {
     required this.label,
     required this.current,
     required this.goal,
+    this.incomplete = false,
   });
 
   final MacroType type;
   final String label;
   final int current;
   final int goal;
+
+  /// The total is a floor — some of the day's foods didn't report this macro.
+  final bool incomplete;
 }
 
 class _MealSummary {

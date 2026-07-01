@@ -113,6 +113,58 @@ void main() {
     });
   });
 
+  group('incomplete (floor) totals', () {
+    test('flags a tracked macro reported by only some foods', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 100, nutriments: {'carbohydrates_100g': 20}),
+      ]);
+      final protein = _find(totals, 'protein');
+      expect(protein.hasData, isTrue);
+      expect(protein.reportedCount, 1);
+      expect(protein.totalCount, 2);
+      expect(protein.isIncomplete, isTrue);
+    });
+
+    test('a fully-reported tracked macro is not incomplete', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 5}),
+      ]);
+      expect(_find(totals, 'protein').isIncomplete, isFalse);
+    });
+
+    test('a partially-reported micronutrient is NOT flagged (not tracked)', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'iron_100g': 5, 'iron_unit': 'mg'}),
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+      ]);
+      final iron = _find(totals, 'iron');
+      expect(iron.hasData, isTrue);
+      expect(iron.reportedCount, 1);
+      expect(iron.isIncomplete, isFalse);
+    });
+
+    test('server counts drive incompleteness; absent counts read as complete',
+        () {
+      final incomplete = nutrientTotalsFromServer({
+        'protein': {
+          'amount': 10.0,
+          'unit': 'g',
+          'group': 'macros',
+          'reported': 1,
+          'total': 2,
+        },
+      });
+      expect(_find(incomplete, 'protein').isIncomplete, isTrue);
+
+      final legacy = nutrientTotalsFromServer({
+        'protein': {'amount': 10.0, 'unit': 'g', 'group': 'macros'},
+      });
+      expect(_find(legacy, 'protein').isIncomplete, isFalse);
+    });
+  });
+
   group('nutrientTotalsFromServer', () {
     test('reads amounts directly and marks omitted keys as no-data', () {
       final totals = nutrientTotalsFromServer({

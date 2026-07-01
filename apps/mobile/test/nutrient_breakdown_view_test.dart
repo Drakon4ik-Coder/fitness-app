@@ -73,6 +73,31 @@ void main() {
     );
   });
 
+  testWidgets('breakdown view marks an incomplete macro as partial',
+      (tester) async {
+    // Two foods; only one reports protein -> protein total is a floor.
+    final totals = aggregateNutrients([
+      _entry({'proteins_100g': 10}),
+      _entry({'carbohydrates_100g': 20}),
+    ]);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: NutrientBreakdownView(totals: totals, showEmptyRows: false),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protein'), findsOneWidget);
+    expect(find.text('partial'), findsWidgets);
+    // The floor value leads with "~".
+    expect(find.textContaining('~'), findsWidgets);
+  });
+
   testWidgets('meal-detail row expands to reveal the food breakdown',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 3000);

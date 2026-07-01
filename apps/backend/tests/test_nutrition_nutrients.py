@@ -147,6 +147,48 @@ def test_day_endpoint_empty_nutrients_without_blob() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.integration
+def test_day_endpoint_reports_partial_nutrient_counts() -> None:
+    client, user = _auth_client()
+
+    with_protein = FoodItem.objects.create(
+        source=FoodItem.SOURCE_OPEN_FOOD_FACTS,
+        external_id="910",
+        barcode="910",
+        name="Has protein",
+        raw_source_json={"product": {}},
+        nutriments_json={"proteins_100g": 10},
+    )
+    without_protein = FoodItem.objects.create(
+        source=FoodItem.SOURCE_OPEN_FOOD_FACTS,
+        external_id="911",
+        barcode="911",
+        name="No protein data",
+        raw_source_json={"product": {}},
+        nutriments_json={"carbohydrates_100g": 20},
+    )
+    now = timezone.now()
+    for item in (with_protein, without_protein):
+        MealEntry.objects.create(
+            user=user,
+            food_item=item,
+            meal_type=MealEntry.MEAL_BREAKFAST,
+            consumed_at=now,
+            quantity_g=Decimal("100"),
+        )
+
+    date_str = timezone.localdate(now).isoformat()
+    nutrients = client.get(f"/api/v1/nutrition/day?date={date_str}").data["nutrients"]
+
+    # Only one of the two foods reported protein -> a floor total.
+    assert nutrients["protein"]["reported"] == 1
+    assert nutrients["protein"]["total"] == 2
+    # Carbs reported by only the other food; total is still the day's food count.
+    assert nutrients["carbs"]["reported"] == 1
+    assert nutrients["carbs"]["total"] == 2
+
+
+@pytest.mark.django_db
 def test_nutrient_definitions_seeded() -> None:
     for spec in NUTRIENT_CATALOG:
         defn = NutrientDefinition.objects.get(key=spec.key)

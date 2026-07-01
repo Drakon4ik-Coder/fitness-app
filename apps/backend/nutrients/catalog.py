@@ -24,16 +24,23 @@ class NutrientSpec:
     display_name: str
     unit: str
     group: str
+    # Whether a per-day gap is worth flagging as "incomplete": true for the
+    # macros/core nutrients every food is expected to report (so a missing one
+    # means the day's total is a floor the user can complete — see KAN-19).
+    # False for micronutrients, where "missing" is the norm and flagging is noise.
+    completeness_tracked: bool = False
 
 
 NUTRIENT_CATALOG: tuple[NutrientSpec, ...] = (
     # Macros
-    NutrientSpec("protein", "proteins", "Protein", "g", GROUP_MACROS),
-    NutrientSpec("carbs", "carbohydrates", "Carbs", "g", GROUP_MACROS),
-    NutrientSpec("sugars", "sugars", "Sugars", "g", GROUP_MACROS),
-    NutrientSpec("fat", "fat", "Fat", "g", GROUP_MACROS),
-    NutrientSpec("saturated_fat", "saturated-fat", "Saturated fat", "g", GROUP_MACROS),
-    NutrientSpec("fiber", "fiber", "Fiber", "g", GROUP_MACROS),
+    NutrientSpec("protein", "proteins", "Protein", "g", GROUP_MACROS, True),
+    NutrientSpec("carbs", "carbohydrates", "Carbs", "g", GROUP_MACROS, True),
+    NutrientSpec("sugars", "sugars", "Sugars", "g", GROUP_MACROS, True),
+    NutrientSpec("fat", "fat", "Fat", "g", GROUP_MACROS, True),
+    NutrientSpec(
+        "saturated_fat", "saturated-fat", "Saturated fat", "g", GROUP_MACROS, True
+    ),
+    NutrientSpec("fiber", "fiber", "Fiber", "g", GROUP_MACROS, True),
     # Vitamins
     NutrientSpec("vitamin_a", "vitamin-a", "Vitamin A", "µg", GROUP_VITAMINS),
     NutrientSpec("vitamin_c", "vitamin-c", "Vitamin C", "mg", GROUP_VITAMINS),
@@ -44,7 +51,7 @@ NUTRIENT_CATALOG: tuple[NutrientSpec, ...] = (
     NutrientSpec("vitamin_b12", "vitamin-b12", "Vitamin B12", "µg", GROUP_VITAMINS),
     # Minerals
     NutrientSpec("sodium", "sodium", "Sodium", "mg", GROUP_MINERALS),
-    NutrientSpec("salt", "salt", "Salt", "g", GROUP_MINERALS),
+    NutrientSpec("salt", "salt", "Salt", "g", GROUP_MINERALS, True),
     NutrientSpec("calcium", "calcium", "Calcium", "mg", GROUP_MINERALS),
     NutrientSpec("iron", "iron", "Iron", "mg", GROUP_MINERALS),
     NutrientSpec("potassium", "potassium", "Potassium", "mg", GROUP_MINERALS),

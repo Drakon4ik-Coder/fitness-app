@@ -132,27 +132,44 @@ class NutrientRow extends StatelessWidget {
     final scheme = theme.colorScheme;
     final spec = total.spec;
     final hasData = total.hasData;
-    final over = total.isOverLimit;
+    final incomplete = total.isIncomplete;
+    // An incomplete total is a floor, so its over-limit / % are unreliable —
+    // the incomplete treatment takes precedence.
+    final over = !incomplete && total.isOverLimit;
 
-    final Color barColor = over ? LuminaHealthColors.warning : scheme.primary;
+    final Color barColor = incomplete
+        ? scheme.primary.withValues(alpha: 0.35)
+        : over
+            ? LuminaHealthColors.warning
+            : scheme.primary;
     final valueColor = over
         ? LuminaHealthColors.warning
         : (hasData ? scheme.onSurface : scheme.onSurfaceVariant);
 
-    final String amountText = hasData
-        ? '${formatNutrientValue(total.amount!)} / '
-              '${formatNutrientValue(spec.dailyTarget)} ${spec.unit}'
-        : '— no data';
-    final String? percentText = hasData
-        ? '${(total.amount! / spec.dailyTarget * 100).round()}%'
-        : null;
+    // Incomplete totals lead with "~" (at least this much) and a "partial"
+    // tag instead of a confident %.
+    final String amountText = !hasData
+        ? '— no data'
+        : '${incomplete ? '~' : ''}${formatNutrientValue(total.amount!)} / '
+              '${formatNutrientValue(spec.dailyTarget)} ${spec.unit}';
+    final String? trailingText = !hasData
+        ? null
+        : incomplete
+            ? 'partial'
+            : '${(total.amount! / spec.dailyTarget * 100).round()}%';
+    final Color trailingColor = incomplete ? scheme.onSurfaceVariant : valueColor;
 
     return Semantics(
-      label: hasData
-          ? '${spec.label}, ${formatNutrientValue(total.amount!)} of '
-                '${formatNutrientValue(spec.dailyTarget)} ${spec.unit}, '
-                '${percentText!} of target'
-          : '${spec.label}, no data',
+      label: !hasData
+          ? '${spec.label}, no data'
+          : incomplete
+              ? '${spec.label}, at least '
+                    '${formatNutrientValue(total.amount!)} ${spec.unit}, '
+                    'incomplete: ${total.reportedCount} of ${total.totalCount} '
+                    'foods reported it'
+              : '${spec.label}, ${formatNutrientValue(total.amount!)} of '
+                    '${formatNutrientValue(spec.dailyTarget)} ${spec.unit}, '
+                    '${trailingText!} of target',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
         child: Column(
@@ -182,16 +199,17 @@ class NutrientRow extends StatelessWidget {
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
-                    if (percentText != null) ...[
+                    if (trailingText != null) ...[
                       const SizedBox(width: AppSpacing.sm),
                       SizedBox(
-                        width: 38,
+                        width: 52,
                         child: Text(
-                          percentText,
+                          trailingText,
                           textAlign: TextAlign.right,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: valueColor,
+                            color: trailingColor,
                             fontWeight: FontWeight.bold,
+                            fontStyle: incomplete ? FontStyle.italic : null,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),

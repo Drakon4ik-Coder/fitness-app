@@ -36,6 +36,7 @@ class NutrientSpec {
     required this.group,
     required this.dailyTarget,
     this.overIsBad = false,
+    this.completenessTracked = false,
   });
 
   final String key;
@@ -45,6 +46,11 @@ class NutrientSpec {
   final NutrientGroup group;
   final double dailyTarget;
   final bool overIsBad;
+
+  /// Whether a per-day gap is worth flagging as "incomplete": true for the
+  /// macros/core nutrients every food is expected to report, false for
+  /// micronutrients where "missing" is normal (flagging would be noise).
+  final bool completenessTracked;
 }
 
 /// Curated set of nutrients we surface. Trimmed to what OFF actually carries so
@@ -59,6 +65,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 50,
+    completenessTracked: true,
   ),
   NutrientSpec(
     key: 'carbs',
@@ -67,6 +74,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 260,
+    completenessTracked: true,
   ),
   NutrientSpec(
     key: 'sugars',
@@ -76,6 +84,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     group: NutrientGroup.macros,
     dailyTarget: 90,
     overIsBad: true,
+    completenessTracked: true,
   ),
   NutrientSpec(
     key: 'fat',
@@ -84,6 +93,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 70,
+    completenessTracked: true,
   ),
   NutrientSpec(
     key: 'saturated_fat',
@@ -93,6 +103,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     group: NutrientGroup.macros,
     dailyTarget: 20,
     overIsBad: true,
+    completenessTracked: true,
   ),
   NutrientSpec(
     key: 'fiber',
@@ -101,6 +112,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 30,
+    completenessTracked: true,
   ),
   // Vitamins
   NutrientSpec(
@@ -177,6 +189,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     group: NutrientGroup.minerals,
     dailyTarget: 6,
     overIsBad: true,
+    completenessTracked: true,
   ),
   NutrientSpec(
     key: 'calcium',
@@ -271,12 +284,32 @@ double? nutrientPer100g(NutrientSpec spec, Map<String, dynamic>? nutriments) {
 /// A day-total amount for one nutrient. [amount] is in [spec.unit]; `null` means
 /// no logged food carried data for it.
 class NutrientTotal {
-  const NutrientTotal({required this.spec, required this.amount});
+  const NutrientTotal({
+    required this.spec,
+    required this.amount,
+    this.reportedCount = 0,
+    this.totalCount = 0,
+  });
 
   final NutrientSpec spec;
   final double? amount;
 
+  /// How many of the aggregated foods reported this nutrient, and how many were
+  /// aggregated in total. For a single food these are 0/1 or 1/1; for a day they
+  /// span every logged entry. Drives the "incomplete" (floor) treatment.
+  final int reportedCount;
+  final int totalCount;
+
   bool get hasData => amount != null;
+
+  /// The shown value is a floor: some — but not all — aggregated foods reported
+  /// this nutrient, and it's one we expect every food to have (macros/core). The
+  /// user can fill the gaps in themselves (KAN-19).
+  bool get isIncomplete =>
+      spec.completenessTracked &&
+      amount != null &&
+      totalCount > reportedCount &&
+      reportedCount > 0;
 
   /// Fraction of the daily target in [0, 1], clamped. Zero when there's no data.
   double get progress {
@@ -300,14 +333,24 @@ class NutrientTotal {
 List<NutrientTotal> nutrientTotalsFromServer(Map<String, dynamic> nutrients) {
   return [
     for (final spec in kNutrientCatalog)
-      NutrientTotal(
-        spec: spec,
-        amount: () {
-          final raw = nutrients[spec.key];
-          if (raw is! Map) return null;
-          return parseNullableDouble(raw['amount']);
-        }(),
-      ),
+      () {
+        final raw = nutrients[spec.key];
+        if (raw is! Map) {
+          return NutrientTotal(spec: spec, amount: null);
+        }
+        final amount = parseNullableDouble(raw['amount']);
+        // Older payloads omit reported/total; default to "complete" (reported ==
+        // total) so they never render as incomplete.
+        final total = (raw['total'] as num?)?.toInt() ?? (amount != null ? 1 : 0);
+        final reported =
+            (raw['reported'] as num?)?.toInt() ?? (amount != null ? total : 0);
+        return NutrientTotal(
+          spec: spec,
+          amount: amount,
+          reportedCount: reported,
+          totalCount: total,
+        );
+      }(),
   ];
 }
 
@@ -319,13 +362,16 @@ List<NutrientTotal> nutrientTotalsForItem(FoodItem item, double grams) {
   final factor = grams / 100.0;
   return [
     for (final spec in kNutrientCatalog)
-      NutrientTotal(
-        spec: spec,
-        amount: () {
-          final per100 = nutrientPer100g(spec, nutriments);
-          return per100 == null ? null : per100 * factor;
-        }(),
-      ),
+      () {
+        final per100 = nutrientPer100g(spec, nutriments);
+        final has = per100 != null;
+        return NutrientTotal(
+          spec: spec,
+          amount: has ? per100 * factor : null,
+          reportedCount: has ? 1 : 0,
+          totalCount: 1,
+        );
+      }(),
   ];
 }
 
@@ -334,8 +380,12 @@ List<NutrientTotal> nutrientTotalsForItem(FoodItem item, double grams) {
 /// that actually carry data for it; if none do, its total is `null` ("no data").
 List<NutrientTotal> aggregateNutrients(Iterable<NutritionEntry> entries) {
   final sums = <String, double>{};
-  final seen = <String>{};
+  // Foods that reported each nutrient. A food with no blob at all still counts
+  // toward the denominator (its macros are unknown -> the day total is a floor).
+  final reported = <String, int>{};
+  var entryCount = 0;
   for (final entry in entries) {
+    entryCount++;
     final nutriments = entry.foodItem.nutrimentsJson;
     if (nutriments == null) continue;
     final factor = entry.quantityG / 100.0;
@@ -343,14 +393,16 @@ List<NutrientTotal> aggregateNutrients(Iterable<NutritionEntry> entries) {
       final per100 = nutrientPer100g(spec, nutriments);
       if (per100 == null) continue;
       sums[spec.key] = (sums[spec.key] ?? 0) + per100 * factor;
-      seen.add(spec.key);
+      reported[spec.key] = (reported[spec.key] ?? 0) + 1;
     }
   }
   return [
     for (final spec in kNutrientCatalog)
       NutrientTotal(
         spec: spec,
-        amount: seen.contains(spec.key) ? sums[spec.key] : null,
+        amount: reported.containsKey(spec.key) ? sums[spec.key] : null,
+        reportedCount: reported[spec.key] ?? 0,
+        totalCount: entryCount,
       ),
   ];
 }

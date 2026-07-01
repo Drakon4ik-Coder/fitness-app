@@ -77,6 +77,10 @@ class NutrientAmountSerializer(serializers.Serializer):
     amount = serializers.FloatField()
     unit = serializers.CharField()
     group = serializers.CharField()
+    # Foods that reported this nutrient vs foods logged that day. reported < total
+    # means the total is a floor ("incomplete") for completeness-tracked nutrients.
+    reported = serializers.IntegerField()
+    total = serializers.IntegerField()
 
 
 class NutritionDaySerializer(serializers.Serializer):
