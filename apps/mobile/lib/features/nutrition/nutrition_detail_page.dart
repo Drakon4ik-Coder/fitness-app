@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
-import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
+import 'widgets/nutrient_breakdown_view.dart';
 
 /// Full per-day nutrient breakdown, grouped into Macros / Vitamins / Minerals /
 /// Other. Every value is computed on-device from each logged food's stored OFF
@@ -37,10 +37,6 @@ class NutritionDetailPage extends StatelessWidget {
     final totals = serverNutrients != null
         ? nutrientTotalsFromServer(serverNutrients!)
         : aggregateNutrients(entries);
-    final byGroup = <NutrientGroup, List<NutrientTotal>>{};
-    for (final total in totals) {
-      byGroup.putIfAbsent(total.spec.group, () => []).add(total);
-    }
 
     return AppScaffold(
       safeArea: true,
@@ -72,12 +68,7 @@ class NutritionDetailPage extends StatelessWidget {
           if (entries.isEmpty)
             _EmptyState(scheme: scheme, theme: theme)
           else
-            for (final group in NutrientGroup.values)
-              if ((byGroup[group] ?? const []).isNotEmpty)
-                _NutrientGroupSection(
-                  title: group.label,
-                  totals: byGroup[group]!,
-                ),
+            NutrientBreakdownView(totals: totals),
         ],
       ),
     );
@@ -139,161 +130,6 @@ class _EnergyHeader extends StatelessWidget {
   }
 }
 
-class _NutrientGroupSection extends StatelessWidget {
-  const _NutrientGroupSection({required this.title, required this.totals});
-
-  final String title;
-  final List<NutrientTotal> totals;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xs,
-            AppSpacing.lg,
-            AppSpacing.xs,
-            AppSpacing.sm,
-          ),
-          child: Text(
-            title.toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.bold,
-              fontSize: 11,
-            ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerLow.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-          ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.xs,
-          ),
-          child: Column(
-            children: [
-              for (var i = 0; i < totals.length; i++) ...[
-                if (i > 0)
-                  Divider(
-                    height: 1,
-                    color: Colors.white.withValues(alpha: 0.05),
-                  ),
-                _NutrientRow(total: totals[i]),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _NutrientRow extends StatelessWidget {
-  const _NutrientRow({required this.total});
-
-  final NutrientTotal total;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final spec = total.spec;
-    final hasData = total.hasData;
-    final over = total.isOverLimit;
-
-    final Color barColor = over
-        ? LuminaHealthColors.warning
-        : scheme.primary;
-    final valueColor = over
-        ? LuminaHealthColors.warning
-        : (hasData ? scheme.onSurface : scheme.onSurfaceVariant);
-
-    final String amountText = hasData
-        ? '${_fmt(total.amount!)} / ${_fmt(spec.dailyTarget)} ${spec.unit}'
-        : '— no data';
-    final String? percentText = hasData
-        ? '${(total.amount! / spec.dailyTarget * 100).round()}%'
-        : null;
-
-    return Semantics(
-      label: hasData
-          ? '${spec.label}, ${_fmt(total.amount!)} of ${_fmt(spec.dailyTarget)} '
-                '${spec.unit}, ${percentText!} of target'
-          : '${spec.label}, no data',
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  spec.label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: hasData
-                        ? scheme.onSurface
-                        : scheme.onSurfaceVariant,
-                  ),
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      amountText,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: valueColor,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    if (percentText != null) ...[
-                      const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 38,
-                        child: Text(
-                          percentText,
-                          textAlign: TextAlign.right,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: valueColor,
-                            fontWeight: FontWeight.bold,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-            if (hasData) ...[
-              const SizedBox(height: AppSpacing.xs),
-              LinearProgressIndicator(
-                value: total.progress,
-                backgroundColor: scheme.surfaceContainerHighest,
-                color: barColor,
-                minHeight: 5,
-                borderRadius: BorderRadius.circular(9999),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.scheme, required this.theme});
 
@@ -331,13 +167,4 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Compact number: up to one decimal below 10 (e.g. `2.4`), whole numbers above
-/// (e.g. `120`), so mixed-magnitude nutrient columns stay readable.
-String _fmt(double value) {
-  if (value >= 10) return value.round().toString();
-  final oneDp = (value * 10).round() / 10;
-  if (oneDp == oneDp.roundToDouble()) return oneDp.round().toString();
-  return oneDp.toStringAsFixed(1);
 }

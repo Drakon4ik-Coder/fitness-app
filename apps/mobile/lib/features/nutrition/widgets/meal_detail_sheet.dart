@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../ui_system/tokens.dart';
+import '../data/nutrient_catalog.dart';
 import '../data/nutrition_api_service.dart';
 import 'amount_sheet.dart';
+import 'nutrient_breakdown_view.dart';
 
 /// Bottom sheet that opens when a logged meal is tapped. Lists every food in the
 /// meal and lets the user change an item's amount (reusing the add-food
@@ -307,7 +309,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _EntryRow extends StatelessWidget {
+class _EntryRow extends StatefulWidget {
   const _EntryRow({
     required this.entry,
     required this.busy,
@@ -321,75 +323,129 @@ class _EntryRow extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
+  State<_EntryRow> createState() => _EntryRowState();
+}
+
+class _EntryRowState extends State<_EntryRow> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final entry = widget.entry;
     final imageUrl = entry.foodItem.imageUrl?.trim();
+    // Per-food breakdown scaled to this entry's logged amount. Data-only (no
+    // "no data" rows) keeps the inline expansion compact.
+    final totals = aggregateNutrients([entry]);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          FoodThumb(
-            url: (imageUrl != null && imageUrl.isNotEmpty) ? imageUrl : null,
-            size: 44,
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+    return Column(
+      children: [
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm,
+            ),
+            child: Row(
               children: [
-                Text(
-                  entry.foodItem.name,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                FoodThumb(
+                  url: (imageUrl != null && imageUrl.isNotEmpty)
+                      ? imageUrl
+                      : null,
+                  size: 44,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '${describeAmount(entry.quantityG, entry.foodItem)}  •  ${entry.kcal.round()} kcal',
-                  style: theme.textTheme.bodySmall?.copyWith(
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        entry.foodItem.name,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '${describeAmount(entry.quantityG, entry.foodItem)}  •  ${entry.kcal.round()} kcal',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.xs),
+                          AnimatedRotation(
+                            turns: _expanded ? 0.5 : 0,
+                            duration: const Duration(milliseconds: 200),
+                            child: Icon(
+                              Icons.expand_more,
+                              size: 16,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (widget.busy)
+                  const Padding(
+                    padding: EdgeInsets.all(AppSpacing.sm),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                  )
+                else ...[
+                  IconButton(
+                    onPressed: widget.onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    iconSize: 20,
+                    tooltip: 'Edit amount',
                     color: scheme.onSurfaceVariant,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                  IconButton(
+                    onPressed: widget.onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                    iconSize: 20,
+                    tooltip: 'Remove',
+                    color: scheme.error,
+                  ),
+                ],
               ],
             ),
           ),
-          if (busy)
-            const Padding(
-              padding: EdgeInsets.all(AppSpacing.sm),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-            )
-          else ...[
-            IconButton(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_outlined),
-              iconSize: 20,
-              tooltip: 'Edit amount',
-              color: scheme.onSurfaceVariant,
-            ),
-            IconButton(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline),
-              iconSize: 20,
-              tooltip: 'Remove',
-              color: scheme.error,
-            ),
-          ],
-        ],
-      ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          alignment: Alignment.topCenter,
+          child: _expanded
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    0,
+                    AppSpacing.lg,
+                    AppSpacing.sm,
+                  ),
+                  child: NutrientBreakdownView(
+                    totals: totals,
+                    showEmptyRows: false,
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+      ],
     );
   }
 }
