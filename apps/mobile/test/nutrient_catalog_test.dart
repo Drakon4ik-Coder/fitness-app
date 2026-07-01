@@ -113,6 +113,44 @@ void main() {
     });
   });
 
+  group('nutrientTotalsFromServer', () {
+    test('reads amounts directly and marks omitted keys as no-data', () {
+      final totals = nutrientTotalsFromServer({
+        'protein': {'amount': 25.0, 'unit': 'g', 'group': 'macros'},
+        'vitamin_c': {'amount': 60.0, 'unit': 'mg', 'group': 'vitamins'},
+      });
+      expect(_find(totals, 'protein').amount, closeTo(25, 1e-9));
+      expect(_find(totals, 'vitamin_c').amount, closeTo(60, 1e-9));
+      expect(_find(totals, 'iron').hasData, isFalse);
+    });
+  });
+
+  testWidgets('detail page prefers the server nutrients map', (tester) async {
+    // Iron lives in the Minerals section, far down the lazy ListView — give the
+    // surface enough height that every row builds.
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 400,
+          // Entries would aggregate to nothing; the server map must win.
+          entries: [_entry(quantityG: 100)],
+          serverNutrients: const {
+            'iron': {'amount': 9.0, 'unit': 'mg', 'group': 'minerals'},
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Iron'), findsOneWidget);
+    expect(find.textContaining('9 / 18 mg'), findsOneWidget);
+  });
+
   testWidgets('detail page renders values and no-data rows', (tester) async {
     final entries = [
       _entry(quantityG: 100, nutriments: {

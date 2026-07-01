@@ -353,6 +353,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           dateLabel: _dateLabel(),
           eatenKcal: _dayLog?.totals.kcal.round() ?? 0,
           entries: entries,
+          serverNutrients: _dayLog?.nutrients,
         ),
       ),
     );

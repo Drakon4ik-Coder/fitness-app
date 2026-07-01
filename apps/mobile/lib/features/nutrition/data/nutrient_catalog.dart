@@ -292,6 +292,25 @@ class NutrientTotal {
       spec.overIsBad && amount != null && amount! > spec.dailyTarget;
 }
 
+/// Builds the catalog-aligned totals from the server's per-day `nutrients` map
+/// (`{key: {amount, unit, group}}`). The server normalizes to the same canonical
+/// units as [kNutrientCatalog], so amounts are used directly; keys the server
+/// omits (no data that day) become `null` totals. Preferred over
+/// [aggregateNutrients] when the day payload carries a server breakdown.
+List<NutrientTotal> nutrientTotalsFromServer(Map<String, dynamic> nutrients) {
+  return [
+    for (final spec in kNutrientCatalog)
+      NutrientTotal(
+        spec: spec,
+        amount: () {
+          final raw = nutrients[spec.key];
+          if (raw is! Map) return null;
+          return parseNullableDouble(raw['amount']);
+        }(),
+      ),
+  ];
+}
+
 /// Aggregates every catalog nutrient across a day's logged entries, scaling each
 /// food's per-100g value by the logged quantity. A nutrient only counts entries
 /// that actually carry data for it; if none do, its total is `null` ("no data").

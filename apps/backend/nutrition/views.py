@@ -22,11 +22,15 @@ from nutrition.serializers import (
     MealTimesSerializer,
     NutritionDaySerializer,
 )
+from nutrients.catalog import NUTRIENT_CATALOG
 from nutrition.utils import (
     calculate_macros,
+    calculate_nutrients,
     serialize_decimal,
     summarize_meal_time,
 )
+
+_NUTRIENT_SPEC_BY_KEY = {spec.key: spec for spec in NUTRIENT_CATALOG}
 
 User = get_user_model()
 
@@ -162,16 +166,34 @@ class NutritionDayView(APIView):
             "carbs_g": Decimal("0"),
             "fat_g": Decimal("0"),
         }
+        # Generic per-nutrient accumulator, keyed by catalog key. Only nutrients
+        # that at least one food actually carried appear (a floor, not an
+        # estimate) — absent keys read as "no data" on the client.
+        nutrient_sums: dict[str, Decimal] = {}
 
         for entry in entries:
             meals[entry.meal_type].append(entry)
             macros = calculate_macros(entry.food_item, entry.quantity_g)
             for key, value in macros.items():
                 totals[key] += value
+            for key, value in calculate_nutrients(
+                entry.food_item, entry.quantity_g
+            ).items():
+                nutrient_sums[key] = nutrient_sums.get(key, Decimal("0")) + value
+
+        nutrients = {
+            key: {
+                "amount": serialize_decimal(value),
+                "unit": _NUTRIENT_SPEC_BY_KEY[key].unit,
+                "group": _NUTRIENT_SPEC_BY_KEY[key].group,
+            }
+            for key, value in nutrient_sums.items()
+        }
 
         response_data = {
             "date": target_date,
             "totals": {key: serialize_decimal(value) for key, value in totals.items()},
+            "nutrients": nutrients,
             "meals": {
                 "breakfast": meals[MealEntry.MEAL_BREAKFAST],
                 "lunch": meals[MealEntry.MEAL_LUNCH],

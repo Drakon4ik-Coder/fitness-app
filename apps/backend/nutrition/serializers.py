@@ -73,9 +73,19 @@ class NutritionMealsSerializer(serializers.Serializer):
     snacks = MealEntrySerializer(many=True)
 
 
+class NutrientAmountSerializer(serializers.Serializer):
+    amount = serializers.FloatField()
+    unit = serializers.CharField()
+    group = serializers.CharField()
+
+
 class NutritionDaySerializer(serializers.Serializer):
     date = serializers.DateField()
     totals = NutritionTotalsSerializer()
+    # Generic breakdown across the curated nutrient catalog (macros, vitamins,
+    # minerals, ...). Additive alongside `totals`; only nutrients with data for
+    # the day appear. Absent from a food's data -> absent here ("no data").
+    nutrients = serializers.DictField(child=NutrientAmountSerializer())
     meals = NutritionMealsSerializer()
 
 

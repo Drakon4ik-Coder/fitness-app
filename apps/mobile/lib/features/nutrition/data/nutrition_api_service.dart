@@ -42,11 +42,17 @@ class NutritionDayLog {
     required this.date,
     required this.totals,
     required this.meals,
+    this.nutrients,
   });
 
   final DateTime date;
   final NutritionTotals totals;
   final Map<String, List<NutritionEntry>> meals;
+
+  /// Server-computed generic nutrient breakdown, keyed by catalog key with
+  /// `{amount, unit, group}` values. Null for older cached payloads / offline
+  /// reads predating the field — the detail page then aggregates entries itself.
+  final Map<String, dynamic>? nutrients;
 }
 
 /// A learned typical time for one meal type, derived from the user's history.
@@ -254,6 +260,7 @@ class NutritionApiService {
       date: DateTime.parse(data['date'] as String),
       totals: totals,
       meals: meals,
+      nutrients: data['nutrients'] as Map<String, dynamic>?,
     );
   }
 

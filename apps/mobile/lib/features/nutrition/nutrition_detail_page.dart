@@ -18,17 +18,25 @@ class NutritionDetailPage extends StatelessWidget {
     required this.dateLabel,
     required this.eatenKcal,
     required this.entries,
+    this.serverNutrients,
   });
 
   final String dateLabel;
   final int eatenKcal;
   final List<NutritionEntry> entries;
 
+  /// The server's per-day `nutrients` map when the day payload carried one.
+  /// Preferred over on-device aggregation; falls back to [entries] when null
+  /// (offline reads / older cached payloads).
+  final Map<String, dynamic>? serverNutrients;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final totals = aggregateNutrients(entries);
+    final totals = serverNutrients != null
+        ? nutrientTotalsFromServer(serverNutrients!)
+        : aggregateNutrients(entries);
     final byGroup = <NutrientGroup, List<NutrientTotal>>{};
     for (final total in totals) {
       byGroup.putIfAbsent(total.spec.group, () => []).add(total);
