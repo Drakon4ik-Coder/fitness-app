@@ -341,7 +341,8 @@ List<NutrientTotal> nutrientTotalsFromServer(Map<String, dynamic> nutrients) {
         final amount = parseNullableDouble(raw['amount']);
         // Older payloads omit reported/total; default to "complete" (reported ==
         // total) so they never render as incomplete.
-        final total = (raw['total'] as num?)?.toInt() ?? (amount != null ? 1 : 0);
+        final total =
+            (raw['total'] as num?)?.toInt() ?? (amount != null ? 1 : 0);
         final reported =
             (raw['reported'] as num?)?.toInt() ?? (amount != null ? total : 0);
         return NutrientTotal(
@@ -373,6 +374,100 @@ List<NutrientTotal> nutrientTotalsForItem(FoodItem item, double grams) {
         );
       }(),
   ];
+}
+
+/// One logged food's share of a single nutrient's day total, in [spec.unit].
+/// [amount] is that food scaled to its logged [quantityG]; [share] is the
+/// fraction (0..1) of the day's contributor sum it accounts for.
+class NutrientContribution {
+  const NutrientContribution({
+    required this.name,
+    required this.brand,
+    required this.amount,
+    required this.quantityG,
+    required this.share,
+  });
+
+  final String name;
+  final String brand;
+  final double amount;
+  final double quantityG;
+  final double share;
+}
+
+/// The day's contributions to a single nutrient: the ranked foods that carry it
+/// plus how many logged entries had no data for it (for a "not everything
+/// reports this" footnote).
+class NutrientContributionBreakdown {
+  const NutrientContributionBreakdown({
+    required this.spec,
+    required this.contributors,
+    required this.total,
+    required this.entryCount,
+  });
+
+  final NutrientSpec spec;
+
+  /// Foods that carried the nutrient, ranked high→low. Excludes entries that
+  /// reported nothing (or a literal 0 — they don't move the total).
+  final List<NutrientContribution> contributors;
+
+  /// Sum of every contributor's amount, in [spec.unit]. The denominator behind
+  /// each [NutrientContribution.share].
+  final double total;
+
+  /// Total logged entries considered, whether or not they carried the nutrient.
+  final int entryCount;
+
+  /// Logged foods that had no usable data for this nutrient.
+  int get missingCount => entryCount - contributors.length;
+}
+
+/// Ranks a day's logged foods by how much each contributes to [spec], scaling
+/// every food's per-100g value by its logged quantity. Foods that don't report
+/// the nutrient (or report a plain 0) are dropped — a "main contributor" list is
+/// only about the foods that actually move the total. Sorted high→low.
+NutrientContributionBreakdown nutrientContributors(
+  Iterable<NutritionEntry> entries,
+  NutrientSpec spec,
+) {
+  final contributors = <NutrientContribution>[];
+  var total = 0.0;
+  var entryCount = 0;
+  for (final entry in entries) {
+    entryCount++;
+    final per100 = nutrientPer100g(spec, entry.foodItem.nutrimentsJson);
+    if (per100 == null) continue;
+    final amount = per100 * entry.quantityG / 100.0;
+    if (amount <= 0) continue;
+    total += amount;
+    contributors.add(
+      NutrientContribution(
+        name: entry.foodItem.name,
+        brand: entry.foodItem.brands,
+        amount: amount,
+        quantityG: entry.quantityG,
+        share: 0, // filled once the total is known
+      ),
+    );
+  }
+  contributors.sort((a, b) => b.amount.compareTo(a.amount));
+  final ranked = [
+    for (final c in contributors)
+      NutrientContribution(
+        name: c.name,
+        brand: c.brand,
+        amount: c.amount,
+        quantityG: c.quantityG,
+        share: total > 0 ? c.amount / total : 0,
+      ),
+  ];
+  return NutrientContributionBreakdown(
+    spec: spec,
+    contributors: ranked,
+    total: total,
+    entryCount: entryCount,
+  );
 }
 
 /// Aggregates every catalog nutrient across a day's logged entries, scaling each

@@ -8,26 +8,25 @@ import 'package:fitness_app/features/nutrition/nutrition_detail_page.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
 FoodItem _food(Map<String, dynamic>? nutriments) => FoodItem(
-      source: offSource,
-      externalId: 'x',
-      name: 'Test food',
-      brands: '',
-      rawSourceJson: '{}',
-      nutrimentsJson: nutriments,
-    );
+  source: offSource,
+  externalId: 'x',
+  name: 'Test food',
+  brands: '',
+  rawSourceJson: '{}',
+  nutrimentsJson: nutriments,
+);
 
 NutritionEntry _entry({
   required double quantityG,
   Map<String, dynamic>? nutriments,
-}) =>
-    NutritionEntry(
-      id: 1,
-      mealType: 'breakfast',
-      consumedAt: DateTime(2024, 1, 1),
-      quantityG: quantityG,
-      kcal: 0,
-      foodItem: _food(nutriments),
-    );
+}) => NutritionEntry(
+  id: 1,
+  mealType: 'breakfast',
+  consumedAt: DateTime(2024, 1, 1),
+  quantityG: quantityG,
+  kcal: 0,
+  foodItem: _food(nutriments),
+);
 
 NutrientTotal _find(List<NutrientTotal> totals, String key) =>
     totals.firstWhere((t) => t.spec.key == key);
@@ -55,7 +54,9 @@ void main() {
     });
 
     test('assumes grams when the unit is missing', () {
-      final specProtein = kNutrientCatalog.firstWhere((s) => s.key == 'protein');
+      final specProtein = kNutrientCatalog.firstWhere(
+        (s) => s.key == 'protein',
+      );
       final value = nutrientPer100g(specProtein, {'proteins_100g': 12});
       expect(value, closeTo(12, 1e-9));
     });
@@ -96,10 +97,7 @@ void main() {
     test('flags over-limit only for cautionary nutrients', () {
       final totals = aggregateNutrients([
         // 300 g of salt-heavy food: 3 g salt total, target is 6 g -> under.
-        _entry(quantityG: 100, nutriments: {
-          'salt_100g': 8,
-          'salt_unit': 'g',
-        }),
+        _entry(quantityG: 100, nutriments: {'salt_100g': 8, 'salt_unit': 'g'}),
       ]);
       final salt = _find(totals, 'salt');
       expect(salt.amount, closeTo(8, 1e-9));
@@ -145,24 +143,26 @@ void main() {
       expect(iron.isIncomplete, isFalse);
     });
 
-    test('server counts drive incompleteness; absent counts read as complete',
-        () {
-      final incomplete = nutrientTotalsFromServer({
-        'protein': {
-          'amount': 10.0,
-          'unit': 'g',
-          'group': 'macros',
-          'reported': 1,
-          'total': 2,
-        },
-      });
-      expect(_find(incomplete, 'protein').isIncomplete, isTrue);
+    test(
+      'server counts drive incompleteness; absent counts read as complete',
+      () {
+        final incomplete = nutrientTotalsFromServer({
+          'protein': {
+            'amount': 10.0,
+            'unit': 'g',
+            'group': 'macros',
+            'reported': 1,
+            'total': 2,
+          },
+        });
+        expect(_find(incomplete, 'protein').isIncomplete, isTrue);
 
-      final legacy = nutrientTotalsFromServer({
-        'protein': {'amount': 10.0, 'unit': 'g', 'group': 'macros'},
-      });
-      expect(_find(legacy, 'protein').isIncomplete, isFalse);
-    });
+        final legacy = nutrientTotalsFromServer({
+          'protein': {'amount': 10.0, 'unit': 'g', 'group': 'macros'},
+        });
+        expect(_find(legacy, 'protein').isIncomplete, isFalse);
+      },
+    );
   });
 
   group('nutrientTotalsFromServer', () {
@@ -205,11 +205,14 @@ void main() {
 
   testWidgets('detail page renders values and no-data rows', (tester) async {
     final entries = [
-      _entry(quantityG: 100, nutriments: {
-        'proteins_100g': 20,
-        'vitamin-c_100g': 40,
-        'vitamin-c_unit': 'mg',
-      }),
+      _entry(
+        quantityG: 100,
+        nutriments: {
+          'proteins_100g': 20,
+          'vitamin-c_100g': 40,
+          'vitamin-c_unit': 'mg',
+        },
+      ),
     ];
     await tester.pumpWidget(
       MaterialApp(
@@ -230,6 +233,63 @@ void main() {
     expect(find.text('500'), findsOneWidget); // energy header
   });
 
+  testWidgets('tapping a nutrient row opens its top-sources sheet', (
+    tester,
+  ) async {
+    final entries = [
+      _entry(
+        quantityG: 100,
+        nutriments: {'vitamin-c_100g': 40, 'vitamin-c_unit': 'mg'},
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 500,
+          entries: entries,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Vitamin C'));
+    await tester.pumpAndSettle();
+
+    // The contributor sheet is up, ranking the single logged food.
+    expect(find.text('TOP SOURCES'), findsOneWidget);
+    expect(find.text('Test food'), findsOneWidget);
+    expect(find.text('100%'), findsOneWidget); // sole contributor's share
+  });
+
+  testWidgets('no-data nutrient rows are not tappable', (tester) async {
+    final entries = [
+      _entry(
+        quantityG: 100,
+        nutriments: {'vitamin-c_100g': 40, 'vitamin-c_unit': 'mg'},
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 500,
+          entries: entries,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Protein has no data here (top of the list, on-screen); tapping its
+    // no-data row must not open a sheet.
+    expect(find.text('— no data'), findsWidgets);
+    await tester.tap(find.text('Protein'));
+    await tester.pumpAndSettle();
+    expect(find.text('TOP SOURCES'), findsNothing);
+  });
+
   testWidgets('detail page shows empty state with no entries', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -244,5 +304,94 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('No foods logged yet'), findsOneWidget);
+  });
+
+  group('nutrientContributors', () {
+    NutritionEntry namedEntry({
+      required String name,
+      required String brand,
+      required double quantityG,
+      Map<String, dynamic>? nutriments,
+    }) => NutritionEntry(
+      id: 1,
+      mealType: 'breakfast',
+      consumedAt: DateTime(2024, 1, 1),
+      quantityG: quantityG,
+      kcal: 0,
+      foodItem: FoodItem(
+        source: offSource,
+        externalId: name,
+        name: name,
+        brands: brand,
+        rawSourceJson: '{}',
+        nutrimentsJson: nutriments,
+      ),
+    );
+
+    final specC = kNutrientCatalog.firstWhere((s) => s.key == 'vitamin_c');
+
+    test('ranks foods high→low with correct amounts, shares and total', () {
+      final breakdown = nutrientContributors([
+        // 50 g * 20 mg/100g = 10 mg
+        namedEntry(
+          name: 'Kiwi',
+          brand: 'Fresh',
+          quantityG: 50,
+          nutriments: {'vitamin-c_100g': 20, 'vitamin-c_unit': 'mg'},
+        ),
+        // 100 g * 90 mg/100g = 90 mg (the top source)
+        namedEntry(
+          name: 'Orange',
+          brand: '',
+          quantityG: 100,
+          nutriments: {'vitamin-c_100g': 90, 'vitamin-c_unit': 'mg'},
+        ),
+      ], specC);
+
+      expect(breakdown.total, closeTo(100, 1e-9));
+      expect(breakdown.entryCount, 2);
+      expect(breakdown.missingCount, 0);
+      expect(breakdown.contributors.map((c) => c.name), ['Orange', 'Kiwi']);
+      expect(breakdown.contributors.first.amount, closeTo(90, 1e-9));
+      expect(breakdown.contributors.first.share, closeTo(0.9, 1e-9));
+      expect(breakdown.contributors.last.share, closeTo(0.1, 1e-9));
+    });
+
+    test(
+      'drops foods with no data or a zero value, counting them as missing',
+      () {
+        final breakdown = nutrientContributors([
+          namedEntry(
+            name: 'Orange',
+            brand: '',
+            quantityG: 100,
+            nutriments: {'vitamin-c_100g': 50, 'vitamin-c_unit': 'mg'},
+          ),
+          // Reports the nutrient but as a literal 0 — doesn't move the total.
+          namedEntry(
+            name: 'Water',
+            brand: '',
+            quantityG: 250,
+            nutriments: {'vitamin-c_100g': 0, 'vitamin-c_unit': 'mg'},
+          ),
+          // No blob at all.
+          namedEntry(name: 'Mystery', brand: '', quantityG: 100),
+        ], specC);
+
+        expect(breakdown.contributors.map((c) => c.name), ['Orange']);
+        expect(breakdown.entryCount, 3);
+        expect(breakdown.missingCount, 2);
+      },
+    );
+
+    test('returns an empty breakdown when nothing carries the nutrient', () {
+      final breakdown = nutrientContributors([
+        namedEntry(name: 'Mystery', brand: '', quantityG: 100),
+      ], specC);
+
+      expect(breakdown.contributors, isEmpty);
+      expect(breakdown.total, 0);
+      expect(breakdown.missingCount, 1);
+    });
   });
 }

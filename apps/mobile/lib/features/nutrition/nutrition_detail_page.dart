@@ -5,6 +5,7 @@ import '../../ui_system/tokens.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
 import 'widgets/nutrient_breakdown_view.dart';
+import 'widgets/nutrient_contributor_sheet.dart';
 
 /// Full per-day nutrient breakdown, grouped into Macros / Vitamins / Minerals /
 /// Other. Every value is computed on-device from each logged food's stored OFF
@@ -41,10 +42,7 @@ class NutritionDetailPage extends StatelessWidget {
     return AppScaffold(
       safeArea: true,
       padding: EdgeInsets.zero,
-      appBar: AppBar(
-        title: const Text('Nutrients'),
-        centerTitle: false,
-      ),
+      appBar: AppBar(title: const Text('Nutrients'), centerTitle: false),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
@@ -67,8 +65,34 @@ class NutritionDetailPage extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           if (entries.isEmpty)
             _EmptyState(scheme: scheme, theme: theme)
-          else
-            NutrientBreakdownView(totals: totals),
+          else ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.touch_app_outlined,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    'Tap any nutrient to see its top food sources.',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            NutrientBreakdownView(
+              totals: totals,
+              onNutrientTap: (total) => showNutrientContributorSheet(
+                context,
+                spec: total.spec,
+                entries: entries,
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -17,11 +17,17 @@ class NutrientBreakdownView extends StatelessWidget {
     required this.totals,
     this.showEmptyRows = true,
     this.emptyDataMessage = 'No detailed nutrient data for this food.',
+    this.onNutrientTap,
   });
 
   final List<NutrientTotal> totals;
   final bool showEmptyRows;
   final String emptyDataMessage;
+
+  /// When set, rows that have data become tappable (e.g. to reveal which foods
+  /// contribute the nutrient). Rows with no data stay inert. Left null by the
+  /// compact per-food view, where "top sources" would be meaningless.
+  final ValueChanged<NutrientTotal>? onNutrientTap;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +43,11 @@ class NutrientBreakdownView extends StatelessWidget {
     final sections = [
       for (final group in NutrientGroup.values)
         if ((byGroup[group] ?? const []).isNotEmpty)
-          NutrientGroupSection(title: group.label, totals: byGroup[group]!),
+          NutrientGroupSection(
+            title: group.label,
+            totals: byGroup[group]!,
+            onNutrientTap: onNutrientTap,
+          ),
     ];
 
     if (sections.isEmpty) {
@@ -64,10 +74,12 @@ class NutrientGroupSection extends StatelessWidget {
     super.key,
     required this.title,
     required this.totals,
+    this.onNutrientTap,
   });
 
   final String title;
   final List<NutrientTotal> totals;
+  final ValueChanged<NutrientTotal>? onNutrientTap;
 
   @override
   Widget build(BuildContext context) {
@@ -111,7 +123,12 @@ class NutrientGroupSection extends StatelessWidget {
                     height: 1,
                     color: Colors.white.withValues(alpha: 0.05),
                   ),
-                NutrientRow(total: totals[i]),
+                NutrientRow(
+                  total: totals[i],
+                  onTap: onNutrientTap == null || !totals[i].hasData
+                      ? null
+                      : () => onNutrientTap!(totals[i]),
+                ),
               ],
             ],
           ),
@@ -122,9 +139,13 @@ class NutrientGroupSection extends StatelessWidget {
 }
 
 class NutrientRow extends StatelessWidget {
-  const NutrientRow({super.key, required this.total});
+  const NutrientRow({super.key, required this.total, this.onTap});
 
   final NutrientTotal total;
+
+  /// Tapped to drill into the nutrient (e.g. its top food sources). Null makes
+  /// the row inert — no ripple, no affordance.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -140,8 +161,8 @@ class NutrientRow extends StatelessWidget {
     final Color barColor = incomplete
         ? scheme.primary.withValues(alpha: 0.35)
         : over
-            ? LuminaHealthColors.warning
-            : scheme.primary;
+        ? LuminaHealthColors.warning
+        : scheme.primary;
     final valueColor = over
         ? LuminaHealthColors.warning
         : (hasData ? scheme.onSurface : scheme.onSurfaceVariant);
@@ -155,83 +176,96 @@ class NutrientRow extends StatelessWidget {
     final String? trailingText = !hasData
         ? null
         : incomplete
-            ? 'partial'
-            : '${(total.amount! / spec.dailyTarget * 100).round()}%';
-    final Color trailingColor = incomplete ? scheme.onSurfaceVariant : valueColor;
+        ? 'partial'
+        : '${(total.amount! / spec.dailyTarget * 100).round()}%';
+    final Color trailingColor = incomplete
+        ? scheme.onSurfaceVariant
+        : valueColor;
+
+    final content = Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: AppSpacing.sm,
+        horizontal: onTap != null ? AppSpacing.sm : 0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                spec.label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                  color: hasData ? scheme.onSurface : scheme.onSurfaceVariant,
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    amountText,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: valueColor,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  if (trailingText != null) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    SizedBox(
+                      width: 52,
+                      child: Text(
+                        trailingText,
+                        textAlign: TextAlign.right,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: trailingColor,
+                          fontWeight: FontWeight.bold,
+                          fontStyle: incomplete ? FontStyle.italic : null,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+          if (hasData) ...[
+            const SizedBox(height: AppSpacing.xs),
+            LinearProgressIndicator(
+              value: total.progress,
+              backgroundColor: scheme.surfaceContainerHighest,
+              color: barColor,
+              minHeight: 5,
+              borderRadius: BorderRadius.circular(9999),
+            ),
+          ],
+        ],
+      ),
+    );
 
     return Semantics(
+      button: onTap != null,
       label: !hasData
           ? '${spec.label}, no data'
           : incomplete
-              ? '${spec.label}, at least '
-                    '${formatNutrientValue(total.amount!)} ${spec.unit}, '
-                    'incomplete: ${total.reportedCount} of ${total.totalCount} '
-                    'foods reported it'
-              : '${spec.label}, ${formatNutrientValue(total.amount!)} of '
-                    '${formatNutrientValue(spec.dailyTarget)} ${spec.unit}, '
-                    '${trailingText!} of target',
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  spec.label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: hasData
-                        ? scheme.onSurface
-                        : scheme.onSurfaceVariant,
-                  ),
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      amountText,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: valueColor,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    if (trailingText != null) ...[
-                      const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 52,
-                        child: Text(
-                          trailingText,
-                          textAlign: TextAlign.right,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: trailingColor,
-                            fontWeight: FontWeight.bold,
-                            fontStyle: incomplete ? FontStyle.italic : null,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
+          ? '${spec.label}, at least '
+                '${formatNutrientValue(total.amount!)} ${spec.unit}, '
+                'incomplete: ${total.reportedCount} of ${total.totalCount} '
+                'foods reported it'
+          : '${spec.label}, ${formatNutrientValue(total.amount!)} of '
+                '${formatNutrientValue(spec.dailyTarget)} ${spec.unit}, '
+                '${trailingText!} of target'
+                '${onTap != null ? ', tap for top sources' : ''}',
+      child: onTap == null
+          ? content
+          : InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: content,
             ),
-            if (hasData) ...[
-              const SizedBox(height: AppSpacing.xs),
-              LinearProgressIndicator(
-                value: total.progress,
-                backgroundColor: scheme.surfaceContainerHighest,
-                color: barColor,
-                minHeight: 5,
-                borderRadius: BorderRadius.circular(9999),
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }
