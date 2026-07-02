@@ -54,13 +54,33 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "email", "display_name", "timezone")
+        fields = ("id", "email", "username", "display_name", "timezone")
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
+    # The @handle: optional, unset until chosen, null clears it. Shape and
+    # case-insensitive uniqueness are enforced here (mirroring the DB's
+    # uniq_username_ci constraint) so duplicates 400 instead of 500ing on
+    # IntegrityError.
+    username = serializers.RegexField(
+        r"^[A-Za-z0-9_]{3,20}$",
+        required=False,
+        allow_null=True,
+        error_messages={
+            "invalid": "Usernames are 3-20 characters: letters, numbers and underscores."
+        },
+        validators=[
+            UniqueValidator(
+                queryset=User.objects.all(),
+                lookup="iexact",
+                message="This username is already taken.",
+            ),
+        ],
+    )
+
     class Meta:
         model = User
-        fields = ("display_name", "timezone")
+        fields = ("display_name", "username", "timezone")
         extra_kwargs = {
             "display_name": {"required": False},
             "timezone": {"required": False},

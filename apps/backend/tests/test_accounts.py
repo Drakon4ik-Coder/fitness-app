@@ -686,3 +686,80 @@ def test_invalid_password_reset_token_is_rejected() -> None:
 
     assert response.status_code == 200
     assert response.context["result"] == "invalid"
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_updates_username_and_display_name() -> None:
+    user = get_user_model().objects.create_user(
+        email="handle@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch(
+        "/api/v1/auth/me",
+        {"username": "casey_1", "display_name": "Casey"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["username"] == "casey_1"
+    assert response.data["display_name"] == "Casey"
+    user.refresh_from_db()
+    assert user.username == "casey_1"
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_rejects_taken_username_case_insensitively() -> None:
+    get_user_model().objects.create_user(
+        email="first@example.com", password="Str0ngPass!word", username="Casey"
+    )
+    user = get_user_model().objects.create_user(
+        email="second@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch("/api/v1/auth/me", {"username": "casey"}, format="json")
+
+    assert response.status_code == 400
+    assert "username" in response.data
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_rejects_malformed_username() -> None:
+    user = get_user_model().objects.create_user(
+        email="malformed@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch(
+        "/api/v1/auth/me", {"username": "has space!"}, format="json"
+    )
+
+    assert response.status_code == 400
+    assert "username" in response.data
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_clears_username_with_null() -> None:
+    user = get_user_model().objects.create_user(
+        email="clear@example.com",
+        password="Str0ngPass!word",
+        email_verified=True,
+        username="old_handle",
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch("/api/v1/auth/me", {"username": None}, format="json")
+
+    assert response.status_code == 200
+    assert response.data["username"] is None
+    user.refresh_from_db()
+    assert user.username is None

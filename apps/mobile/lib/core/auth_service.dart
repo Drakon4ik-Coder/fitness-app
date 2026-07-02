@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import 'auth_interceptor.dart';
 import 'environment.dart';
 
 class AuthTokens {
@@ -11,10 +12,17 @@ class AuthTokens {
 
 /// The signed-in user's editable account info, from GET /auth/me.
 class AccountInfo {
-  const AccountInfo({required this.email, required this.displayName});
+  const AccountInfo({
+    required this.email,
+    required this.displayName,
+    this.username = '',
+  });
 
   final String email;
   final String displayName;
+
+  /// The unique @handle, or empty when the user hasn't chosen one yet.
+  final String username;
 }
 
 class AuthException implements Exception {
@@ -35,7 +43,10 @@ class AuthService {
   static const Duration _sendTimeout = Duration(seconds: 10);
   static const Duration _receiveTimeout = Duration(seconds: 20);
 
-  AuthService({Dio? dio})
+  /// [authInterceptor], when given, lets authenticated calls (fetchMe,
+  /// updateProfile) transparently refresh an expired access token and retry —
+  /// without it a stale token 401s silently.
+  AuthService({Dio? dio, AuthInterceptor? authInterceptor})
       : _dio = dio ??
             Dio(
               BaseOptions(
@@ -44,7 +55,9 @@ class AuthService {
                 sendTimeout: _sendTimeout,
                 receiveTimeout: _receiveTimeout,
               ),
-            );
+            ) {
+    authInterceptor?.attachTo(_dio);
+  }
 
   final Dio _dio;
 
@@ -222,6 +235,7 @@ class AuthService {
         return AccountInfo(
           email: (data['email'] as String?) ?? '',
           displayName: (data['display_name'] as String?) ?? '',
+          username: (data['username'] as String?) ?? '',
         );
       }
       return null;
@@ -230,16 +244,25 @@ class AuthService {
     }
   }
 
-  /// Updates the user's display name (PATCH /auth/me). Throws [AuthException]
-  /// with the server's message on a validation failure.
-  Future<void> updateDisplayName({
+  /// Updates profile fields (PATCH /auth/me). Only the provided fields are
+  /// sent; [clearUsername] sends an explicit null to release the @handle.
+  /// Throws [AuthException] with the server's message on a validation failure.
+  Future<void> updateProfile({
     required String accessToken,
-    required String displayName,
+    String? displayName,
+    String? username,
+    bool clearUsername = false,
   }) async {
     try {
       await _dio.patch(
         '/api/v1/auth/me',
-        data: {'display_name': displayName},
+        data: <String, dynamic>{
+          if (displayName != null) 'display_name': displayName,
+          if (clearUsername)
+            'username': null
+          else if (username != null)
+            'username': username,
+        },
         options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
       );
     } on DioException catch (error) {

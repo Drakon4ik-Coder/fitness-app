@@ -9,7 +9,7 @@ import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
 /// A Dio whose requests are all resolved by [onRequest], for stubbing the
-/// account page's network calls without hitting a server.
+/// settings pages' network calls without hitting a server.
 Dio _stubDio(void Function(RequestOptions, ResponseHandler) onRequest) {
   final dio = Dio();
   dio.interceptors.add(InterceptorsWrapper(onRequest: onRequest));
@@ -19,13 +19,27 @@ Dio _stubDio(void Function(RequestOptions, ResponseHandler) onRequest) {
 typedef ResponseHandler = RequestInterceptorHandler;
 
 void main() {
-  testWidgets('save collects goals, PATCHes prefs and pops the result', (
-    tester,
-  ) async {
+  void enlargeView(WidgetTester tester) {
     tester.view.physicalSize = const Size(1200, 3000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  Dio authStub() => _stubDio(
+    (options, handler) => handler.resolve(
+      Response(
+        requestOptions: options,
+        statusCode: 200,
+        data: {'email': 'me@example.com', 'display_name': 'Casey'},
+      ),
+    ),
+  );
+
+  testWidgets('goals page save PATCHes prefs and pops back through the hub', (
+    tester,
+  ) async {
+    enlargeView(tester);
 
     Map<String, dynamic>? patchedPrefsBody;
 
@@ -48,16 +62,6 @@ void main() {
       );
     });
 
-    final authDio = _stubDio((options, handler) {
-      handler.resolve(
-        Response(
-          requestOptions: options,
-          statusCode: 200,
-          data: {'email': 'me@example.com', 'display_name': 'Casey'},
-        ),
-      );
-    });
-
     UserPreferences? popped;
     await tester.pumpWidget(
       MaterialApp(
@@ -74,7 +78,7 @@ void main() {
                         accessToken: 'token',
                         dio: prefsDio,
                       ),
-                      authService: AuthService(dio: authDio),
+                      authService: AuthService(dio: authStub()),
                       onLogout: () async {},
                       initialPreferences: const UserPreferences(
                         nutrientGoals: {'protein': 100},
@@ -93,8 +97,16 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    // Email loaded from /auth/me; the protein override prefilled its field.
-    expect(find.text('me@example.com'), findsOneWidget);
+    // Hub: nested rows plus the email loaded from /auth/me in a summary.
+    expect(find.text('Units'), findsOneWidget);
+    expect(find.text('Daily goals'), findsOneWidget);
+    expect(find.textContaining('me@example.com'), findsOneWidget);
+
+    await tester.tap(find.text('Daily goals'));
+    await tester.pumpAndSettle();
+
+    // The protein override prefilled its field on the goals page.
+    expect(find.text('100'), findsOneWidget);
 
     await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
@@ -102,16 +114,76 @@ void main() {
     expect(patchedPrefsBody, isNotNull);
     expect(patchedPrefsBody!['nutrient_goals'], {'protein': 100.0});
     expect(patchedPrefsBody!['daily_calorie_goal'], 2200);
-    // Popped with the server's snapshot so the caller can refresh.
+    // Units weren't touched, so the partial PATCH must not include them.
+    expect(patchedPrefsBody!.containsKey('weight_unit'), isFalse);
+    // As a pushed route (onSaved null) the hub pops with the server snapshot.
     expect(popped, isNotNull);
     expect(popped!.nutrientGoals['protein'], closeTo(100, 1e-9));
   });
 
+  testWidgets('units page save PATCHes only unit fields and updates the hub', (
+    tester,
+  ) async {
+    enlargeView(tester);
+
+    Map<String, dynamic>? patchedPrefsBody;
+
+    final prefsDio = _stubDio((options, handler) {
+      if (options.method == 'PATCH') {
+        patchedPrefsBody = options.data as Map<String, dynamic>;
+      }
+      handler.resolve(
+        Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: {
+            'weight_unit': 'lb',
+            'height_unit': 'cm',
+            'energy_unit': 'kcal',
+          },
+        ),
+      );
+    });
+
+    UserPreferences? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: AccountPage(
+          accessToken: 'token',
+          preferencesApi: PreferencesApiService(
+            accessToken: 'token',
+            dio: prefsDio,
+          ),
+          authService: AuthService(dio: authStub()),
+          onLogout: () async {},
+          initialPreferences: const UserPreferences(),
+          onSaved: (prefs) => saved = prefs,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Units'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('lb'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    expect(patchedPrefsBody, isNotNull);
+    expect(patchedPrefsBody!['weight_unit'], 'lb');
+    expect(patchedPrefsBody!.containsKey('nutrient_goals'), isFalse);
+    expect(patchedPrefsBody!.containsKey('daily_calorie_goal'), isFalse);
+    expect(saved?.weightUnit, 'lb');
+    // Back on the hub (as a tab it stays put), with the summary refreshed.
+    expect(find.text('Daily goals'), findsOneWidget);
+    expect(find.textContaining('lb'), findsWidgets);
+  });
+
   testWidgets('reset clears goal fields back to blank', (tester) async {
-    tester.view.physicalSize = const Size(1200, 3000);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    enlargeView(tester);
 
     final prefsDio = _stubDio(
       (options, handler) => handler.resolve(
@@ -143,6 +215,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Daily goals'));
+    await tester.pumpAndSettle();
+
     // Protein starts prefilled from the override.
     expect(find.text('130'), findsOneWidget);
 
@@ -150,5 +225,126 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('130'), findsNothing);
+  });
+
+  testWidgets('profile page saves display name and username', (tester) async {
+    enlargeView(tester);
+
+    Map<String, dynamic>? patchedMeBody;
+
+    final authDio = _stubDio((options, handler) {
+      if (options.method == 'PATCH') {
+        patchedMeBody = Map<String, dynamic>.from(options.data as Map);
+      }
+      handler.resolve(
+        Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: {
+            'email': 'me@example.com',
+            'display_name': 'Casey',
+            'username': null,
+          },
+        ),
+      );
+    });
+    final prefsDio = _stubDio(
+      (options, handler) => handler.resolve(
+        Response(requestOptions: options, statusCode: 200, data: {}),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: AccountPage(
+          accessToken: 'token',
+          preferencesApi: PreferencesApiService(
+            accessToken: 'token',
+            dio: prefsDio,
+          ),
+          authService: AuthService(dio: authDio),
+          onLogout: () async {},
+          initialPreferences: const UserPreferences(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
+    // Fetched fresh on open: email row and prefilled display name.
+    expect(find.text('me@example.com'), findsOneWidget);
+    expect(find.text('Casey'), findsOneWidget);
+
+    // Display name field is first, username second.
+    await tester.enterText(find.byType(TextFormField).at(1), 'casey_1');
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    expect(patchedMeBody, {'display_name': 'Casey', 'username': 'casey_1'});
+    // Back on the hub with the refreshed profile summary.
+    expect(find.text('Units'), findsOneWidget);
+    expect(find.textContaining('Casey'), findsOneWidget);
+  });
+
+  testWidgets('backing out of a dirty goals page asks before discarding', (
+    tester,
+  ) async {
+    enlargeView(tester);
+
+    final prefsDio = _stubDio(
+      (options, handler) => handler.resolve(
+        Response(requestOptions: options, statusCode: 200, data: {}),
+      ),
+    );
+    final authDio = _stubDio(
+      (options, handler) => handler.resolve(
+        Response(requestOptions: options, statusCode: 200, data: {}),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: AccountPage(
+          accessToken: 'token',
+          preferencesApi: PreferencesApiService(
+            accessToken: 'token',
+            dio: prefsDio,
+          ),
+          authService: AuthService(dio: authDio),
+          onLogout: () async {},
+          initialPreferences: const UserPreferences(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Daily goals'));
+    await tester.pumpAndSettle();
+
+    // Edit the calorie goal, then try to leave without saving.
+    await tester.enterText(find.byType(TextFormField).first, '1800');
+    await tester.pump(); // let the dirty flag propagate into the PopScope
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Discard changes?'), findsOneWidget);
+
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save changes'), findsOneWidget); // still on goals page
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    // Back on the hub without saving anything.
+    expect(find.text('Units'), findsOneWidget);
+    expect(find.text('Save changes'), findsNothing);
   });
 }

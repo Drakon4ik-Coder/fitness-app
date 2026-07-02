@@ -4,7 +4,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
-import 'features/nutrition/nutrition_today_page.dart';
+import 'features/main_shell.dart';
 import 'features/login_page.dart';
 import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
@@ -150,7 +150,7 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    return NutritionTodayPage(
+    return MainShell(
       accessToken: _accessToken!,
       onLogout: _handleLogout,
       authInterceptor: _authInterceptor,
