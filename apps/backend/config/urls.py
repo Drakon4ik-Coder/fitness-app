@@ -27,6 +27,7 @@ urlpatterns = [
     path("api/v1/auth/", include("accounts.urls")),
     path("api/v1/foods/", include("foods.urls")),
     path("api/v1/nutrition/", include("nutrition.urls")),
+    path("api/v1/preferences/", include("preferences.urls")),
 ]
 
 if settings.DEBUG:

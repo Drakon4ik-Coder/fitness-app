@@ -46,6 +46,11 @@ class UserPreferences(models.Model):
     )
     daily_calorie_goal = models.PositiveIntegerField(null=True, blank=True)
     weekly_workouts_goal = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Per-nutrient daily target overrides, keyed by nutrient catalog key
+    # (see ``nutrients.catalog``). Only keys the user has personalized are stored;
+    # anything absent falls back to the client's catalog default. Values are in the
+    # catalog's canonical unit for that nutrient.
+    nutrient_goals = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -51,7 +51,45 @@ class NutrientSpec {
   /// macros/core nutrients every food is expected to report, false for
   /// micronutrients where "missing" is normal (flagging would be noise).
   final bool completenessTracked;
+
+  /// A copy with [dailyTarget] replaced. Used to layer the user's personalized
+  /// goals over the reference defaults ([resolveCatalog]) without touching any
+  /// other field.
+  NutrientSpec copyWith({double? dailyTarget}) => NutrientSpec(
+    key: key,
+    offKey: offKey,
+    label: label,
+    unit: unit,
+    group: group,
+    dailyTarget: dailyTarget ?? this.dailyTarget,
+    overIsBad: overIsBad,
+    completenessTracked: completenessTracked,
+  );
 }
+
+/// The catalog with the user's per-nutrient [goals] (keyed by [NutrientSpec.key],
+/// in each nutrient's canonical unit) layered over the reference defaults. Keys
+/// absent from [goals], and non-positive values, keep the catalog default — so a
+/// single resolved catalog is the one source of truth every page reads. Returns
+/// [kNutrientCatalog] unchanged when [goals] is null or empty.
+List<NutrientSpec> resolveCatalog(
+  Map<String, double>? goals, {
+  List<NutrientSpec> base = kNutrientCatalog,
+}) {
+  if (goals == null || goals.isEmpty) return base;
+  return [
+    for (final spec in base)
+      () {
+        final override = goals[spec.key];
+        return (override != null && override > 0)
+            ? spec.copyWith(dailyTarget: override)
+            : spec;
+      }(),
+  ];
+}
+
+/// Default daily energy budget used until the user sets [UserPreferences.calorieGoal].
+const int kDefaultCalorieGoal = 2200;
 
 /// Curated set of nutrients we surface. Trimmed to what OFF actually carries so
 /// the detail page isn't a wall of permanent "no data" rows. Targets are generic
@@ -64,7 +102,10 @@ const List<NutrientSpec> kNutrientCatalog = [
     label: 'Protein',
     unit: 'g',
     group: NutrientGroup.macros,
-    dailyTarget: 50,
+    // Higher than the 50 g generic RDA: this is a fitness app, and 150 g is the
+    // long-standing default the today page has always shown. Users tune it on
+    // the account page.
+    dailyTarget: 150,
     completenessTracked: true,
   ),
   NutrientSpec(
@@ -330,9 +371,12 @@ class NutrientTotal {
 /// units as [kNutrientCatalog], so amounts are used directly; keys the server
 /// omits (no data that day) become `null` totals. Preferred over
 /// [aggregateNutrients] when the day payload carries a server breakdown.
-List<NutrientTotal> nutrientTotalsFromServer(Map<String, dynamic> nutrients) {
+List<NutrientTotal> nutrientTotalsFromServer(
+  Map<String, dynamic> nutrients, {
+  List<NutrientSpec> catalog = kNutrientCatalog,
+}) {
   return [
-    for (final spec in kNutrientCatalog)
+    for (final spec in catalog)
       () {
         final raw = nutrients[spec.key];
         if (raw is! Map) {
@@ -358,11 +402,15 @@ List<NutrientTotal> nutrientTotalsFromServer(Map<String, dynamic> nutrients) {
 /// Catalog-aligned totals for a single food at a given [grams] amount, read from
 /// its stored OFF nutriments blob. Powers the "check the nutrition before adding"
 /// preview in the amount sheet. Nutrients the food lacks become `null` totals.
-List<NutrientTotal> nutrientTotalsForItem(FoodItem item, double grams) {
+List<NutrientTotal> nutrientTotalsForItem(
+  FoodItem item,
+  double grams, {
+  List<NutrientSpec> catalog = kNutrientCatalog,
+}) {
   final nutriments = item.nutrimentsJson;
   final factor = grams / 100.0;
   return [
-    for (final spec in kNutrientCatalog)
+    for (final spec in catalog)
       () {
         final per100 = nutrientPer100g(spec, nutriments);
         final has = per100 != null;
@@ -473,7 +521,10 @@ NutrientContributionBreakdown nutrientContributors(
 /// Aggregates every catalog nutrient across a day's logged entries, scaling each
 /// food's per-100g value by the logged quantity. A nutrient only counts entries
 /// that actually carry data for it; if none do, its total is `null` ("no data").
-List<NutrientTotal> aggregateNutrients(Iterable<NutritionEntry> entries) {
+List<NutrientTotal> aggregateNutrients(
+  Iterable<NutritionEntry> entries, {
+  List<NutrientSpec> catalog = kNutrientCatalog,
+}) {
   final sums = <String, double>{};
   // Foods that reported each nutrient. A food with no blob at all still counts
   // toward the denominator (its macros are unknown -> the day total is a floor).
@@ -484,7 +535,7 @@ List<NutrientTotal> aggregateNutrients(Iterable<NutritionEntry> entries) {
     final nutriments = entry.foodItem.nutrimentsJson;
     if (nutriments == null) continue;
     final factor = entry.quantityG / 100.0;
-    for (final spec in kNutrientCatalog) {
+    for (final spec in catalog) {
       final per100 = nutrientPer100g(spec, nutriments);
       if (per100 == null) continue;
       sums[spec.key] = (sums[spec.key] ?? 0) + per100 * factor;
@@ -492,7 +543,7 @@ List<NutrientTotal> aggregateNutrients(Iterable<NutritionEntry> entries) {
     }
   }
   return [
-    for (final spec in kNutrientCatalog)
+    for (final spec in catalog)
       NutrientTotal(
         spec: spec,
         amount: reported.containsKey(spec.key) ? sums[spec.key] : null,

@@ -6,15 +6,19 @@ import '../../core/auth_interceptor.dart';
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
+import 'account_page.dart';
 import 'add_food_page.dart';
 import 'meal_suggestion.dart';
 import 'nutrition_detail_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/foods_api_service.dart';
+import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
 import 'data/nutrition_day_cache.dart';
 import 'data/off_client.dart';
+import 'data/preferences_api_service.dart';
+import 'data/user_preferences.dart';
 import 'widgets/meal_detail_sheet.dart';
 
 class NutritionTodayPage extends StatefulWidget {
@@ -28,6 +32,7 @@ class NutritionTodayPage extends StatefulWidget {
     this.nutritionApi,
     this.dayCache,
     this.offClient,
+    this.preferencesApi,
   });
 
   final String accessToken;
@@ -38,6 +43,7 @@ class NutritionTodayPage extends StatefulWidget {
   final NutritionApiService? nutritionApi;
   final NutritionDayCache? dayCache;
   final OffClient? offClient;
+  final PreferencesApiService? preferencesApi;
 
   @override
   State<NutritionTodayPage> createState() => _NutritionTodayPageState();
@@ -52,6 +58,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final NutritionDayCache _dayCache;
   late final bool _ownsDayCache;
   late final OffClient _offClient;
+  late final PreferencesApiService _preferencesApi;
+
+  // The user's saved goals/units; null until loaded (or if the fetch fails), in
+  // which case macros/calories fall back to the catalog defaults.
+  UserPreferences? _prefs;
 
   NutritionDayLog? _dayLog;
   // Per-meal windows learned from the user's own history; null until loaded (or
@@ -82,8 +93,42 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _ownsDayCache = widget.dayCache == null;
     _dayCache = widget.dayCache ?? NutritionDayCache();
     _offClient = widget.offClient ?? OffClient();
+    _preferencesApi =
+        widget.preferencesApi ??
+        PreferencesApiService(
+          accessToken: widget.accessToken,
+          authInterceptor: widget.authInterceptor,
+        );
     _loadDay();
     _loadMealTimes();
+    _loadPreferences();
+  }
+
+  /// The catalog with the user's saved goals layered on. The single source of
+  /// truth for every nutrient target the today and detail pages show.
+  List<NutrientSpec> get _catalog => resolveCatalog(_prefs?.nutrientGoals);
+
+  int get _calorieGoal => _prefs?.calorieGoal ?? kDefaultCalorieGoal;
+
+  /// The daily target for a macro, read from the resolved catalog so the today
+  /// page and the full breakdown never disagree. Falls back to [fallback] only
+  /// if the key somehow isn't in the catalog.
+  int _macroGoal(String key, int fallback) {
+    for (final spec in _catalog) {
+      if (spec.key == key) return spec.dailyTarget.round();
+    }
+    return fallback;
+  }
+
+  // Best-effort: a failure just leaves goals on their catalog defaults.
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await _preferencesApi.fetch();
+      if (!mounted) return;
+      setState(() => _prefs = prefs);
+    } on ApiException {
+      // Ignore — catalog defaults are a fine fallback.
+    }
   }
 
   /// Logs out, first wiping the local day cache so the next user on this device
@@ -114,6 +159,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (oldWidget.accessToken != widget.accessToken) {
       _foodsApi.updateToken(widget.accessToken);
       _nutritionApi.updateToken(widget.accessToken);
+      _preferencesApi.updateToken(widget.accessToken);
     }
   }
 
@@ -356,9 +402,30 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           eatenKcal: _dayLog?.totals.kcal.round() ?? 0,
           entries: entries,
           serverNutrients: _dayLog?.nutrients,
+          nutrientGoals: _prefs?.nutrientGoals,
         ),
       ),
     );
+  }
+
+  /// Opens the account page, where goals/units are edited and logout lives.
+  /// Any saved changes come back as an updated [UserPreferences] so the today
+  /// page's goals refresh without a round-trip.
+  Future<void> _openAccount(BuildContext context) async {
+    final updated = await Navigator.of(context).push<UserPreferences>(
+      MaterialPageRoute<UserPreferences>(
+        builder: (_) => AccountPage(
+          accessToken: widget.accessToken,
+          authInterceptor: widget.authInterceptor,
+          preferencesApi: _preferencesApi,
+          initialPreferences: _prefs,
+          onLogout: _handleLogout,
+        ),
+      ),
+    );
+    if (updated != null && mounted) {
+      setState(() => _prefs = updated);
+    }
   }
 
   Future<NutritionEntry?> _updateEntry(
@@ -413,21 +480,21 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         type: MacroType.protein,
         label: 'Protein',
         current: protein,
-        goal: _proteinGoalG,
+        goal: _macroGoal('protein', 150),
         incomplete: _macroIncomplete('protein'),
       ),
       _MacroSummary(
         type: MacroType.carbs,
         label: 'Carbs',
         current: carbs,
-        goal: _carbGoalG,
+        goal: _macroGoal('carbs', 260),
         incomplete: _macroIncomplete('carbs'),
       ),
       _MacroSummary(
         type: MacroType.fat,
         label: 'Fat',
         current: fat,
-        goal: _fatGoalG,
+        goal: _macroGoal('fat', 70),
         incomplete: _macroIncomplete('fat'),
       ),
     ];
@@ -490,7 +557,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final burnedKcal = _burnedKcal;
     // Exercise adds to the day's budget; "remaining" can now go negative, which
     // we surface as an over-budget amount rather than clamping to zero.
-    final int kcalBudget = _dailyGoalKcal + burnedKcal;
+    final int kcalBudget = _calorieGoal + burnedKcal;
     final int kcalRemaining = kcalBudget - eatenKcal;
     final bool kcalOver = kcalRemaining < 0;
     final int kcalCenterValue = kcalRemaining.abs();
@@ -515,8 +582,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       appBar: AppBar(
         actions: [
           IconButton(
-            onPressed: () => _handleLogout(),
-            icon: const Icon(Icons.logout),
+            onPressed: () => _openAccount(context),
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Account',
           ),
         ],
       ),
@@ -1188,11 +1256,7 @@ class _MealCard extends StatelessWidget {
   }
 }
 
-const int _dailyGoalKcal = 2200;
 const int _burnedKcal = 0;
-const int _carbGoalG = 260;
-const int _fatGoalG = 70;
-const int _proteinGoalG = 150;
 
 enum MacroType { carbs, fat, protein }
 

@@ -1,0 +1,128 @@
+import pytest
+from rest_framework.test import APIClient
+
+from accounts.models import User
+from preferences.models import UserPreferences
+
+
+def _auth_client(email: str = "prefsuser@example.com") -> tuple[APIClient, User]:
+    user = User.objects.create_user(
+        email=email,
+        password="Str0ngPass!word",
+        email_verified=True,
+    )
+    client = APIClient()
+    token_response = client.post(
+        "/api/v1/auth/token",
+        {"email": user.email, "password": "Str0ngPass!word"},
+        format="json",
+    )
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_response.data['access']}")
+    return client, user
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_get_returns_defaults() -> None:
+    client, _ = _auth_client()
+
+    response = client.get("/api/v1/preferences/")
+
+    assert response.status_code == 200
+    assert response.data["weight_unit"] == "kg"
+    assert response.data["energy_unit"] == "kcal"
+    assert response.data["daily_calorie_goal"] is None
+    assert response.data["nutrient_goals"] == {}
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_get_or_creates_row_for_users_without_one() -> None:
+    client, user = _auth_client()
+    UserPreferences.objects.filter(user=user).delete()
+
+    response = client.get("/api/v1/preferences/")
+
+    assert response.status_code == 200
+    assert UserPreferences.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_persists_goals_and_units() -> None:
+    client, user = _auth_client()
+
+    response = client.patch(
+        "/api/v1/preferences/",
+        {
+            "energy_unit": "kj",
+            "daily_calorie_goal": 2400,
+            "nutrient_goals": {"protein": 150, "vitamin_c": 90},
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["energy_unit"] == "kj"
+    assert response.data["daily_calorie_goal"] == 2400
+    assert response.data["nutrient_goals"] == {"protein": 150.0, "vitamin_c": 90.0}
+    prefs = UserPreferences.objects.get(user=user)
+    assert prefs.nutrient_goals == {"protein": 150.0, "vitamin_c": 90.0}
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_is_partial() -> None:
+    client, _ = _auth_client()
+    client.patch(
+        "/api/v1/preferences/",
+        {"nutrient_goals": {"protein": 150}},
+        format="json",
+    )
+
+    response = client.patch(
+        "/api/v1/preferences/",
+        {"daily_calorie_goal": 2000},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    # Untouched fields survive a partial update.
+    assert response.data["nutrient_goals"] == {"protein": 150.0}
+    assert response.data["daily_calorie_goal"] == 2000
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_rejects_unknown_nutrient_key() -> None:
+    client, _ = _auth_client()
+
+    response = client.patch(
+        "/api/v1/preferences/",
+        {"nutrient_goals": {"unobtanium": 10}},
+        format="json",
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_rejects_non_positive_goal() -> None:
+    client, _ = _auth_client()
+
+    response = client.patch(
+        "/api/v1/preferences/",
+        {"nutrient_goals": {"protein": 0}},
+        format="json",
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_requires_authentication() -> None:
+    response = APIClient().get("/api/v1/preferences/")
+
+    assert response.status_code == 401

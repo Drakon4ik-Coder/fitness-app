@@ -9,6 +9,14 @@ class AuthTokens {
   final String refreshToken;
 }
 
+/// The signed-in user's editable account info, from GET /auth/me.
+class AccountInfo {
+  const AccountInfo({required this.email, required this.displayName});
+
+  final String email;
+  final String displayName;
+}
+
 class AuthException implements Exception {
   AuthException(this.message, {this.emailUnverified = false});
 
@@ -198,6 +206,46 @@ class AuthService {
       );
     } on DioException {
       // Ignore — non-critical and retried on the next launch.
+    }
+  }
+
+  /// The signed-in user's account info (GET /auth/me). Returns null on any
+  /// failure so the account page can degrade gracefully rather than block.
+  Future<AccountInfo?> fetchMe({required String accessToken}) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/auth/me',
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+      final data = response.data;
+      if (data is Map) {
+        return AccountInfo(
+          email: (data['email'] as String?) ?? '',
+          displayName: (data['display_name'] as String?) ?? '',
+        );
+      }
+      return null;
+    } on DioException {
+      return null;
+    }
+  }
+
+  /// Updates the user's display name (PATCH /auth/me). Throws [AuthException]
+  /// with the server's message on a validation failure.
+  Future<void> updateDisplayName({
+    required String accessToken,
+    required String displayName,
+  }) async {
+    try {
+      await _dio.patch(
+        '/api/v1/auth/me',
+        data: {'display_name': displayName},
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+    } on DioException catch (error) {
+      throw AuthException(
+        _firstErrorMessage(error.response?.data) ?? 'Unable to update profile.',
+      );
     }
   }
 

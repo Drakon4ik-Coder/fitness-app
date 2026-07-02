@@ -394,4 +394,36 @@ void main() {
       expect(breakdown.missingCount, 1);
     });
   });
+
+  group('resolveCatalog', () {
+    double target(List<NutrientSpec> catalog, String key) =>
+        catalog.firstWhere((s) => s.key == key).dailyTarget;
+
+    test('returns the catalog unchanged for null or empty goals', () {
+      expect(resolveCatalog(null), same(kNutrientCatalog));
+      expect(resolveCatalog(const {}), same(kNutrientCatalog));
+    });
+
+    test('overrides only the targeted nutrient, leaving others at default', () {
+      final resolved = resolveCatalog({'protein': 150});
+      expect(target(resolved, 'protein'), 150);
+      // Everything else keeps its reference default.
+      expect(target(resolved, 'carbs'), target(kNutrientCatalog, 'carbs'));
+    });
+
+    test('ignores non-positive overrides, keeping the default', () {
+      final resolved = resolveCatalog({'protein': 0, 'fat': -5});
+      expect(target(resolved, 'protein'), target(kNutrientCatalog, 'protein'));
+      expect(target(resolved, 'fat'), target(kNutrientCatalog, 'fat'));
+    });
+
+    test('a resolved override flows into aggregated totals progress', () {
+      final catalog = resolveCatalog({'protein': 40});
+      // 100 g of a 20 g/100g protein food = 20 g == half of a 40 g goal.
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 20}),
+      ], catalog: catalog);
+      expect(_find(totals, 'protein').progress, closeTo(0.5, 1e-9));
+    });
+  });
 }

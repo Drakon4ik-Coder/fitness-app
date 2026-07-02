@@ -20,6 +20,7 @@ class NutritionDetailPage extends StatelessWidget {
     required this.eatenKcal,
     required this.entries,
     this.serverNutrients,
+    this.nutrientGoals,
   });
 
   final String dateLabel;
@@ -31,13 +32,18 @@ class NutritionDetailPage extends StatelessWidget {
   /// (offline reads / older cached payloads).
   final Map<String, dynamic>? serverNutrients;
 
+  /// The user's per-nutrient goal overrides (catalog key → target). Layered over
+  /// the catalog defaults so this page's targets match the today page's.
+  final Map<String, double>? nutrientGoals;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final catalog = resolveCatalog(nutrientGoals);
     final totals = serverNutrients != null
-        ? nutrientTotalsFromServer(serverNutrients!)
-        : aggregateNutrients(entries);
+        ? nutrientTotalsFromServer(serverNutrients!, catalog: catalog)
+        : aggregateNutrients(entries, catalog: catalog);
 
     return AppScaffold(
       safeArea: true,
