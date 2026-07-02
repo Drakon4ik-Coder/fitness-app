@@ -327,9 +327,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => MealDetailSheet(
         mealLabel: meal.name,
+        mealTypeName: meal.mealType.name,
         mealIcon: meal.icon,
         entries: meal.entries,
-        onUpdateQuantity: (entry, grams) => _updateEntryQuantity(entry, grams),
+        onUpdateEntry: (entry, {quantityG, mealType}) =>
+            _updateEntry(entry, quantityG: quantityG, mealType: mealType),
         onDeleteEntry: (entry) => _deleteEntry(entry),
         onAddMore: () {
           Navigator.of(context).pop();
@@ -359,14 +361,16 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     );
   }
 
-  Future<NutritionEntry?> _updateEntryQuantity(
-    NutritionEntry entry,
-    double grams,
-  ) async {
+  Future<NutritionEntry?> _updateEntry(
+    NutritionEntry entry, {
+    double? quantityG,
+    String? mealType,
+  }) async {
     try {
       return await _nutritionApi.updateEntry(
         entryId: entry.id,
-        quantityG: grams,
+        quantityG: quantityG,
+        mealType: mealType,
       );
     } on ApiException catch (error) {
       if (error.isUnauthorized) {

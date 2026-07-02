@@ -16,21 +16,30 @@ class MealDetailSheet extends StatefulWidget {
   const MealDetailSheet({
     super.key,
     required this.mealLabel,
+    required this.mealTypeName,
     required this.mealIcon,
     required this.entries,
-    required this.onUpdateQuantity,
+    required this.onUpdateEntry,
     required this.onDeleteEntry,
     required this.onAddMore,
   });
 
   final String mealLabel;
+
+  /// The backend `meal_type` name for this meal ('breakfast'/…), used to exclude
+  /// it from the "Move all to…" target list.
+  final String mealTypeName;
   final IconData mealIcon;
   final List<NutritionEntry> entries;
 
-  /// Persists a new amount for [entry]. Returns the updated entry on success, or
-  /// null if the request failed.
-  final Future<NutritionEntry?> Function(NutritionEntry entry, double grams)
-  onUpdateQuantity;
+  /// Persists a new amount and/or meal type for [entry]. Returns the updated
+  /// entry on success, or null if the request failed.
+  final Future<NutritionEntry?> Function(
+    NutritionEntry entry, {
+    double? quantityG,
+    String? mealType,
+  })
+  onUpdateEntry;
 
   /// Removes [entry] from the log. Returns true on success.
   final Future<bool> Function(NutritionEntry entry) onDeleteEntry;
@@ -45,6 +54,7 @@ class MealDetailSheet extends StatefulWidget {
 class _MealDetailSheetState extends State<MealDetailSheet> {
   late final List<NutritionEntry> _entries;
   int? _busyEntryId;
+  bool _movingAll = false;
 
   @override
   void initState() {
@@ -54,12 +64,79 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
 
   int get _totalKcal => _entries.fold<int>(0, (sum, e) => sum + e.kcal.round());
 
+  bool get _busy => _busyEntryId != null || _movingAll;
+
+  /// Prompts for a target meal, then moves every food in this meal to it. On
+  /// full success the meal is now empty, so the sheet closes; the parent reloads
+  /// the day. Partial failures keep the un-moved foods and surface a message.
+  Future<void> _moveAll() async {
+    final target = await _pickTargetMeal();
+    if (target == null || !mounted || _entries.isEmpty) return;
+    setState(() => _movingAll = true);
+    final moved = <NutritionEntry>[];
+    for (final entry in List.of(_entries)) {
+      final updated = await widget.onUpdateEntry(entry, mealType: target);
+      if (updated != null) moved.add(entry);
+      if (!mounted) return;
+    }
+    setState(() {
+      _movingAll = false;
+      _entries.removeWhere(moved.contains);
+    });
+    if (moved.isNotEmpty) HapticFeedback.mediumImpact();
+    if (_entries.isEmpty && mounted) {
+      Navigator.of(context).pop();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Some foods could not be moved.')),
+      );
+    }
+  }
+
+  /// A bottom sheet listing the meals other than this one; resolves to the chosen
+  /// `meal_type` name, or null if dismissed.
+  Future<String?> _pickTargetMeal() {
+    final targets = kMealTypeOptions
+        .where((o) => o.name != widget.mealTypeName)
+        .toList();
+    return showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Text(
+                  'Move all to…',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
+              for (final option in targets)
+                ListTile(
+                  leading: Icon(option.icon, color: scheme.primary),
+                  title: Text(option.label),
+                  onTap: () => Navigator.of(ctx).pop(option.name),
+                ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _editAmount(NutritionEntry entry) async {
     final result = await showAmountSheet(
       context: context,
       item: entry.foodItem,
       initialGrams: entry.quantityG,
       isEditing: true,
+      initialMealType: entry.mealType,
     );
     if (result == null || !mounted) return;
     if (result.removed) {
@@ -67,17 +144,36 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
       return;
     }
     final grams = result.grams;
-    if (grams == null || grams == entry.quantityG) return;
+    final mealType = result.mealType;
+    final gramsChanged = grams != null && grams != entry.quantityG;
+    final mealChanged = mealType != null && mealType != entry.mealType;
+    if (!gramsChanged && !mealChanged) return;
     setState(() => _busyEntryId = entry.id);
-    final updated = await widget.onUpdateQuantity(entry, grams);
+    final updated = await widget.onUpdateEntry(
+      entry,
+      quantityG: gramsChanged ? grams : null,
+      mealType: mealChanged ? mealType : null,
+    );
     if (!mounted) return;
     setState(() {
       _busyEntryId = null;
       if (updated != null) {
         final index = _entries.indexWhere((e) => e.id == entry.id);
-        if (index != -1) _entries[index] = updated;
+        if (index != -1) {
+          // Moving to another meal drops it from this meal's list; a plain
+          // amount edit updates it in place.
+          if (mealChanged) {
+            _entries.removeAt(index);
+          } else {
+            _entries[index] = updated;
+          }
+        }
       }
     });
+    if (mealChanged && updated != null) HapticFeedback.selectionClick();
+    if (_entries.isEmpty && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _delete(NutritionEntry entry, {bool confirm = true}) async {
@@ -158,6 +254,8 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                 label: widget.mealLabel,
                 totalKcal: _totalKcal,
                 itemCount: _entries.length,
+                moving: _movingAll,
+                onMoveAll: _busy || _entries.isEmpty ? null : _moveAll,
               ),
               Divider(
                 height: 1,
@@ -182,7 +280,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                           final entry = _entries[index];
                           return _EntryRow(
                             entry: entry,
-                            busy: _busyEntryId == entry.id,
+                            busy: _busyEntryId == entry.id || _movingAll,
                             onEdit: () => _editAmount(entry),
                             onDelete: () => _delete(entry),
                           );
@@ -231,12 +329,18 @@ class _Header extends StatelessWidget {
     required this.label,
     required this.totalKcal,
     required this.itemCount,
+    required this.moving,
+    required this.onMoveAll,
   });
 
   final IconData icon;
   final String label;
   final int totalKcal;
   final int itemCount;
+  final bool moving;
+
+  /// Opens the "move all to…" flow; null disables the action (e.g. mid-move).
+  final VoidCallback? onMoveAll;
 
   @override
   Widget build(BuildContext context) {
@@ -303,6 +407,23 @@ class _Header extends StatelessWidget {
               ),
             ],
           ),
+          if (moving)
+            const Padding(
+              padding: EdgeInsets.only(left: AppSpacing.sm),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+            )
+          else
+            IconButton(
+              onPressed: onMoveAll,
+              icon: const Icon(Icons.drive_file_move_outline),
+              iconSize: 22,
+              tooltip: 'Move all to another meal',
+              color: scheme.onSurfaceVariant,
+            ),
         ],
       ),
     );

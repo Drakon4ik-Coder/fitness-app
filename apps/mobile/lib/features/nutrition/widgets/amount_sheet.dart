@@ -133,25 +133,43 @@ class _FoodImageState extends State<FoodImage> {
 
 enum AmountUnit { pieces, servings, grams }
 
-/// Outcome of the amount bottom sheet: either a saved [grams] amount or a
-/// request to [removed] the item from the meal.
-class AmountResult {
-  const AmountResult._({this.grams, this.removed = false});
+/// The meal types an entry can be moved between, with their display label and
+/// icon (icons match the meal cards on the today page). Keyed by the backend
+/// `meal_type` name.
+const List<({String name, String label, IconData icon})> kMealTypeOptions = [
+  (name: 'breakfast', label: 'Breakfast', icon: Icons.breakfast_dining),
+  (name: 'lunch', label: 'Lunch', icon: Icons.lunch_dining),
+  (name: 'dinner', label: 'Dinner', icon: Icons.dinner_dining),
+  (name: 'snacks', label: 'Snacks', icon: Icons.emoji_food_beverage),
+];
 
-  factory AmountResult.save(double grams) => AmountResult._(grams: grams);
+/// Outcome of the amount bottom sheet: either a saved amount (with an optional
+/// [mealType] change when editing) or a request to [removed] the item.
+class AmountResult {
+  const AmountResult._({this.grams, this.mealType, this.removed = false});
+
+  factory AmountResult.save(double grams, {String? mealType}) =>
+      AmountResult._(grams: grams, mealType: mealType);
   factory AmountResult.remove() => const AmountResult._(removed: true);
 
   final double? grams;
+
+  /// The chosen `meal_type` name when editing (may equal the original — the
+  /// caller diffs); null in add mode where the meal is picked elsewhere.
+  final String? mealType;
   final bool removed;
 }
 
 /// Opens the amount editor as a modal bottom sheet and resolves with the user's
-/// choice ([AmountResult]) or null if they dismissed it.
+/// choice ([AmountResult]) or null if they dismissed it. When [initialMealType]
+/// is given (editing a logged entry), a meal-type selector is shown so the entry
+/// can be moved between meals.
 Future<AmountResult?> showAmountSheet({
   required BuildContext context,
   required FoodItem item,
   required double initialGrams,
   required bool isEditing,
+  String? initialMealType,
 }) {
   return showModalBottomSheet<AmountResult>(
     context: context,
@@ -162,6 +180,7 @@ Future<AmountResult?> showAmountSheet({
       item: item,
       initialGrams: initialGrams,
       isEditing: isEditing,
+      initialMealType: initialMealType,
     ),
   );
 }
@@ -172,11 +191,15 @@ class AmountSheet extends StatefulWidget {
     required this.item,
     required this.initialGrams,
     required this.isEditing,
+    this.initialMealType,
   });
 
   final FoodItem item;
   final double initialGrams;
   final bool isEditing;
+
+  /// The entry's current `meal_type` when editing; enables the meal selector.
+  final String? initialMealType;
 
   @override
   State<AmountSheet> createState() => _AmountSheetState();
@@ -186,6 +209,11 @@ class _AmountSheetState extends State<AmountSheet> {
   late final TextEditingController _controller;
   late AmountUnit _unit;
   bool _showAllNutrients = false;
+  // The selected meal type when editing; null in add mode (no selector shown).
+  late String? _mealType = widget.initialMealType;
+
+  bool get _showMealSelector =>
+      widget.isEditing && widget.initialMealType != null;
 
   double? get _serving {
     final serving = widget.item.servingSizeG;
@@ -297,7 +325,9 @@ class _AmountSheetState extends State<AmountSheet> {
   void _submit() {
     final grams = _grams;
     if (grams == null) return;
-    Navigator.of(context).pop(AmountResult.save(grams));
+    Navigator.of(context).pop(
+      AmountResult.save(grams, mealType: _showMealSelector ? _mealType : null),
+    );
   }
 
   @override
@@ -394,6 +424,50 @@ class _AmountSheetState extends State<AmountSheet> {
               ],
             ),
             const SizedBox(height: AppSpacing.lg),
+
+            // Meal selector (editing only) — lets the user move a logged entry
+            // to a different meal, e.g. fixing a mis-suggested meal type.
+            if (_showMealSelector) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'MEAL',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.onSurfaceVariant,
+                    letterSpacing: 1.5,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: kMealTypeOptions.map((option) {
+                  final selected = option.name == _mealType;
+                  return ChoiceChip(
+                    label: Text(option.label),
+                    avatar: Icon(
+                      option.icon,
+                      size: 18,
+                      color: selected ? scheme.onPrimary : scheme.onSurface,
+                    ),
+                    selected: selected,
+                    showCheckmark: false,
+                    onSelected: (_) => setState(() => _mealType = option.name),
+                    backgroundColor: scheme.surfaceContainerLow,
+                    selectedColor: scheme.primary,
+                    labelStyle: theme.textTheme.labelLarge?.copyWith(
+                      color: selected ? scheme.onPrimary : scheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    side: BorderSide.none,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
 
             // Unit toggle (shown when more than one unit is available, e.g. a
             // food counted in pieces or with a known serving size).

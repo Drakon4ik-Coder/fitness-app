@@ -68,6 +68,30 @@ def test_patch_entry_updates_quantity_and_recomputes_kcal() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_patch_entry_changes_meal_type() -> None:
+    client, user = _auth_client()
+    entry = MealEntry.objects.create(
+        user=user,
+        food_item=_food(),
+        meal_type=MealEntry.MEAL_BREAKFAST,
+        consumed_at=timezone.now(),
+        quantity_g=Decimal("100"),
+    )
+
+    response = client.patch(
+        f"/api/v1/nutrition/entries/{entry.id}",
+        {"meal_type": MealEntry.MEAL_LUNCH},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["meal_type"] == MealEntry.MEAL_LUNCH
+    entry.refresh_from_db()
+    assert entry.meal_type == MealEntry.MEAL_LUNCH
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_patch_entry_rejects_non_positive_quantity() -> None:
     client, user = _auth_client()
     entry = MealEntry.objects.create(

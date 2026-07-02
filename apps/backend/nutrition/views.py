@@ -92,9 +92,17 @@ class MealEntryDetailView(APIView):
     )
     def patch(self, request: Request, pk: int) -> Response:
         entry = self._get_entry(request, pk)
+        previous_meal_type = entry.meal_type
         serializer = MealEntryUpdateSerializer(entry, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         entry = serializer.save()
+        # Moving an entry to a different meal changes the learned meal-time
+        # histogram, so drop the cached stats to force a recompute (mirrors the
+        # create path). Best-effort; only when the meal type actually changed.
+        if entry.meal_type != previous_meal_type:
+            cache.delete(
+                meal_times_cache_key(entry.user_id, str(_user_zone(request.user)))
+            )
         return Response(MealEntrySerializer(entry, context={"request": request}).data)
 
     @extend_schema(

@@ -111,6 +111,7 @@ void main() {
         home: Scaffold(
           body: MealDetailSheet(
             mealLabel: 'Breakfast',
+            mealTypeName: 'breakfast',
             mealIcon: Icons.breakfast_dining,
             entries: [
               _entry({
@@ -119,7 +120,7 @@ void main() {
                 'vitamin-c_unit': 'mg',
               }),
             ],
-            onUpdateQuantity: (_, _) async => null,
+            onUpdateEntry: (_, {quantityG, mealType}) async => null,
             onDeleteEntry: (_) async => true,
             onAddMore: () {},
           ),
