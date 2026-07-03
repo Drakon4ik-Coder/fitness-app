@@ -18,6 +18,7 @@ import 'data/nutrition_day_cache.dart';
 import 'data/off_client.dart';
 import 'data/user_preferences.dart';
 import 'widgets/meal_detail_sheet.dart';
+import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 
 class NutritionTodayPage extends StatefulWidget {
   const NutritionTodayPage({
@@ -103,15 +104,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   int get _calorieGoal =>
       widget.preferences?.calorieGoal ?? kDefaultCalorieGoal;
 
-  /// The daily target for a macro, read from the resolved catalog so the today
-  /// page and the full breakdown never disagree. Falls back to [fallback] only
-  /// if the key somehow isn't in the catalog.
-  int _macroGoal(String key, int fallback) {
-    for (final spec in _catalog) {
-      if (spec.key == key) return spec.dailyTarget.round();
-    }
-    return fallback;
-  }
+  /// The user's focus nutrients resolved against the goal-adjusted catalog, so
+  /// each tile's target already reflects any personalized goal.
+  List<NutrientSpec> get _focusSpecs =>
+      resolveFocusSpecs(widget.preferences?.focusNutrients, base: _catalog);
 
   /// Logs out, first wiping the local day cache so the next user on this device
   /// can't briefly see the previous user's log (the cache isn't per-user).
@@ -328,6 +324,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           onLogout: _handleLogout,
           selectedDate: _selectedDate,
           initialMeal: meal,
+          focusSpecs: _focusSpecs,
         ),
       ),
     );
@@ -357,6 +354,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         mealTypeName: meal.mealType.name,
         mealIcon: meal.icon,
         entries: meal.entries,
+        focusSpecs: _focusSpecs,
         onUpdateEntry: (entry, {quantityG, mealType}) =>
             _updateEntry(entry, quantityG: quantityG, mealType: mealType),
         onDeleteEntry: (entry) => _deleteEntry(entry),
@@ -432,39 +430,61 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     }
   }
 
-  List<_MacroSummary> _buildMacroSummaries(NutritionTotals? totals) {
-    final carbs = totals?.carbsG.round() ?? 0;
-    final fat = totals?.fatG.round() ?? 0;
-    final protein = totals?.proteinG.round() ?? 0;
+  /// One summary per focus nutrient, in the user's chosen order. Amounts come
+  /// from the server's per-day nutrients map; the classic macros fall back to
+  /// the totals block (older cached payloads lack the map), and anything else
+  /// falls back to a client-side aggregate over the day's entries. A null
+  /// amount means foods were logged but none reported the nutrient ("no data");
+  /// an empty day reads as a plain 0 so a fresh morning isn't full of dashes.
+  List<_FocusSummary> _buildFocusSummaries(NutritionTotals? totals) {
+    final specs = _focusSpecs;
+    final entries =
+        _dayLog?.meals.values.expand((list) => list).toList() ??
+        const <NutritionEntry>[];
+
+    Map<String, NutrientTotal>? aggregated;
+    if (_dayLog?.nutrients == null && entries.isNotEmpty) {
+      aggregated = {
+        for (final total in aggregateNutrients(entries, catalog: specs))
+          total.spec.key: total,
+      };
+    }
+
     return [
-      _MacroSummary(
-        type: MacroType.protein,
-        label: 'Protein',
-        current: protein,
-        goal: _macroGoal('protein', 150),
-        incomplete: _macroIncomplete('protein'),
-      ),
-      _MacroSummary(
-        type: MacroType.carbs,
-        label: 'Carbs',
-        current: carbs,
-        goal: _macroGoal('carbs', 260),
-        incomplete: _macroIncomplete('carbs'),
-      ),
-      _MacroSummary(
-        type: MacroType.fat,
-        label: 'Fat',
-        current: fat,
-        goal: _macroGoal('fat', 70),
-        incomplete: _macroIncomplete('fat'),
-      ),
+      for (final spec in specs)
+        () {
+          double? amount = _serverAmount(spec.key);
+          amount ??= switch (spec.key) {
+            'protein' => totals?.proteinG,
+            'carbs' => totals?.carbsG,
+            'fat' => totals?.fatG,
+            _ => aggregated?[spec.key]?.amount,
+          };
+          if (amount == null && entries.isEmpty) amount = 0;
+          final incomplete =
+              _nutrientIncomplete(spec.key) ||
+              (aggregated?[spec.key]?.isIncomplete ?? false);
+          return _FocusSummary(
+            spec: spec,
+            amount: amount,
+            incomplete: incomplete,
+          );
+        }(),
     ];
   }
 
-  /// Whether a macro's day total is a floor: some — but not all — of the day's
-  /// foods reported it, so the total silently omits the rest. Read from the
-  /// server's per-nutrient reported/total counts; false when unavailable.
-  bool _macroIncomplete(String key) {
+  /// The day amount for [key] from the server's per-day nutrients map, or null
+  /// when the map is absent or carries no data for it.
+  double? _serverAmount(String key) {
+    final raw = _dayLog?.nutrients?[key];
+    if (raw is! Map) return null;
+    return (raw['amount'] as num?)?.toDouble();
+  }
+
+  /// Whether a nutrient's day total is a floor: some — but not all — of the
+  /// day's foods reported it, so the total silently omits the rest. Read from
+  /// the server's per-nutrient reported/total counts; false when unavailable.
+  bool _nutrientIncomplete(String key) {
     final raw = _dayLog?.nutrients?[key];
     if (raw is! Map) return false;
     final total = (raw['total'] as num?)?.toInt();
@@ -528,7 +548,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final Color ringColor = kcalOver
         ? LuminaHealthColors.warning
         : scheme.primary;
-    final macroSummaries = _buildMacroSummaries(totals);
+    final focusSummaries = _buildFocusSummaries(totals);
     final mealSummaries = _buildMealSummaries();
     final isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
 
@@ -847,108 +867,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           ],
                         ),
                         padding: const EdgeInsets.all(AppSpacing.md),
-                        child: Row(
-                          children: macroSummaries.map((macro) {
-                            final accent = _macroAccent(macro.type);
-                            final over = macro.current - macro.goal;
-                            // A floor total's over/left is unreliable, so the
-                            // incomplete hint takes precedence over over-limit.
-                            final incomplete = macro.incomplete;
-                            final isOver = !incomplete && over > 0;
-                            final progress = macro.goal > 0
-                                ? (macro.current / macro.goal).clamp(0.0, 1.0)
-                                : 0.0;
-                            final treatment = isOver
-                                ? _macroOverTreatment(macro.type)
-                                : null;
-                            final barColor = incomplete
-                                ? accent.withValues(alpha: 0.35)
-                                : treatment?.barColor ?? accent;
-                            final valueColor = incomplete
-                                ? scheme.onSurfaceVariant
-                                : treatment?.textColor ?? accent;
-                            final valueText =
-                                '${incomplete ? '~' : ''}${macro.current}g';
-                            final statusText = incomplete
-                                ? 'incomplete'
-                                : isOver
-                                    ? '+${over}g ${treatment!.suffix}'
-                                    : '${macro.goal - macro.current}g left';
-                            final statusColor = incomplete
-                                ? scheme.onSurfaceVariant
-                                : treatment?.textColor ??
-                                    scheme.onSurface.withValues(alpha: 0.6);
-                            return Expanded(
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                  left: macro == macroSummaries.first
-                                      ? 0
-                                      : AppSpacing.sm,
-                                  right: macro == macroSummaries.last
-                                      ? 0
-                                      : AppSpacing.sm,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          macro.label.toUpperCase(),
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: scheme.onSurfaceVariant,
-                                                letterSpacing: -0.5,
-                                                fontSize: 10,
-                                              ),
-                                        ),
-                                        Text(
-                                          valueText,
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: valueColor,
-                                                fontSize: 10,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: AppSpacing.xs),
-                                    LinearProgressIndicator(
-                                      value: progress.toDouble(),
-                                      backgroundColor:
-                                          scheme.surfaceContainerHighest,
-                                      color: barColor,
-                                      minHeight: 6,
-                                      borderRadius: BorderRadius.circular(9999),
-                                    ),
-                                    const SizedBox(height: AppSpacing.xs),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: Text(
-                                        statusText,
-                                        style: theme.textTheme.labelSmall
-                                            ?.copyWith(
-                                              color: statusColor,
-                                              fontSize: 10,
-                                              fontWeight: isOver
-                                                  ? FontWeight.bold
-                                                  : null,
-                                              fontStyle: incomplete
-                                                  ? FontStyle.italic
-                                                  : null,
-                                            ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
+                        child: _buildFocusLayout(context, focusSummaries),
                       ),
                     ),
                   ),
@@ -1056,43 +975,162 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     );
   }
 
-  Color _macroAccent(MacroType type) {
-    switch (type) {
-      case MacroType.protein:
-        return LuminaHealthColors.primary;
-      case MacroType.carbs:
-        return LuminaHealthColors.secondary;
-      case MacroType.fat:
-        return LuminaHealthColors.tertiary;
+  /// The focus tiles laid out for the card: a single row for up to three, a
+  /// 2×2 grid for four (four labels + values in one row would be cramped).
+  /// Slot accents come from [LuminaHealthColors.focusAccents] so the card
+  /// matches the amount-sheet pills and add-meal summary.
+  Widget _buildFocusLayout(
+    BuildContext context,
+    List<_FocusSummary> summaries,
+  ) {
+    final tiles = [
+      for (var i = 0; i < summaries.length; i++)
+        Expanded(
+          child: _buildFocusTile(
+            context,
+            summaries[i],
+            LuminaHealthColors.focusAccents[i %
+                LuminaHealthColors.focusAccents.length],
+          ),
+        ),
+    ];
+    const gap = SizedBox(width: AppSpacing.md);
+    if (tiles.length <= 3) {
+      return Row(
+        children: [
+          for (var i = 0; i < tiles.length; i++) ...[if (i > 0) gap, tiles[i]],
+        ],
+      );
     }
+    return Column(
+      children: [
+        Row(children: [tiles[0], gap, tiles[1]]),
+        const SizedBox(height: AppSpacing.md),
+        Row(children: [tiles[2], gap, tiles[3]]),
+      ],
+    );
   }
 
-  // How each macro reads once its goal is exceeded. The semantics differ per
-  // nutrient: hitting protein is a goal to celebrate, going over fat is a
-  // cautionary warning, and exceeding carbs is neutral information.
-  ({Color textColor, Color barColor, String suffix}) _macroOverTreatment(
-    MacroType type,
+  // How a nutrient reads once its goal is exceeded. Cautionary nutrients
+  // (sugars, sodium, ... and fat, historically) warn; carbs over is neutral
+  // information; everything else — protein, fiber, vitamins, minerals — hit
+  // their target, which is the goal, so they celebrate.
+  ({Color textColor, Color barColor, String suffix}) _overTreatment(
+    NutrientSpec spec,
+    Color accent,
   ) {
-    switch (type) {
-      case MacroType.protein:
-        return (
-          textColor: LuminaHealthColors.primary,
-          barColor: LuminaHealthColors.primary,
-          suffix: '✓',
-        );
-      case MacroType.fat:
-        return (
-          textColor: LuminaHealthColors.warning,
-          barColor: LuminaHealthColors.warning,
-          suffix: 'over',
-        );
-      case MacroType.carbs:
-        return (
-          textColor: LuminaHealthColors.onSurfaceVariant,
-          barColor: LuminaHealthColors.secondary,
-          suffix: 'over',
-        );
+    if (spec.overIsBad || spec.key == 'fat') {
+      return (
+        textColor: LuminaHealthColors.warning,
+        barColor: LuminaHealthColors.warning,
+        suffix: 'over',
+      );
     }
+    if (spec.key == 'carbs') {
+      return (
+        textColor: LuminaHealthColors.onSurfaceVariant,
+        barColor: accent,
+        suffix: 'over',
+      );
+    }
+    return (textColor: accent, barColor: accent, suffix: '✓');
+  }
+
+  Widget _buildFocusTile(
+    BuildContext context,
+    _FocusSummary summary,
+    Color accent,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final spec = summary.spec;
+    // Grams read as "150g"; other units keep a thin space ("320 mg").
+    final unit = spec.unit == 'g' ? 'g' : ' ${spec.unit}';
+
+    final amount = summary.amount;
+    final noData = amount == null;
+    final goal = spec.dailyTarget;
+    final over = noData ? 0.0 : amount - goal;
+    // A floor total's over/left is unreliable, so the incomplete hint takes
+    // precedence over over-limit.
+    final incomplete = !noData && summary.incomplete;
+    final isOver = !noData && !incomplete && over > 0;
+    final progress = noData || goal <= 0
+        ? 0.0
+        : (amount / goal).clamp(0.0, 1.0).toDouble();
+    final treatment = isOver ? _overTreatment(spec, accent) : null;
+    final barColor = incomplete
+        ? accent.withValues(alpha: 0.35)
+        : treatment?.barColor ?? accent;
+    final valueColor = noData || incomplete
+        ? scheme.onSurfaceVariant
+        : treatment?.textColor ?? accent;
+    final valueText = noData
+        ? '—'
+        : '${incomplete ? '~' : ''}${formatNutrientValue(amount)}$unit';
+    final statusText = noData
+        ? 'no data'
+        : incomplete
+        ? 'incomplete'
+        : isOver
+        ? '+${formatNutrientValue(over)}$unit ${treatment!.suffix}'
+        : '${formatNutrientValue(goal - amount)}$unit left';
+    final statusColor = noData || incomplete
+        ? scheme.onSurfaceVariant
+        : treatment?.textColor ?? scheme.onSurface.withValues(alpha: 0.6);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                spec.label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onSurfaceVariant,
+                  letterSpacing: -0.5,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+            Text(
+              valueText,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: valueColor,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        LinearProgressIndicator(
+          value: progress,
+          backgroundColor: scheme.surfaceContainerHighest,
+          color: barColor,
+          minHeight: 6,
+          borderRadius: BorderRadius.circular(9999),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            statusText,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: statusColor,
+              fontSize: 10,
+              fontWeight: isOver ? FontWeight.bold : null,
+              fontStyle: incomplete || noData ? FontStyle.italic : null,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1210,23 +1248,19 @@ class _MealCard extends StatelessWidget {
 
 const int _burnedKcal = 0;
 
-enum MacroType { carbs, fat, protein }
-
-class _MacroSummary {
-  const _MacroSummary({
-    required this.type,
-    required this.label,
-    required this.current,
-    required this.goal,
+/// One focus nutrient's day state. [amount] is in the spec's canonical unit;
+/// null means foods were logged but none reported this nutrient.
+class _FocusSummary {
+  const _FocusSummary({
+    required this.spec,
+    required this.amount,
     this.incomplete = false,
   });
 
-  final MacroType type;
-  final String label;
-  final int current;
-  final int goal;
+  final NutrientSpec spec;
+  final double? amount;
 
-  /// The total is a floor — some of the day's foods didn't report this macro.
+  /// The total is a floor — some of the day's foods didn't report it.
   final bool incomplete;
 }
 

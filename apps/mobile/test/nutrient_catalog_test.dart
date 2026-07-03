@@ -426,4 +426,49 @@ void main() {
       expect(_find(totals, 'protein').progress, closeTo(0.5, 1e-9));
     });
   });
+
+  group('resolveFocusSpecs', () {
+    List<String> keys(List<NutrientSpec> specs) => [
+      for (final spec in specs) spec.key,
+    ];
+
+    test('null or empty selections fall back to the default trio', () {
+      expect(keys(resolveFocusSpecs(null)), kDefaultFocusNutrients);
+      expect(keys(resolveFocusSpecs(const [])), kDefaultFocusNutrients);
+    });
+
+    test('keeps the user order and drops unknown keys', () {
+      final resolved = resolveFocusSpecs(const [
+        'fiber',
+        'unobtanium',
+        'protein',
+      ]);
+      expect(keys(resolved), ['fiber', 'protein']);
+    });
+
+    test('an all-invalid selection falls back to the default trio', () {
+      expect(
+        keys(resolveFocusSpecs(const ['unobtanium'])),
+        kDefaultFocusNutrients,
+      );
+    });
+
+    test('caps the selection at $kMaxFocusNutrients', () {
+      final resolved = resolveFocusSpecs(const [
+        'protein',
+        'carbs',
+        'fat',
+        'fiber',
+        'sugars',
+      ]);
+      expect(resolved.length, kMaxFocusNutrients);
+    });
+
+    test('resolves against a goal-adjusted base catalog', () {
+      final resolved = resolveFocusSpecs(const [
+        'protein',
+      ], base: resolveCatalog({'protein': 42}));
+      expect(resolved.single.dailyTarget, 42);
+    });
+  });
 }

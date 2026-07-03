@@ -51,6 +51,10 @@ class UserPreferences(models.Model):
     # anything absent falls back to the client's catalog default. Values are in the
     # catalog's canonical unit for that nutrient.
     nutrient_goals = models.JSONField(default=dict, blank=True)
+    # Ordered list of nutrient catalog keys the user wants highlighted on the
+    # today page (max 4). Empty means the client default (protein, carbs,
+    # fat). Order is display order.
+    focus_nutrients = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

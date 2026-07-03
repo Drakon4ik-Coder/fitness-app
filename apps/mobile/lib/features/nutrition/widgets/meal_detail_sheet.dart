@@ -22,6 +22,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.onUpdateEntry,
     required this.onDeleteEntry,
     required this.onAddMore,
+    this.focusSpecs,
   });
 
   final String mealLabel;
@@ -46,6 +47,10 @@ class MealDetailSheet extends StatefulWidget {
 
   /// Closes the sheet and opens add-food scoped to this meal.
   final VoidCallback onAddMore;
+
+  /// The user's focus nutrients, forwarded to the amount sheet so its preview
+  /// pills match the today page. Null falls back to the default trio.
+  final List<NutrientSpec>? focusSpecs;
 
   @override
   State<MealDetailSheet> createState() => _MealDetailSheetState();
@@ -137,6 +142,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
       initialGrams: entry.quantityG,
       isEditing: true,
       initialMealType: entry.mealType,
+      focusSpecs: widget.focusSpecs,
     );
     if (result == null || !mounted) return;
     if (result.removed) {

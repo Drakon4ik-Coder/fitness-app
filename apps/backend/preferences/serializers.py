@@ -21,6 +21,7 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             "daily_calorie_goal",
             "weekly_workouts_goal",
             "nutrient_goals",
+            "focus_nutrients",
         )
 
     def validate_nutrient_goals(self, value: object) -> dict:
@@ -37,4 +38,18 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
                     f"Goal for '{key}' must be greater than 0."
                 )
             cleaned[key] = float(raw)
+        return cleaned
+
+    def validate_focus_nutrients(self, value: object) -> list:
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Expected a list of nutrient keys.")
+        cleaned: list[str] = []
+        for key in value:
+            if not isinstance(key, str) or key not in _CATALOG_KEYS:
+                raise serializers.ValidationError(f"Unknown nutrient '{key}'.")
+            if key in cleaned:
+                raise serializers.ValidationError(f"Duplicate nutrient '{key}'.")
+            cleaned.append(key)
+        if len(cleaned) > 4:
+            raise serializers.ValidationError("At most 4 focus nutrients are allowed.")
         return cleaned

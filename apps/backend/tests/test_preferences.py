@@ -122,6 +122,60 @@ def test_patch_rejects_non_positive_goal() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_focus_nutrients_default_is_empty() -> None:
+    client, _ = _auth_client()
+
+    response = client.get("/api/v1/preferences/")
+
+    assert response.status_code == 200
+    assert response.data["focus_nutrients"] == []
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_persists_focus_nutrients_in_order() -> None:
+    client, user = _auth_client()
+
+    response = client.patch(
+        "/api/v1/preferences/",
+        {"focus_nutrients": ["fiber", "protein", "sugars", "sodium"]},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["focus_nutrients"] == ["fiber", "protein", "sugars", "sodium"]
+    prefs = UserPreferences.objects.get(user=user)
+    assert prefs.focus_nutrients == ["fiber", "protein", "sugars", "sodium"]
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_rejects_bad_focus_nutrients() -> None:
+    client, _ = _auth_client()
+
+    too_many = client.patch(
+        "/api/v1/preferences/",
+        {"focus_nutrients": ["protein", "carbs", "fat", "fiber", "sugars"]},
+        format="json",
+    )
+    unknown = client.patch(
+        "/api/v1/preferences/",
+        {"focus_nutrients": ["unobtanium"]},
+        format="json",
+    )
+    duplicate = client.patch(
+        "/api/v1/preferences/",
+        {"focus_nutrients": ["protein", "protein"]},
+        format="json",
+    )
+
+    assert too_many.status_code == 400
+    assert unknown.status_code == 400
+    assert duplicate.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_requires_authentication() -> None:
     response = APIClient().get("/api/v1/preferences/")
 

@@ -59,6 +59,7 @@ class PreferencesApiService {
     String? energyUnit,
     int? calorieGoal,
     Map<String, double>? nutrientGoals,
+    List<String>? focusNutrients,
   }) async {
     final body = <String, dynamic>{
       if (weightUnit != null) 'weight_unit': weightUnit,
@@ -66,6 +67,7 @@ class PreferencesApiService {
       if (energyUnit != null) 'energy_unit': energyUnit,
       if (calorieGoal != null) 'daily_calorie_goal': calorieGoal,
       if (nutrientGoals != null) 'nutrient_goals': nutrientGoals,
+      if (focusNutrients != null) 'focus_nutrients': focusNutrients,
     };
     try {
       final response = await _dio.patch<Map<String, dynamic>>(

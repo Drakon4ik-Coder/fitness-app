@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
+import 'package:fitness_app/features/nutrition/data/nutrient_catalog.dart';
 import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
@@ -18,7 +19,11 @@ FoodItem _food({Map<String, dynamic>? nutriments}) => FoodItem(
       nutrimentsJson: nutriments,
     );
 
-Future<void> _pumpSheet(WidgetTester tester, FoodItem item) async {
+Future<void> _pumpSheet(
+  WidgetTester tester,
+  FoodItem item, {
+  List<NutrientSpec>? focusSpecs,
+}) async {
   tester.view.physicalSize = const Size(1200, 3200);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -27,7 +32,12 @@ Future<void> _pumpSheet(WidgetTester tester, FoodItem item) async {
     MaterialApp(
       theme: LuminaHealthTheme.dark(),
       home: Scaffold(
-        body: AmountSheet(item: item, initialGrams: 100, isEditing: false),
+        body: AmountSheet(
+          item: item,
+          initialGrams: 100,
+          isEditing: false,
+          focusSpecs: focusSpecs,
+        ),
       ),
     ),
   );
@@ -63,5 +73,39 @@ void main() {
       (tester) async {
     await _pumpSheet(tester, _food(nutriments: null));
     expect(find.text('View nutrition facts'), findsNothing);
+  });
+
+  testWidgets('preview pills default to the macro trio from column data',
+      (tester) async {
+    // No nutriments blob — the classic macros fall back to the flat columns.
+    await _pumpSheet(tester, _food(nutriments: null));
+
+    expect(find.text('P'), findsOneWidget);
+    expect(find.text('C'), findsOneWidget);
+    expect(find.text('F'), findsOneWidget);
+    // 100 g of 1 / 10 / 0 per-100g.
+    expect(find.text('1g'), findsOneWidget);
+    expect(find.text('10g'), findsOneWidget);
+    expect(find.text('0g'), findsOneWidget);
+  });
+
+  testWidgets('preview pills follow the provided focus nutrients',
+      (tester) async {
+    await _pumpSheet(
+      tester,
+      _food(nutriments: {'fiber_100g': 5, 'sodium_100g': 0.4}),
+      focusSpecs: resolveFocusSpecs(const ['fiber', 'sodium', 'vitamin_c']),
+    );
+
+    // Fiber: 5 g. Sodium: 0.4 g (grams assumed) -> 400 mg, in its own unit.
+    expect(find.text('Fib'), findsOneWidget);
+    expect(find.text('5g'), findsOneWidget);
+    expect(find.text('Na'), findsOneWidget);
+    expect(find.text('400 mg'), findsOneWidget);
+    // Vitamin C has no data for this food -> dash, not a misleading 0.
+    expect(find.text('Vit C'), findsOneWidget);
+    expect(find.text('—'), findsOneWidget);
+    // The default trio is replaced.
+    expect(find.text('P'), findsNothing);
   });
 }

@@ -290,6 +290,88 @@ void main() {
     expect(find.textContaining('Casey'), findsOneWidget);
   });
 
+  testWidgets('focus page enforces the 4-pick limit and saves the order', (
+    tester,
+  ) async {
+    enlargeView(tester);
+
+    Map<String, dynamic>? patchedPrefsBody;
+
+    final prefsDio = _stubDio((options, handler) {
+      if (options.method == 'PATCH') {
+        patchedPrefsBody = Map<String, dynamic>.from(options.data as Map);
+      }
+      handler.resolve(
+        Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: {
+            'weight_unit': 'kg',
+            'height_unit': 'cm',
+            'energy_unit': 'kcal',
+            'focus_nutrients': ['protein', 'fat', 'fiber', 'sugars'],
+          },
+        ),
+      );
+    });
+
+    UserPreferences? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: AccountPage(
+          accessToken: 'token',
+          preferencesApi: PreferencesApiService(
+            accessToken: 'token',
+            dio: prefsDio,
+          ),
+          authService: AuthService(dio: authStub()),
+          onLogout: () async {},
+          initialPreferences: const UserPreferences(),
+          onSaved: (prefs) => saved = prefs,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The hub row summarizes the default trio.
+    expect(find.text('Focus nutrients'), findsOneWidget);
+    expect(find.text('Protein · Carbs · Fat'), findsOneWidget);
+
+    await tester.tap(find.text('Focus nutrients'));
+    await tester.pumpAndSettle();
+
+    // Defaults are pre-selected: swap carbs out, add fiber and sugars.
+    await tester.tap(find.byKey(const Key('focusChoice_carbs')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('focusChoice_fiber')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('focusChoice_sugars')));
+    await tester.pump();
+
+    // At the limit of 4, unselected chips are disabled.
+    expect(find.text('4 of 4'), findsOneWidget);
+    final saltChip = tester.widget<FilterChip>(
+      find.byKey(const Key('focusChoice_salt')),
+    );
+    expect(saltChip.onSelected, isNull);
+
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    // Tap order becomes display order in the PATCH and the saved snapshot.
+    expect(patchedPrefsBody, isNotNull);
+    expect(patchedPrefsBody!['focus_nutrients'], [
+      'protein',
+      'fat',
+      'fiber',
+      'sugars',
+    ]);
+    expect(saved?.focusNutrients, ['protein', 'fat', 'fiber', 'sugars']);
+    // Back on the hub with the summary refreshed.
+    expect(find.text('Protein · Fat · Fiber · Sugars'), findsOneWidget);
+  });
+
   testWidgets('backing out of a dirty goals page asks before discarding', (
     tester,
   ) async {

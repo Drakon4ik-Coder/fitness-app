@@ -8,6 +8,7 @@ import '../../ui_system/tokens.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/preferences_api_service.dart';
 import 'data/user_preferences.dart';
+import 'settings/focus_nutrients_settings_page.dart';
 import 'settings/goals_settings_page.dart';
 import 'settings/profile_settings_page.dart';
 import 'settings/units_settings_page.dart';
@@ -141,6 +142,18 @@ class _AccountPageState extends State<AccountPage> {
     if (updated != null && mounted) _applyUpdatedPrefs(updated);
   }
 
+  Future<void> _openFocusNutrients() async {
+    final updated = await Navigator.of(context).push<UserPreferences>(
+      MaterialPageRoute(
+        builder: (_) => FocusNutrientsSettingsPage(
+          preferencesApi: widget.preferencesApi,
+          initialPreferences: _prefs,
+        ),
+      ),
+    );
+    if (updated != null && mounted) _applyUpdatedPrefs(updated);
+  }
+
   String get _profileSummary {
     if (_displayName.isEmpty && _email.isEmpty) return 'Name and email';
     if (_displayName.isEmpty) return _email;
@@ -162,6 +175,11 @@ class _AccountPageState extends State<AccountPage> {
     final custom = p.nutrientGoals.length;
     if (custom == 0) return calories;
     return '$calories · $custom custom';
+  }
+
+  String get _focusSummary {
+    final specs = resolveFocusSpecs(_prefs.focusNutrients);
+    return specs.map((spec) => spec.label).join(' · ');
   }
 
   Future<void> _confirmLogout() async {
@@ -235,6 +253,12 @@ class _AccountPageState extends State<AccountPage> {
                   title: 'Daily goals',
                   subtitle: _goalsSummary,
                   onTap: _openGoals,
+                ),
+                _SettingsTile(
+                  icon: Icons.track_changes,
+                  title: 'Focus nutrients',
+                  subtitle: _focusSummary,
+                  onTap: _openFocusNutrients,
                 ),
               ],
             ),

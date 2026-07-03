@@ -189,6 +189,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
           description: ''
+    patch:
+      operationId: v1_auth_me_partial_update
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
   /api/v1/auth/password-reset:
     post:
       operationId: v1_auth_password_reset_create
@@ -486,6 +510,133 @@ paths:
           description: Invalid payload
         '401':
           description: Unauthorized
+  /api/v1/nutrition/entries/{id}:
+    patch:
+      operationId: v1_nutrition_entries_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMealEntryUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMealEntryUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMealEntryUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntry'
+          description: ''
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+        '404':
+          description: Entry not found
+    delete:
+      operationId: v1_nutrition_entries_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Entry deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Entry not found
+  /api/v1/nutrition/meal-times:
+    get:
+      operationId: v1_nutrition_meal_times_retrieve
+      description: |-
+        Per-user typical meal times, learned from recent logging history.
+
+        Powers the app's smart meal-type guess: the client centers each meal's
+        window on the user's own median time, falling back to population defaults
+        for any meal it hasn't seen enough of. The result is cached per user since
+        it changes only slowly (see MEAL_TIMES_CACHE_TTL).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealTimes'
+          description: ''
+        '401':
+          description: Unauthorized
+  /api/v1/preferences/:
+    get:
+      operationId: v1_preferences_retrieve
+      description: |-
+        The signed-in user's preferences: unit choices and daily goals.
+
+        A row is created on registration, but ``get_or_create`` here keeps the
+        endpoint robust for accounts predating that (e.g. seeded/imported users).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+          description: ''
+    patch:
+      operationId: v1_preferences_partial_update
+      description: |-
+        The signed-in user's preferences: unit choices and daily goals.
+
+        A row is created on registration, but ``get_or_create`` here keeps the
+        endpoint robust for accounts predating that (e.g. seeded/imported users).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserPreferences'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserPreferences'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserPreferences'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+          description: ''
 components:
   schemas:
     EmailVerifiedTokenObtainPair:
@@ -500,6 +651,14 @@ components:
       required:
       - email
       - password
+    EnergyUnitEnum:
+      enum:
+      - kcal
+      - kj
+      type: string
+      description: |-
+        * `kcal` - kcal
+        * `kj` - kj
     FoodItem:
       type: object
       properties:
@@ -734,6 +893,14 @@ components:
           type: string
       required:
       - id_token
+    HeightUnitEnum:
+      enum:
+      - cm
+      - in
+      type: string
+      description: |-
+        * `cm` - cm
+        * `in` - in
     MealEntry:
       type: object
       properties:
@@ -750,7 +917,7 @@ components:
           format: decimal
           pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
         food_item:
-          $ref: '#/components/schemas/FoodItemCompact'
+          $ref: '#/components/schemas/FoodItem'
         kcal:
           type: number
           format: double
@@ -778,6 +945,30 @@ components:
       - food_item_id
       - meal_type
       - quantity_g
+    MealTimeStat:
+      type: object
+      properties:
+        typical_hour:
+          type: number
+          format: double
+        half_width:
+          type: number
+          format: double
+        sample_count:
+          type: integer
+      required:
+      - half_width
+      - sample_count
+      - typical_hour
+    MealTimes:
+      type: object
+      properties:
+        meal_times:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MealTimeStat'
+      required:
+      - meal_times
     MealTypeEnum:
       enum:
       - breakfast
@@ -790,6 +981,26 @@ components:
         * `lunch` - Lunch
         * `dinner` - Dinner
         * `snacks` - Snacks
+    NutrientAmount:
+      type: object
+      properties:
+        amount:
+          type: number
+          format: double
+        unit:
+          type: string
+        group:
+          type: string
+        reported:
+          type: integer
+        total:
+          type: integer
+      required:
+      - amount
+      - group
+      - reported
+      - total
+      - unit
     NutritionDay:
       type: object
       properties:
@@ -798,11 +1009,16 @@ components:
           format: date
         totals:
           $ref: '#/components/schemas/NutritionTotals'
+        nutrients:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/NutrientAmount'
         meals:
           $ref: '#/components/schemas/NutritionMeals'
       required:
       - date
       - meals
+      - nutrients
       - totals
     NutritionMeals:
       type: object
@@ -856,6 +1072,49 @@ components:
           format: email
       required:
       - email
+    PatchedMealEntryUpdate:
+      type: object
+      properties:
+        meal_type:
+          $ref: '#/components/schemas/MealTypeEnum'
+        quantity_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+    PatchedUserPreferences:
+      type: object
+      properties:
+        weight_unit:
+          $ref: '#/components/schemas/WeightUnitEnum'
+        height_unit:
+          $ref: '#/components/schemas/HeightUnitEnum'
+        energy_unit:
+          $ref: '#/components/schemas/EnergyUnitEnum'
+        daily_calorie_goal:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        weekly_workouts_goal:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        nutrient_goals: {}
+        focus_nutrients: {}
+    PatchedUserUpdate:
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 40
+        username:
+          type: string
+          nullable: true
+          pattern: ^[A-Za-z0-9_]{3,20}$
+        timezone:
+          type: string
+          maxLength: 64
     ResendVerification:
       type: object
       properties:
@@ -902,12 +1161,40 @@ components:
           format: email
           title: Email address
           maxLength: 254
+        username:
+          type: string
+          nullable: true
+          maxLength: 20
         display_name:
           type: string
           maxLength: 40
+        timezone:
+          type: string
+          maxLength: 64
       required:
       - email
       - id
+    UserPreferences:
+      type: object
+      properties:
+        weight_unit:
+          $ref: '#/components/schemas/WeightUnitEnum'
+        height_unit:
+          $ref: '#/components/schemas/HeightUnitEnum'
+        energy_unit:
+          $ref: '#/components/schemas/EnergyUnitEnum'
+        daily_calorie_goal:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        weekly_workouts_goal:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        nutrient_goals: {}
+        focus_nutrients: {}
     UserRegistration:
       type: object
       properties:
@@ -925,6 +1212,14 @@ components:
       - email
       - id
       - password
+    WeightUnitEnum:
+      enum:
+      - kg
+      - lb
+      type: string
+      description: |-
+        * `kg` - kg
+        * `lb` - lb
   securitySchemes:
     jwtAuth:
       type: http

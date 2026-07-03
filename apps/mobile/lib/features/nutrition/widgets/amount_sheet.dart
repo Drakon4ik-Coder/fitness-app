@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../ui_system/lumina_health_theme.dart';
 import '../../../ui_system/tokens.dart';
 import '../data/food_models.dart';
 import '../data/nutrient_catalog.dart';
@@ -170,6 +171,7 @@ Future<AmountResult?> showAmountSheet({
   required double initialGrams,
   required bool isEditing,
   String? initialMealType,
+  List<NutrientSpec>? focusSpecs,
 }) {
   return showModalBottomSheet<AmountResult>(
     context: context,
@@ -181,6 +183,7 @@ Future<AmountResult?> showAmountSheet({
       initialGrams: initialGrams,
       isEditing: isEditing,
       initialMealType: initialMealType,
+      focusSpecs: focusSpecs,
     ),
   );
 }
@@ -192,6 +195,7 @@ class AmountSheet extends StatefulWidget {
     required this.initialGrams,
     required this.isEditing,
     this.initialMealType,
+    this.focusSpecs,
   });
 
   final FoodItem item;
@@ -200,6 +204,10 @@ class AmountSheet extends StatefulWidget {
 
   /// The entry's current `meal_type` when editing; enables the meal selector.
   final String? initialMealType;
+
+  /// The user's focus nutrients (goal-resolved, in display order), shown as the
+  /// live-preview pills. Null falls back to the default trio.
+  final List<NutrientSpec>? focusSpecs;
 
   @override
   State<AmountSheet> createState() => _AmountSheetState();
@@ -338,9 +346,17 @@ class _AmountSheetState extends State<AmountSheet> {
     final factor = (grams ?? 0) / 100.0;
 
     final kcal = ((widget.item.kcal100g ?? 0) * factor).round();
-    final protein = (widget.item.proteinG100g ?? 0) * factor;
-    final carbs = (widget.item.carbsG100g ?? 0) * factor;
-    final fats = (widget.item.fatG100g ?? 0) * factor;
+    // The user's focus nutrients as preview pills, matching the today page's
+    // card (same nutrients, same slot colors). Null when the food carries no
+    // data for one — the pill shows a dash rather than a misleading 0.
+    final focusSpecs = widget.focusSpecs ?? resolveFocusSpecs(null);
+    final focusAmounts = [
+      for (final spec in focusSpecs)
+        () {
+          final per100 = nutrientPer100gForItem(spec, widget.item);
+          return per100 == null ? null : per100 * factor;
+        }(),
+    ];
 
     // Full breakdown scaled to the current amount, for the "check the nutrition
     // before adding" disclosure. Only offered when the food actually carries
@@ -594,23 +610,16 @@ class _AmountSheetState extends State<AmountSheet> {
                   ),
                   Row(
                     children: [
-                      MacroPill(
-                        label: 'P',
-                        value: protein,
-                        color: scheme.secondary,
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      MacroPill(
-                        label: 'C',
-                        value: carbs,
-                        color: scheme.tertiary,
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      MacroPill(
-                        label: 'F',
-                        value: fats,
-                        color: scheme.primary,
-                      ),
+                      for (var i = 0; i < focusSpecs.length; i++) ...[
+                        if (i > 0) const SizedBox(width: AppSpacing.sm),
+                        MacroPill(
+                          label: focusSpecs[i].pillLabel,
+                          value: focusAmounts[i],
+                          unit: focusSpecs[i].unit,
+                          color: LuminaHealthColors.focusAccents[i %
+                              LuminaHealthColors.focusAccents.length],
+                        ),
+                      ],
                     ],
                   ),
                 ],
@@ -760,15 +769,24 @@ class MacroPill extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    this.unit = 'g',
   });
 
   final String label;
-  final double value;
+
+  /// Amount in [unit]; null when the food carries no data for this nutrient.
+  final double? value;
   final Color color;
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final amount = value;
+    // Grams read as "12g"; other units keep a thin space ("320 mg").
+    final valueText = amount == null
+        ? '—'
+        : '${formatNutrientValue(amount)}${unit == 'g' ? 'g' : ' $unit'}';
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -780,7 +798,7 @@ class MacroPill extends StatelessWidget {
           ),
         ),
         Text(
-          '${value.round()}g',
+          valueText,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurface,
             fontWeight: FontWeight.w600,

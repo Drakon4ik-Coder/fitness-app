@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_day_cache.dart';
+import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
@@ -11,7 +12,7 @@ import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 /// sqflite / path_provider platform channels.
 class _InMemoryDayCache implements NutritionDayCache {
   _InMemoryDayCache([Map<String, Map<String, dynamic>>? seed])
-      : _store = {...?seed};
+    : _store = {...?seed};
 
   final Map<String, Map<String, dynamic>> _store;
   final List<String> writes = [];
@@ -36,10 +37,7 @@ class _InMemoryDayCache implements NutritionDayCache {
   Future<void> close() async {}
 }
 
-Map<String, dynamic> _dayPayload({
-  required String date,
-  required num kcal,
-}) {
+Map<String, dynamic> _dayPayload({required String date, required num kcal}) {
   return {
     'date': date,
     'totals': {'kcal': kcal, 'protein_g': 0, 'carbs_g': 0, 'fat_g': 0},
@@ -53,8 +51,9 @@ String _todayKey() =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Nutrition Today page shows key sections',
-      (WidgetTester tester) async {
+  testWidgets('Nutrition Today page shows key sections', (
+    WidgetTester tester,
+  ) async {
     final dio = Dio();
     dio.interceptors.add(
       InterceptorsWrapper(
@@ -65,12 +64,7 @@ void main() {
               statusCode: 200,
               data: {
                 'date': '2024-01-01',
-                'totals': {
-                  'kcal': 0,
-                  'protein_g': 0,
-                  'carbs_g': 0,
-                  'fat_g': 0,
-                },
+                'totals': {'kcal': 0, 'protein_g': 0, 'carbs_g': 0, 'fat_g': 0},
                 'meals': {
                   'breakfast': [],
                   'lunch': [],
@@ -83,8 +77,7 @@ void main() {
         },
       ),
     );
-    final nutritionApi =
-        NutritionApiService(accessToken: 'token', dio: dio);
+    final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
     await tester.pumpWidget(
       MaterialApp(
         theme: LuminaHealthTheme.dark(),
@@ -165,6 +158,80 @@ void main() {
   );
 
   testWidgets(
+    'renders the user\'s focus nutrients with their units and over states',
+    (WidgetTester tester) async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': '2024-01-01',
+                  'totals': {
+                    'kcal': 1200,
+                    'protein_g': 80,
+                    'carbs_g': 120,
+                    'fat_g': 40,
+                  },
+                  'nutrients': {
+                    'fiber': {'amount': 12, 'unit': 'g'},
+                    'sugars': {'amount': 95, 'unit': 'g'},
+                    'vitamin_c': {'amount': 30, 'unit': 'mg'},
+                  },
+                  'meals': {
+                    'breakfast': [],
+                    'lunch': [],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: nutritionApi,
+            dayCache: _InMemoryDayCache(),
+            preferences: const UserPreferences(
+              focusNutrients: ['fiber', 'sugars', 'sodium', 'vitamin_c'],
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // The picked four replace the classic macro trio, in the picked order.
+      expect(find.text('FIBER'), findsOneWidget);
+      expect(find.text('SUGARS'), findsOneWidget);
+      expect(find.text('SODIUM'), findsOneWidget);
+      expect(find.text('VITAMIN C'), findsOneWidget);
+      expect(find.text('PROTEIN'), findsNothing);
+
+      // Fiber: 12 of 30 g.
+      expect(find.text('12g'), findsOneWidget);
+      expect(find.text('18g left'), findsOneWidget);
+      // Sugars is over its 90 g target, a cautionary nutrient -> "over".
+      expect(find.text('+5g over'), findsOneWidget);
+      // Sodium has no server data on an empty day -> plain zero, mg unit.
+      expect(find.text('0 mg'), findsOneWidget);
+      expect(find.text('2300 mg left'), findsOneWidget);
+      // Vitamin C: 30 of 80 mg.
+      expect(find.text('50 mg left'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'shows cached day offline when the network fails (no error banner)',
     (WidgetTester tester) async {
       final dio = Dio();
@@ -172,7 +239,10 @@ void main() {
         InterceptorsWrapper(
           onRequest: (options, handler) {
             handler.reject(
-              DioException(requestOptions: options, type: DioExceptionType.connectionError),
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+              ),
             );
           },
         ),
@@ -202,45 +272,44 @@ void main() {
     },
   );
 
-  testWidgets(
-    'revalidates over the cached day and writes the fresh copy back',
-    (WidgetTester tester) async {
-      final dio = Dio();
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            handler.resolve(
-              Response(
-                requestOptions: options,
-                statusCode: 200,
-                data: _dayPayload(date: _todayKey(), kcal: 2000),
-              ),
-            );
-          },
-        ),
-      );
-      final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
-      final cache = _InMemoryDayCache({
-        _todayKey(): _dayPayload(date: _todayKey(), kcal: 1000),
-      });
+  testWidgets('revalidates over the cached day and writes the fresh copy back', (
+    WidgetTester tester,
+  ) async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 2000),
+            ),
+          );
+        },
+      ),
+    );
+    final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
+    final cache = _InMemoryDayCache({
+      _todayKey(): _dayPayload(date: _todayKey(), kcal: 1000),
+    });
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: LuminaHealthTheme.dark(),
-          home: NutritionTodayPage(
-            accessToken: 'token',
-            onLogout: () async {},
-            nutritionApi: nutritionApi,
-            dayCache: cache,
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: nutritionApi,
+          dayCache: cache,
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // Network value wins over the stale cached one, and the cache is refreshed.
-      expect(find.text('2000'), findsOneWidget);
-      expect(find.text('1000'), findsNothing);
-      expect(cache.writes, contains(_todayKey()));
-    },
-  );
+    // Network value wins over the stale cached one, and the cache is refreshed.
+    expect(find.text('2000'), findsOneWidget);
+    expect(find.text('1000'), findsNothing);
+    expect(cache.writes, contains(_todayKey()));
+  });
 }

@@ -11,6 +11,7 @@ class UserPreferences {
     this.energyUnit = 'kcal',
     this.calorieGoal,
     this.nutrientGoals = const {},
+    this.focusNutrients = const [],
   });
 
   final String weightUnit;
@@ -24,6 +25,11 @@ class UserPreferences {
   /// nutrient's canonical unit. Empty when the user hasn't personalized any.
   final Map<String, double> nutrientGoals;
 
+  /// Ordered catalog keys of the nutrients highlighted on the today page.
+  /// Empty when the user hasn't picked any — callers fall back to the default
+  /// trio via `resolveFocusSpecs`.
+  final List<String> focusNutrients;
+
   factory UserPreferences.fromJson(Map<String, dynamic> json) {
     final rawGoals = json['nutrient_goals'];
     final goals = <String, double>{};
@@ -33,12 +39,19 @@ class UserPreferences {
         if (value != null) goals[entry.key.toString()] = value;
       }
     }
+    final rawFocus = json['focus_nutrients'];
     return UserPreferences(
       weightUnit: (json['weight_unit'] as String?) ?? 'kg',
       heightUnit: (json['height_unit'] as String?) ?? 'cm',
       energyUnit: (json['energy_unit'] as String?) ?? 'kcal',
       calorieGoal: (json['daily_calorie_goal'] as num?)?.toInt(),
       nutrientGoals: goals,
+      focusNutrients: rawFocus is List
+          ? [
+              for (final key in rawFocus)
+                if (key is String) key,
+            ]
+          : const [],
     );
   }
 
@@ -49,6 +62,7 @@ class UserPreferences {
     int? calorieGoal,
     bool clearCalorieGoal = false,
     Map<String, double>? nutrientGoals,
+    List<String>? focusNutrients,
   }) {
     return UserPreferences(
       weightUnit: weightUnit ?? this.weightUnit,
@@ -56,6 +70,7 @@ class UserPreferences {
       energyUnit: energyUnit ?? this.energyUnit,
       calorieGoal: clearCalorieGoal ? null : (calorieGoal ?? this.calorieGoal),
       nutrientGoals: nutrientGoals ?? this.nutrientGoals,
+      focusNutrients: focusNutrients ?? this.focusNutrients,
     );
   }
 }

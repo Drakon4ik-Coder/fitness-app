@@ -22,6 +22,19 @@ class LuminaHealthColors {
   static const Color onSecondaryContainer = Color(0xFFE9CDFF);
   static const Color tertiary = Color(0xFFFF8439);
   static const Color tertiaryContainer = Color(0xFFF77113);
+  // Fourth accent, completing the green/purple/orange set for surfaces that
+  // color up to four data series (e.g. the today page's focus nutrients).
+  static const Color quaternary = Color(0xFF4DD9E8);
+
+  /// Accent per focus-nutrient slot, shared by every surface that renders the
+  /// user's focus picks (today card, amount-sheet pills, add-meal summary) so
+  /// slot N is always the same color everywhere.
+  static const List<Color> focusAccents = [
+    primary,
+    secondary,
+    tertiary,
+    quaternary,
+  ];
   static const Color surface = Color(0xFF0E0E0E);
   static const Color surfaceBright = Color(0xFF2C2C2C);
   static const Color surfaceContainer = Color(0xFF1A1A1A);

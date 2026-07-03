@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../ui_components/ui_components.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/food_models.dart';
 import 'data/foods_api_service.dart';
+import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
 import 'data/off_client.dart';
 import 'data/off_image_downloader.dart';
@@ -17,6 +19,7 @@ import 'data/off_rate_limiter.dart';
 import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
 import 'widgets/amount_sheet.dart';
+import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
@@ -49,6 +52,7 @@ class AddFoodPage extends StatefulWidget {
     required this.onLogout,
     required this.selectedDate,
     this.initialMeal,
+    this.focusSpecs,
   });
 
   final FoodLocalDb localDb;
@@ -58,6 +62,11 @@ class AddFoodPage extends StatefulWidget {
   final Future<void> Function() onLogout;
   final DateTime selectedDate;
   final MealType? initialMeal;
+
+  /// The user's focus nutrients (goal-resolved, in display order), driving the
+  /// summary card and the amount sheet's preview pills so this page tracks the
+  /// same nutrients as the today page. Null falls back to the default trio.
+  final List<NutrientSpec>? focusSpecs;
 
   @override
   State<AddFoodPage> createState() => _AddFoodPageState();
@@ -76,6 +85,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
   DateTime? _lastScannedAt;
 
   late MealType _selectedMeal = widget.initialMeal ?? MealType.breakfast;
+  late final List<NutrientSpec> _focusSpecs =
+      widget.focusSpecs ?? resolveFocusSpecs(null);
   String _selectedFilter = _filterRecent;
 
   // Result key currently being enriched via an OFF fetch (shows a card spinner).
@@ -309,6 +320,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       item: entry.item,
       initialGrams: entry.grams,
       isEditing: true,
+      focusSpecs: _focusSpecs,
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -639,18 +651,18 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final hasQuery = query.trim().isNotEmpty;
     final canSubmit = !_isSubmitting && _addedItems.isNotEmpty;
 
-    // Totals scale each item's per-100g macros by its chosen amount.
+    // Totals scale each item's per-100g values by its chosen amount. The
+    // summary tracks the user's focus nutrients, mirroring the today page.
     double totalEnergy = 0;
-    double totalProtein = 0;
-    double totalCarbs = 0;
-    double totalFats = 0;
+    final focusTotals = List<double>.filled(_focusSpecs.length, 0);
 
     for (final entry in _addedItems) {
       final factor = entry.grams / 100.0;
       totalEnergy += (entry.item.kcal100g ?? 0.0) * factor;
-      totalProtein += (entry.item.proteinG100g ?? 0.0) * factor;
-      totalCarbs += (entry.item.carbsG100g ?? 0.0) * factor;
-      totalFats += (entry.item.fatG100g ?? 0.0) * factor;
+      for (var i = 0; i < _focusSpecs.length; i++) {
+        final per100 = nutrientPer100gForItem(_focusSpecs[i], entry.item);
+        focusTotals[i] += (per100 ?? 0.0) * factor;
+      }
     }
 
     final mealLabel =
@@ -795,27 +807,21 @@ class _AddFoodPageState extends State<AddFoodPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _MacroSummaryRow(
-                          label: 'Protein',
-                          value: '${totalProtein.round()}g',
-                          color: scheme.secondary,
-                          progress: (totalProtein / _proteinRefG).clamp(
-                            0.0,
-                            1.0,
+                        for (var i = 0; i < _focusSpecs.length; i++)
+                          _MacroSummaryRow(
+                            label: _focusSpecs[i].label,
+                            value: _focusValueText(
+                              focusTotals[i],
+                              _focusSpecs[i].unit,
+                            ),
+                            color: LuminaHealthColors.focusAccents[i %
+                                LuminaHealthColors.focusAccents.length],
+                            progress:
+                                (focusTotals[i] /
+                                        (_focusSpecs[i].dailyTarget *
+                                            _mealShareOfDailyTarget))
+                                    .clamp(0.0, 1.0),
                           ),
-                        ),
-                        _MacroSummaryRow(
-                          label: 'Carbs',
-                          value: '${totalCarbs.round()}g',
-                          color: scheme.tertiary,
-                          progress: (totalCarbs / _carbsRefG).clamp(0.0, 1.0),
-                        ),
-                        _MacroSummaryRow(
-                          label: 'Fats',
-                          value: '${totalFats.round()}g',
-                          color: scheme.primary,
-                          progress: (totalFats / _fatsRefG).clamp(0.0, 1.0),
-                        ),
                       ],
                     ),
                   ),
@@ -1098,12 +1104,14 @@ class _MacroSummaryRow extends StatelessWidget {
   }
 }
 
-// Per-meal reference macro amounts used to fill the summary bars. These give
-// the progress bars a meaningful scale (roughly one meal's worth) until
-// per-user targets are wired up.
-const double _proteinRefG = 40;
-const double _carbsRefG = 80;
-const double _fatsRefG = 30;
+/// Compact amount + unit for the summary rows ("32g", "120 mg").
+String _focusValueText(double value, String unit) =>
+    '${formatNutrientValue(value)}${unit == 'g' ? 'g' : ' $unit'}';
+
+// Fraction of a nutrient's daily target treated as "one meal's worth", giving
+// the summary bars a meaningful scale. Uses each focus nutrient's (possibly
+// personalized) daily target, so the bars track the user's own goals.
+const double _mealShareOfDailyTarget = 0.3;
 
 enum MealType { breakfast, lunch, dinner, snacks }
 

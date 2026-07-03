@@ -35,6 +35,7 @@ class NutrientSpec {
     required this.unit,
     required this.group,
     required this.dailyTarget,
+    this.shortLabel,
     this.overIsBad = false,
     this.completenessTracked = false,
   });
@@ -46,6 +47,12 @@ class NutrientSpec {
   final NutrientGroup group;
   final double dailyTarget;
   final bool overIsBad;
+
+  /// Compact label for tight surfaces (the amount-sheet pills): "P", "Vit C",
+  /// "Na". Falls back to [label] via [pillLabel] when unset.
+  final String? shortLabel;
+
+  String get pillLabel => shortLabel ?? label;
 
   /// Whether a per-day gap is worth flagging as "incomplete": true for the
   /// macros/core nutrients every food is expected to report, false for
@@ -62,6 +69,7 @@ class NutrientSpec {
     unit: unit,
     group: group,
     dailyTarget: dailyTarget ?? this.dailyTarget,
+    shortLabel: shortLabel,
     overIsBad: overIsBad,
     completenessTracked: completenessTracked,
   );
@@ -91,6 +99,31 @@ List<NutrientSpec> resolveCatalog(
 /// Default daily energy budget used until the user sets [UserPreferences.calorieGoal].
 const int kDefaultCalorieGoal = 2200;
 
+/// The nutrients highlighted on the today page until the user picks their own.
+const List<String> kDefaultFocusNutrients = ['protein', 'carbs', 'fat'];
+
+/// Upper bound on how many nutrients the today page can highlight at once.
+const int kMaxFocusNutrients = 4;
+
+/// The specs for the user's focus [keys], in the user's order. Keys that don't
+/// exist in [base] are dropped (a stale selection never crashes the dashboard);
+/// a null/empty/all-invalid selection falls back to [kDefaultFocusNutrients].
+List<NutrientSpec> resolveFocusSpecs(
+  List<String>? keys, {
+  List<NutrientSpec> base = kNutrientCatalog,
+}) {
+  final byKey = {for (final spec in base) spec.key: spec};
+  final resolved = <NutrientSpec>[
+    for (final key in keys ?? const <String>[])
+      if (byKey.containsKey(key)) byKey[key]!,
+  ];
+  if (resolved.isNotEmpty) return resolved.take(kMaxFocusNutrients).toList();
+  return [
+    for (final key in kDefaultFocusNutrients)
+      if (byKey.containsKey(key)) byKey[key]!,
+  ];
+}
+
 /// Curated set of nutrients we surface. Trimmed to what OFF actually carries so
 /// the detail page isn't a wall of permanent "no data" rows. Targets are generic
 /// adult reference daily values; personalization comes later (Phase 3).
@@ -100,6 +133,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'protein',
     offKey: 'proteins',
     label: 'Protein',
+    shortLabel: 'P',
     unit: 'g',
     group: NutrientGroup.macros,
     // Higher than the 50 g generic RDA: this is a fitness app, and 150 g is the
@@ -112,6 +146,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'carbs',
     offKey: 'carbohydrates',
     label: 'Carbs',
+    shortLabel: 'C',
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 260,
@@ -121,6 +156,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'sugars',
     offKey: 'sugars',
     label: 'Sugars',
+    shortLabel: 'Sug',
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 90,
@@ -131,6 +167,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'fat',
     offKey: 'fat',
     label: 'Fat',
+    shortLabel: 'F',
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 70,
@@ -140,6 +177,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'saturated_fat',
     offKey: 'saturated-fat',
     label: 'Saturated fat',
+    shortLabel: 'SatF',
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 20,
@@ -150,6 +188,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'fiber',
     offKey: 'fiber',
     label: 'Fiber',
+    shortLabel: 'Fib',
     unit: 'g',
     group: NutrientGroup.macros,
     dailyTarget: 30,
@@ -160,6 +199,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'vitamin_a',
     offKey: 'vitamin-a',
     label: 'Vitamin A',
+    shortLabel: 'Vit A',
     unit: 'µg',
     group: NutrientGroup.vitamins,
     dailyTarget: 900,
@@ -168,6 +208,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'vitamin_c',
     offKey: 'vitamin-c',
     label: 'Vitamin C',
+    shortLabel: 'Vit C',
     unit: 'mg',
     group: NutrientGroup.vitamins,
     dailyTarget: 80,
@@ -176,6 +217,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'vitamin_d',
     offKey: 'vitamin-d',
     label: 'Vitamin D',
+    shortLabel: 'Vit D',
     unit: 'µg',
     group: NutrientGroup.vitamins,
     dailyTarget: 20,
@@ -184,6 +226,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'vitamin_e',
     offKey: 'vitamin-e',
     label: 'Vitamin E',
+    shortLabel: 'Vit E',
     unit: 'mg',
     group: NutrientGroup.vitamins,
     dailyTarget: 15,
@@ -192,6 +235,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'vitamin_b6',
     offKey: 'vitamin-b6',
     label: 'Vitamin B6',
+    shortLabel: 'B6',
     unit: 'mg',
     group: NutrientGroup.vitamins,
     dailyTarget: 1.3,
@@ -200,6 +244,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'folate',
     offKey: 'vitamin-b9',
     label: 'Folate (B9)',
+    shortLabel: 'B9',
     unit: 'µg',
     group: NutrientGroup.vitamins,
     dailyTarget: 400,
@@ -208,6 +253,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'vitamin_b12',
     offKey: 'vitamin-b12',
     label: 'Vitamin B12',
+    shortLabel: 'B12',
     unit: 'µg',
     group: NutrientGroup.vitamins,
     dailyTarget: 2.4,
@@ -217,6 +263,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'sodium',
     offKey: 'sodium',
     label: 'Sodium',
+    shortLabel: 'Na',
     unit: 'mg',
     group: NutrientGroup.minerals,
     dailyTarget: 2300,
@@ -226,6 +273,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'salt',
     offKey: 'salt',
     label: 'Salt',
+    shortLabel: 'Salt',
     unit: 'g',
     group: NutrientGroup.minerals,
     dailyTarget: 6,
@@ -236,6 +284,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'calcium',
     offKey: 'calcium',
     label: 'Calcium',
+    shortLabel: 'Ca',
     unit: 'mg',
     group: NutrientGroup.minerals,
     dailyTarget: 1000,
@@ -244,6 +293,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'iron',
     offKey: 'iron',
     label: 'Iron',
+    shortLabel: 'Fe',
     unit: 'mg',
     group: NutrientGroup.minerals,
     dailyTarget: 18,
@@ -252,6 +302,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'potassium',
     offKey: 'potassium',
     label: 'Potassium',
+    shortLabel: 'K',
     unit: 'mg',
     group: NutrientGroup.minerals,
     dailyTarget: 3500,
@@ -260,6 +311,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'magnesium',
     offKey: 'magnesium',
     label: 'Magnesium',
+    shortLabel: 'Mg',
     unit: 'mg',
     group: NutrientGroup.minerals,
     dailyTarget: 400,
@@ -268,6 +320,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'zinc',
     offKey: 'zinc',
     label: 'Zinc',
+    shortLabel: 'Zn',
     unit: 'mg',
     group: NutrientGroup.minerals,
     dailyTarget: 11,
@@ -277,6 +330,7 @@ const List<NutrientSpec> kNutrientCatalog = [
     key: 'cholesterol',
     offKey: 'cholesterol',
     label: 'Cholesterol',
+    shortLabel: 'Chol',
     unit: 'mg',
     group: NutrientGroup.other,
     dailyTarget: 300,
@@ -320,6 +374,23 @@ double? nutrientPer100g(NutrientSpec spec, Map<String, dynamic>? nutriments) {
   final toGrams = _gramsPerUnit(spec.unit);
   if (fromGrams == null || toGrams == null) return null;
   return raw * fromGrams / toGrams;
+}
+
+/// Per-100g value for [spec] from [item], in [spec.unit]. Prefers the stored
+/// OFF nutriments blob; for the classic macros it falls back to the flat
+/// per-100g columns, which older local rows carry even when no blob was saved.
+double? nutrientPer100gForItem(NutrientSpec spec, FoodItem item) {
+  final fromBlob = nutrientPer100g(spec, item.nutrimentsJson);
+  if (fromBlob != null) return fromBlob;
+  switch (spec.key) {
+    case 'protein':
+      return item.proteinG100g;
+    case 'carbs':
+      return item.carbsG100g;
+    case 'fat':
+      return item.fatG100g;
+  }
+  return null;
 }
 
 /// A day-total amount for one nutrient. [amount] is in [spec.unit]; `null` means
