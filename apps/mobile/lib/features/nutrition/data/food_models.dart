@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'ciqual_raw_refs.dart';
+
 const String offSource = 'openfoodfacts';
 
 double? parseNullableDouble(dynamic value) {
@@ -164,20 +166,74 @@ const Set<String> _preparedMeatFishTags = {
 // category above).
 const double _rawProteinCeilingG100g = 25.0;
 
+// Label protein this far above the CIQUAL raw reference means the label's
+// cooked column was entered: cooking concentrates protein ~1.3-1.4x through
+// water loss, while entry noise across fat grades stays within ~10%.
+const double _cookedVsRawProteinRatio = 1.25;
+
+// A raw reference below this (shellfish etc.) is too small a denominator for
+// a meaningful ratio; such foods fall back to the category heuristic.
+const double _minCiqualReferenceProteinG100g = 10.0;
+
 /// Heuristic for labels that state nutrition per cooked weight on a product
-/// sold raw: a fresh meat/fish category whose per-100g protein exceeds the
-/// raw physical ceiling. Conservative by design — a missed flag just means
-/// grams are read as-sold, like today.
+/// sold raw. Two tiers:
+///
+/// 1. CIQUAL cross-check — when OFF's Agribalyse match ([ciqualCode]) is a
+///    known *raw* food, its reference protein is authoritative: a label far
+///    above it carries the cooked column, one near it is genuinely raw.
+/// 2. Category fallback — a fresh meat/fish category whose per-100g protein
+///    exceeds the raw physical ceiling.
+///
+/// Conservative by design — a missed flag just means grams are read as-sold,
+/// like today.
 bool detectCookedNutritionBasis({
   required List<String> categoriesTags,
   required double? proteinG100g,
+  int? ciqualCode,
 }) {
-  if (proteinG100g == null || proteinG100g < _rawProteinCeilingG100g) {
-    return false;
+  if (proteinG100g == null) return false;
+  final referenceProtein =
+      ciqualCode == null ? null : ciqualRawProteinG100g[ciqualCode];
+  if (referenceProtein != null &&
+      referenceProtein >= _minCiqualReferenceProteinG100g) {
+    return proteinG100g / referenceProtein >= _cookedVsRawProteinRatio;
   }
+  if (proteinG100g < _rawProteinCeilingG100g) return false;
   if (!categoriesTags.any(_freshMeatFishTags.contains)) return false;
   if (categoriesTags.any(_preparedMeatFishTags.contains)) return false;
   return true;
+}
+
+/// The CIQUAL food code from an OFF product's Agribalyse match
+/// (`ecoscore_data.agribalyse`), or null when the product has none.
+int? ciqualCodeFromOffProduct(Map<String, dynamic> product) {
+  final ecoscore = product['ecoscore_data'];
+  if (ecoscore is! Map) return null;
+  final agribalyse = ecoscore['agribalyse'];
+  if (agribalyse is! Map) return null;
+  for (final key in const [
+    'agribalyse_food_code',
+    'code',
+    'agribalyse_proxy_food_code',
+  ]) {
+    final code = int.tryParse(agribalyse[key]?.toString() ?? '');
+    if (code != null) return code;
+  }
+  return null;
+}
+
+// Pulls the Agribalyse/CIQUAL code out of a stored OFF raw-source blob,
+// whether the product sits at the top level or nested under `product`.
+int? _ciqualCodeFromRaw(String rawSourceJson) {
+  final decoded = _decodeRawSourceJson(rawSourceJson);
+  if (decoded is! Map) return null;
+  final direct = ciqualCodeFromOffProduct(decoded.cast<String, dynamic>());
+  if (direct != null) return direct;
+  final product = decoded['product'];
+  if (product is Map) {
+    return ciqualCodeFromOffProduct(product.cast<String, dynamic>());
+  }
+  return null;
 }
 
 // Pulls `categories_tags` out of a stored OFF raw-source blob, whether it
@@ -494,11 +550,13 @@ class FoodItem {
     final servingSizeG = parseNullableDouble(map['serving_size_g']);
     final piece = parsePieceDescriptor(_servingSizeTextFromRaw(rawJson));
     // Likewise the cooked-basis marker: re-derived from the round-tripped
-    // categories tags rather than stored in a backend column.
+    // categories tags and Agribalyse match rather than stored in a backend
+    // column.
     final proteinG100g = parseNullableDouble(map['protein_g_100g']);
     final cookedBasis = detectCookedNutritionBasis(
       categoriesTags: _categoriesTagsFromRaw(rawJson),
       proteinG100g: proteinG100g,
+      ciqualCode: _ciqualCodeFromRaw(rawJson),
     );
     return FoodItem(
       backendId: backendId,

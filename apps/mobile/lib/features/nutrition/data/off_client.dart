@@ -60,7 +60,10 @@ class OffClient {
     'completeness',
     'nutriments',
     // Needed by cooked-basis detection (see detectCookedNutritionBasis).
+    // Search-a-licious ignores the nested selector; barcode fetches return
+    // just the ~1 KB agribalyse block rather than the full ecoscore payload.
     'categories_tags',
+    'ecoscore_data.agribalyse',
     'lang',
     'images',
   ];

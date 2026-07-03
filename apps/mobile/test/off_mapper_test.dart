@@ -386,4 +386,28 @@ void main() {
 
     expect(item.isCookedBasis, isFalse);
   });
+
+  test('flags cooked basis via the Agribalyse CIQUAL match alone', () {
+    final mapper = OffMapper();
+    // Cooked 20% mince: 24 g protein is under the raw ceiling, so only the
+    // CIQUAL raw reference (6256: 17.3 g) catches it.
+    final item = mapper.mapProduct(
+      product: {
+        'code': '888',
+        'product_name': 'Beef Mince 20% Fat',
+        'categories_tags': ['en:meats', 'en:beef'],
+        'ecoscore_data': {
+          'agribalyse': {'agribalyse_food_code': '6256'},
+        },
+        'nutriments': {
+          'energy-kcal_100g': 270,
+          'proteins_100g': 24,
+          'fat_100g': 18,
+        },
+      },
+      rawJson: '{}',
+    );
+
+    expect(item.isCookedBasis, isTrue);
+  });
 }

@@ -78,16 +78,18 @@ class OffMapper {
     // Only derived when the serving weight itself is trusted.
     final piece =
         servingSize == null ? null : parsePieceDescriptor(servingText);
-    // Cooked-basis detection: fresh meat/fish whose per-100g protein exceeds
-    // the raw physical ceiling carries the label's cooked ("grilled") column
-    // in OFF's plain fields, so amounts must be entered/converted as cooked
-    // weight (see cookedNutritionBasis).
+    // Cooked-basis detection: a label whose protein sits far above the raw
+    // CIQUAL reference (or above the raw physical ceiling for fresh meat/fish
+    // categories) carries the cooked ("grilled") column in OFF's plain
+    // fields, so amounts must be entered/converted as cooked weight (see
+    // cookedNutritionBasis).
     final categoriesTags = product['categories_tags'];
     final cookedBasis = detectCookedNutritionBasis(
       categoriesTags: categoriesTags is List
           ? categoriesTags.whereType<String>().toList()
           : const <String>[],
       proteinG100g: protein,
+      ciqualCode: ciqualCodeFromOffProduct(product),
     );
     // OFF data completeness in [0,1] — used to rank/filter live search results
     // so low-quality duplicates (often with miscoded calories) sink or drop out.
