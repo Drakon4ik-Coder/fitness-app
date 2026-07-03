@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -74,9 +75,18 @@ def _absolute_file_url(request: Any | None, field: Any) -> str:
     return request.build_absolute_uri(url)
 
 
+# External-catalog sources accepted by the ingest/check flow. Custom foods
+# are excluded on purpose: they are owner-scoped and written through the
+# /foods/custom endpoint — accepting them here would let any client overwrite
+# another user's food by posting its (source, external_id) pair.
+_INGEST_SOURCE_CHOICES = [
+    (FoodItem.SOURCE_OPEN_FOOD_FACTS, "Open Food Facts"),
+]
+
+
 class FoodItemIngestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=FoodItem.SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
+        choices=_INGEST_SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
     )
     external_id = serializers.CharField(max_length=128)
     barcode = serializers.CharField(max_length=64, required=False, allow_blank=True)
@@ -179,9 +189,84 @@ class FoodItemIngestSerializer(serializers.Serializer):
         return item  # type: ignore[return-value]
 
 
+def _macro_field() -> serializers.DecimalField:
+    # Per-100g nutrient amounts are physically bounded by the 100 g itself.
+    return serializers.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        min_value=0,
+        max_value=100,
+        required=False,
+        allow_null=True,
+    )
+
+
+class CustomFoodSerializer(serializers.Serializer):
+    """A user's own food, written through an owner-scoped upsert.
+
+    `external_id` is a client-generated UUID: re-posting the same id updates
+    the caller's food in place, so the mobile sync path is one idempotent
+    POST for both create and edit. Custom foods carry no barcode in v1 —
+    barcode-shadowing of OFF items is the override story (KAN-31).
+    """
+
+    external_id = serializers.CharField(max_length=128)
+    name = serializers.CharField(max_length=255)
+    brands = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
+    kcal_100g = serializers.DecimalField(
+        max_digits=8, decimal_places=2, min_value=0, max_value=900
+    )
+    protein_g_100g = _macro_field()
+    carbs_g_100g = _macro_field()
+    fat_g_100g = _macro_field()
+    sugars_g_100g = _macro_field()
+    fiber_g_100g = _macro_field()
+    salt_g_100g = _macro_field()
+    serving_size_g = serializers.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        min_value=Decimal("0.1"),
+        max_value=5000,
+        required=False,
+        allow_null=True,
+    )
+    nutriments_json = serializers.JSONField(required=False, allow_null=True)
+
+    def save(self, **kwargs: Any) -> FoodItem:
+        owner = kwargs["owner"]
+        data = dict(self.validated_data)
+        external_id = data.pop("external_id")
+
+        with transaction.atomic():
+            existing = (
+                FoodItem.objects.select_for_update()
+                .filter(source=FoodItem.SOURCE_CUSTOM, external_id=external_id)
+                .first()
+            )
+            if existing is not None:
+                if existing.owner_id != owner.id:
+                    raise serializers.ValidationError(
+                        {"external_id": "This id belongs to another user's food."}
+                    )
+                for field, value in data.items():
+                    setattr(existing, field, value)
+                existing.save()
+                return existing
+            return FoodItem.objects.create(
+                source=FoodItem.SOURCE_CUSTOM,
+                external_id=external_id,
+                barcode=None,
+                owner=owner,
+                raw_source_json={},
+                **data,
+            )
+
+
 class FoodItemCheckSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=FoodItem.SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
+        choices=_INGEST_SOURCE_CHOICES, default=FoodItem.SOURCE_OPEN_FOOD_FACTS
     )
     external_id = serializers.CharField(max_length=128)
     content_hash = serializers.CharField(max_length=128)

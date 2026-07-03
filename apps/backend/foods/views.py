@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from foods.models import FoodItem
 from foods.images import images_ok, safe_signature, validate_and_normalize_image
 from foods.serializers import (
+    CustomFoodSerializer,
     FoodItemCheckResponseSerializer,
     FoodItemCheckSerializer,
     FoodItemCompactSerializer,
@@ -60,6 +61,9 @@ class FoodTypeaheadView(APIView):
             FoodItem.objects.filter(
                 Q(name__icontains=query) | Q(brands__icontains=query)
             )
+            # Global items plus the caller's own custom foods; other users'
+            # customs stay private.
+            .filter(Q(owner__isnull=True) | Q(owner=request.user))
             .order_by("name")
             .distinct()[:limit]
         )
@@ -84,6 +88,25 @@ class FoodIngestView(APIView):
         serializer = FoodItemIngestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         item = serializer.save()
+        output = FoodItemSerializer(item, context={"request": request})
+        return Response(output.data)
+
+
+class CustomFoodView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=CustomFoodSerializer,
+        responses={
+            200: FoodItemSerializer,
+            400: OpenApiResponse(description="Invalid payload"),
+            401: OpenApiResponse(description="Unauthorized"),
+        },
+    )
+    def post(self, request: Request) -> Response:
+        serializer = CustomFoodSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        item = serializer.save(owner=request.user)
         output = FoodItemSerializer(item, context={"request": request})
         return Response(output.data)
 
