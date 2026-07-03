@@ -4,6 +4,11 @@ import 'ciqual_raw_refs.dart';
 
 const String offSource = 'openfoodfacts';
 
+/// Source for user-created foods. Owner-scoped on the backend (private to
+/// their creator) and synced through /foods/custom rather than the OFF
+/// ingest/check flow; `externalId` is a client-generated id.
+const String customSource = 'custom';
+
 double? parseNullableDouble(dynamic value) {
   if (value == null) {
     return null;
@@ -350,6 +355,8 @@ class FoodItem {
 
   bool get isCookedBasis => nutritionBasis == cookedNutritionBasis;
 
+  bool get isCustom => source == customSource;
+
   FoodItem copyWith({
     int? localId,
     int? backendId,
@@ -476,6 +483,31 @@ class FoodItem {
     }
 
     return payload;
+  }
+
+  /// Payload for the owner-scoped /foods/custom upsert. Unlike
+  /// [toBackendPayload], carries no source/barcode/raw JSON — the backend
+  /// fixes those for custom foods.
+  Map<String, dynamic> toCustomPayload() {
+    double? round(double? val) {
+      if (val == null) return null;
+      return double.parse(val.toStringAsFixed(2));
+    }
+
+    return {
+      'external_id': externalId,
+      'name': name,
+      'brands': brands,
+      'kcal_100g': round(kcal100g),
+      'protein_g_100g': round(proteinG100g),
+      'carbs_g_100g': round(carbsG100g),
+      'fat_g_100g': round(fatG100g),
+      'sugars_g_100g': round(sugarsG100g),
+      'fiber_g_100g': round(fiberG100g),
+      'salt_g_100g': round(saltG100g),
+      'serving_size_g': round(servingSizeG),
+      if (nutrimentsJson != null) 'nutriments_json': nutrimentsJson,
+    };
   }
 
   static FoodItem fromDbMap(Map<String, Object?> map) {

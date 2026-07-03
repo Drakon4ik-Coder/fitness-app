@@ -103,6 +103,32 @@ class FoodsApiService {
     }
   }
 
+  /// Owner-scoped upsert for a user's own food: re-posting the same
+  /// `external_id` updates it in place, so create, edit, and offline re-sync
+  /// are all this one call.
+  Future<FoodItem> upsertCustomFood(FoodItem item) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/v1/foods/custom',
+        data: item.toCustomPayload(),
+      );
+      final data = response.data;
+      if (data is Map<String, dynamic>) {
+        return FoodItem.fromBackendDetail(data);
+      }
+      throw ApiException('Unexpected response from server.');
+    } on DioException catch (error) {
+      throw ApiException(
+        'Unable to save food.',
+        statusCode: error.response?.statusCode,
+      );
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw ApiException('Unable to save food.');
+    }
+  }
+
   Future<FoodCheckResult> checkFood({
     required String source,
     required String externalId,

@@ -16,6 +16,7 @@ import 'data/off_client.dart';
 import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
+import 'custom_food_page.dart';
 import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
 import 'widgets/amount_sheet.dart';
@@ -336,6 +337,36 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
+  // Opens the create-food form; the popped draft is synced (best effort —
+  // offline creation still works, _submitItems re-syncs any custom food
+  // missing a backendId), stored locally, and dropped into the Added list.
+  Future<void> _openCustomFoodPage() async {
+    FocusScope.of(context).unfocus();
+    final draft = await Navigator.of(context).push<FoodItem>(
+      MaterialPageRoute(builder: (_) => const CustomFoodPage()),
+    );
+    if (draft == null || !mounted) return;
+    var item = draft;
+    try {
+      final synced = await widget.foodsApi.upsertCustomFood(item);
+      item = item.copyWith(backendId: synced.backendId);
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        return;
+      }
+      // Offline or server hiccup: keep the local copy, sync on submit.
+    }
+    final stored = await widget.localDb.upsertFood(item);
+    if (!mounted) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _addedItems.add(
+        _AddedFood(item: stored, grams: _defaultGramsFor(stored)),
+      );
+    });
+  }
+
   Future<void> _openScanPage() async {
     FocusScope.of(context).unfocus();
     final barcode = await Navigator.of(context).push<String>(
@@ -452,7 +483,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
         FoodItem selected = added.item;
         bool imagesOk = false;
         if (selected.backendId == null) {
-          if (selected.contentHash.isNotEmpty) {
+          if (selected.isCustom) {
+            // Custom foods sync through their owner-scoped upsert, never the
+            // OFF ingest/check flow (which rejects the custom source).
+            final synced = await widget.foodsApi.upsertCustomFood(selected);
+            selected = selected.copyWith(backendId: synced.backendId);
+          } else if (selected.contentHash.isNotEmpty) {
             final check = await widget.foodsApi.checkFood(
               source: selected.source,
               externalId: selected.externalId,
@@ -696,6 +732,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
             color: scheme.onSurface,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.note_add_outlined, color: scheme.primary),
+            tooltip: 'Create custom food',
+            onPressed: _openCustomFoodPage,
+          ),
+        ],
       ),
       bottomNavigationBar: _addedItems.isEmpty
           ? null
@@ -1023,6 +1066,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
                           ),
                         ),
                       ],
+                      const SizedBox(height: AppSpacing.md),
+                      OutlinedButton.icon(
+                        onPressed: _openCustomFoodPage,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Create custom food'),
+                      ),
                     ],
                   ),
                 ),
