@@ -137,6 +137,16 @@ def test_typeahead_scopes_custom_foods_to_owner() -> None:
     assert alice_names == {"Mum's granola", "Granola bar (global)"}
     assert bob_names == {"Granola bar (global)"}
 
+    # The compact rows carry source/external_id so the client can tell its
+    # own custom foods apart from catalog items.
+    custom_row = next(
+        row
+        for row in alice.get("/api/v1/foods/typeahead", {"q": "granola"}).data
+        if row["name"] == "Mum's granola"
+    )
+    assert custom_row["source"] == "custom"
+    assert custom_row["external_id"] == "uuid-granola"
+
 
 @pytest.mark.django_db
 @pytest.mark.integration

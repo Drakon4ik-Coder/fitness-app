@@ -183,6 +183,17 @@ class FoodLocalDb {
   }
 
   FoodItem _mergeFood(FoodItem existing, FoodItem incoming) {
+    // Custom foods replace wholesale: the incoming item is the owner's edit,
+    // so a field they cleared must stay cleared. Field-by-field ?? merging
+    // below is for OFF rows, where incoming nulls mean "not fetched", not
+    // "removed". Identity/bookkeeping still carries over.
+    if (incoming.isCustom) {
+      return incoming.copyWith(
+        backendId: incoming.backendId ?? existing.backendId,
+        lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
+        isFavorite: incoming.isFavorite || existing.isFavorite,
+      );
+    }
     final rawJson = incoming.rawSourceJson.trim();
     final hasRawJson = rawJson.isNotEmpty && rawJson != '{}';
     return existing.copyWith(

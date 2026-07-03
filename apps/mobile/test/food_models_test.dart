@@ -164,6 +164,20 @@ void main() {
     expect(item.isCookedBasis, isTrue);
   });
 
+  test('fromBackendSummary keeps the custom source and external id', () {
+    final item = FoodItem.fromBackendSummary(<String, dynamic>{
+      'id': 12,
+      'source': 'custom',
+      'external_id': 'cf-abc',
+      'name': "Mum's granola",
+      'barcode': null,
+    });
+
+    expect(item.isCustom, isTrue);
+    expect(item.externalId, 'cf-abc');
+    expect(item.backendId, 12);
+  });
+
   test('nutrition basis round-trips through the local db map', () {
     final item = FoodItem(
       source: offSource,

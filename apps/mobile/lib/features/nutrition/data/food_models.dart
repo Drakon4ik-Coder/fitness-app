@@ -549,8 +549,11 @@ class FoodItem {
     final imageUrl = map['image_url'] as String?;
     return FoodItem(
       backendId: backendId,
-      source: offSource,
-      externalId: barcode ?? backendId?.toString() ?? '',
+      source: (map['source'] as String?) ?? offSource,
+      externalId: (map['external_id'] as String?) ??
+          barcode ??
+          backendId?.toString() ??
+          '',
       barcode: barcode,
       name: (map['name'] as String?) ?? '',
       brands: (map['brands'] as String?) ?? '',

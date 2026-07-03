@@ -15,6 +15,8 @@ class FoodItemCompactSerializer(serializers.ModelSerializer):
         model = FoodItem
         fields = (
             "id",
+            "source",
+            "external_id",
             "name",
             "brands",
             "kcal_100g",

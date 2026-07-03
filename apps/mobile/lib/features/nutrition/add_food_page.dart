@@ -367,6 +367,47 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
+  // Opens the edit-food form for one of the user's own custom foods and
+  // propagates the update to the local db, the backend, and any occurrence
+  // in the results/Added lists.
+  Future<void> _editCustomFood(FoodItem item) async {
+    FocusScope.of(context).unfocus();
+    final updated = await Navigator.of(context).push<FoodItem>(
+      MaterialPageRoute(builder: (_) => CustomFoodPage(initial: item)),
+    );
+    if (updated == null || !mounted) return;
+    var next = updated;
+    try {
+      final synced = await widget.foodsApi.upsertCustomFood(next);
+      next = next.copyWith(backendId: synced.backendId);
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        return;
+      }
+      // Offline: local copy wins for now, re-synced on submit.
+    }
+    final stored = await widget.localDb.upsertFood(next);
+    if (!mounted) return;
+
+    bool matches(FoodItem candidate) =>
+        candidate.isCustom && candidate.externalId == stored.externalId;
+    setState(() {
+      for (var i = 0; i < _addedItems.length; i++) {
+        if (matches(_addedItems[i].item)) {
+          _addedItems[i] =
+              _AddedFood(item: stored, grams: _addedItems[i].grams);
+        }
+      }
+      _localResults = [
+        for (final it in _localResults) matches(it) ? stored : it,
+      ];
+      _backendResults = [
+        for (final it in _backendResults) matches(it) ? stored : it,
+      ];
+    });
+  }
+
   Future<void> _openScanPage() async {
     FocusScope.of(context).unfocus();
     final barcode = await Navigator.of(context).push<String>(
@@ -908,6 +949,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
                     child: InkWell(
                       borderRadius: BorderRadius.circular(AppRadius.lg),
                       onTap: () => _editAddedItem(index),
+                      // Long-press edits the food itself (custom foods only);
+                      // tap keeps editing the logged amount.
+                      onLongPress: added.item.isCustom
+                          ? () => _editCustomFood(added.item)
+                          : null,
                       child: Padding(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         child: Row(
@@ -1095,6 +1141,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
                     isEnriching: _enrichingKey != null &&
                         _resultKey(item.item) == _enrichingKey,
                     onTap: () => _onResultTap(item),
+                    onLongPress: item.item.isCustom
+                        ? () => _editCustomFood(item.item)
+                        : null,
                   );
                 },
               ),
@@ -1189,12 +1238,17 @@ class _FoodCard extends StatelessWidget {
   const _FoodCard({
     required this.item,
     required this.onTap,
+    this.onLongPress,
     this.isAdded = false,
     this.isEnriching = false,
   });
 
   final _FoodResult item;
   final VoidCallback onTap;
+
+  /// Long-press action — set only for the user's own custom foods, where it
+  /// opens the edit-food form.
+  final VoidCallback? onLongPress;
   final bool isAdded;
   final bool isEnriching;
 
@@ -1218,6 +1272,7 @@ class _FoodCard extends StatelessWidget {
         child: InkWell(
           borderRadius: radius,
           onTap: isEnriching ? null : onTap,
+          onLongPress: isEnriching ? null : onLongPress,
           child: Ink(
             decoration: BoxDecoration(
               color: scheme.surfaceContainerLow,
