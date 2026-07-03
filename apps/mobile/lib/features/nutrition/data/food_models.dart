@@ -118,6 +118,82 @@ PieceDescriptor? parsePieceDescriptor(String? servingSizeText) {
   return PieceDescriptor(gramsPerPiece: gramsPerPiece, unit: leading.unit);
 }
 
+/// Marker value for [FoodItem.nutritionBasis]: the label's per-100g values
+/// describe the food *after cooking* even though it is sold raw. Common on UK
+/// fresh meat ("typical values per 100 g grilled"), where contributors copy
+/// the grilled column into OFF's plain per-100g fields — OFF's `_prepared`
+/// nutriment fields go unused on meat, so there is no explicit signal.
+/// A null [FoodItem.nutritionBasis] means the values are per 100 g as sold.
+const String cookedNutritionBasis = 'cooked';
+
+/// Fraction of the raw weight left after cooking (water loss is ~25% for
+/// minced meat, steaks, and poultry). Converts a raw-weighed amount into the
+/// cooked-equivalent grams that per-100g-cooked label values scale against.
+const double kCookedYieldFactor = 0.75;
+
+// OFF category tags for fresh/raw meat and fish, where raw per-100g protein
+// has a hard physical ceiling (raw muscle is ~70-75% water -> ~17-24 g).
+const Set<String> _freshMeatFishTags = {
+  'en:meats',
+  'en:beef',
+  'en:pork',
+  'en:lamb-meat',
+  'en:veal-meat',
+  'en:poultries',
+  'en:fishes',
+  'en:seafood',
+};
+
+// Categories that are legitimately protein-dense as sold (cured, dried,
+// canned, smoked, or sold already cooked) — never flagged as cooked-basis.
+const Set<String> _preparedMeatFishTags = {
+  'en:prepared-meats',
+  'en:charcuteries',
+  'en:hams',
+  'en:sausages',
+  'en:dried-meats',
+  'en:cooked-meats',
+  'en:canned-meats',
+  'en:canned-fishes',
+  'en:smoked-fishes',
+  'en:dried-fishes',
+};
+
+// Raw muscle meat/fish tops out around 24 g protein per 100 g; anything above
+// is only reachable after cooking water loss (or curing/drying, excluded via
+// category above).
+const double _rawProteinCeilingG100g = 25.0;
+
+/// Heuristic for labels that state nutrition per cooked weight on a product
+/// sold raw: a fresh meat/fish category whose per-100g protein exceeds the
+/// raw physical ceiling. Conservative by design — a missed flag just means
+/// grams are read as-sold, like today.
+bool detectCookedNutritionBasis({
+  required List<String> categoriesTags,
+  required double? proteinG100g,
+}) {
+  if (proteinG100g == null || proteinG100g < _rawProteinCeilingG100g) {
+    return false;
+  }
+  if (!categoriesTags.any(_freshMeatFishTags.contains)) return false;
+  if (categoriesTags.any(_preparedMeatFishTags.contains)) return false;
+  return true;
+}
+
+// Pulls `categories_tags` out of a stored OFF raw-source blob, whether it
+// sits at the top level or nested under `product`.
+List<String> _categoriesTagsFromRaw(String rawSourceJson) {
+  final decoded = _decodeRawSourceJson(rawSourceJson);
+  if (decoded is! Map) return const [];
+  dynamic tags = decoded['categories_tags'];
+  if (tags is! List) {
+    final product = decoded['product'];
+    if (product is Map) tags = product['categories_tags'];
+  }
+  if (tags is! List) return const [];
+  return tags.whereType<String>().toList();
+}
+
 // Pulls the free-text `serving_size` out of a stored OFF raw-source blob,
 // whether it sits at the top level or nested under `product`.
 String? _servingSizeTextFromRaw(String rawSourceJson) {
@@ -174,6 +250,7 @@ class FoodItem {
     this.servingSizeG,
     this.gramsPerPiece,
     this.pieceUnit,
+    this.nutritionBasis,
     this.completeness,
     required this.rawSourceJson,
     this.nutrimentsJson,
@@ -204,6 +281,9 @@ class FoodItem {
   final double? gramsPerPiece;
   // Singular noun for one piece ("egg", "burger"), paired with [gramsPerPiece].
   final String? pieceUnit;
+  // [cookedNutritionBasis] when the label's per-100g values describe the
+  // cooked food while the product is sold raw; null = per 100 g as sold.
+  final String? nutritionBasis;
   // OFF data `completeness` in [0,1] for ranking/filtering live search results.
   // Transient: only set on freshly mapped OFF hits, never persisted.
   final double? completeness;
@@ -211,6 +291,8 @@ class FoodItem {
   final Map<String, dynamic>? nutrimentsJson;
   final DateTime? lastUsedAt;
   final bool isFavorite;
+
+  bool get isCookedBasis => nutritionBasis == cookedNutritionBasis;
 
   FoodItem copyWith({
     int? localId,
@@ -233,6 +315,7 @@ class FoodItem {
     double? servingSizeG,
     double? gramsPerPiece,
     String? pieceUnit,
+    String? nutritionBasis,
     double? completeness,
     String? rawSourceJson,
     Map<String, dynamic>? nutrimentsJson,
@@ -260,6 +343,7 @@ class FoodItem {
       servingSizeG: servingSizeG ?? this.servingSizeG,
       gramsPerPiece: gramsPerPiece ?? this.gramsPerPiece,
       pieceUnit: pieceUnit ?? this.pieceUnit,
+      nutritionBasis: nutritionBasis ?? this.nutritionBasis,
       completeness: completeness ?? this.completeness,
       rawSourceJson: rawSourceJson ?? this.rawSourceJson,
       nutrimentsJson: nutrimentsJson ?? this.nutrimentsJson,
@@ -290,6 +374,7 @@ class FoodItem {
       'serving_size_g': servingSizeG,
       'grams_per_piece': gramsPerPiece,
       'piece_unit': pieceUnit,
+      'nutrition_basis': nutritionBasis,
       'raw_source_json': rawSourceJson,
       'nutriments_json':
           nutrimentsJson == null ? null : jsonEncode(nutrimentsJson),
@@ -360,6 +445,7 @@ class FoodItem {
       servingSizeG: parseNullableDouble(map['serving_size_g']),
       gramsPerPiece: parseNullableDouble(map['grams_per_piece']),
       pieceUnit: map['piece_unit'] as String?,
+      nutritionBasis: map['nutrition_basis'] as String?,
       rawSourceJson: (map['raw_source_json'] as String?) ?? '{}',
       nutrimentsJson: _decodeNutrimentsJson(nutrimentsRaw),
       lastUsedAt: map['last_used_at'] == null
@@ -407,6 +493,13 @@ class FoodItem {
     // descriptor from the round-tripped raw serving_size text.
     final servingSizeG = parseNullableDouble(map['serving_size_g']);
     final piece = parsePieceDescriptor(_servingSizeTextFromRaw(rawJson));
+    // Likewise the cooked-basis marker: re-derived from the round-tripped
+    // categories tags rather than stored in a backend column.
+    final proteinG100g = parseNullableDouble(map['protein_g_100g']);
+    final cookedBasis = detectCookedNutritionBasis(
+      categoriesTags: _categoriesTagsFromRaw(rawJson),
+      proteinG100g: proteinG100g,
+    );
     return FoodItem(
       backendId: backendId,
       source: (map['source'] as String?) ?? offSource,
@@ -421,7 +514,7 @@ class FoodItem {
       imageSignature: map['image_signature'] as String?,
       contentHash: (map['content_hash'] as String?) ?? '',
       kcal100g: parseNullableDouble(map['kcal_100g']),
-      proteinG100g: parseNullableDouble(map['protein_g_100g']),
+      proteinG100g: proteinG100g,
       carbsG100g: parseNullableDouble(map['carbs_g_100g']),
       fatG100g: parseNullableDouble(map['fat_g_100g']),
       sugarsG100g: parseNullableDouble(map['sugars_g_100g']),
@@ -430,6 +523,7 @@ class FoodItem {
       servingSizeG: servingSizeG,
       gramsPerPiece: piece?.gramsPerPiece,
       pieceUnit: piece?.unit,
+      nutritionBasis: cookedBasis ? cookedNutritionBasis : null,
       rawSourceJson: rawJson,
       nutrimentsJson: nutrimentsJson,
     );

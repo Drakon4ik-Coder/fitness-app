@@ -345,4 +345,45 @@ void main() {
     expect(item.gramsPerPiece, 232);
     expect(item.pieceUnit, 'burger');
   });
+
+  test('flags fresh meat with cooked-column protein as cooked basis', () {
+    final mapper = OffMapper();
+    // Modeled on ASDA Lean Scotch Beef Steak Mince (5054070875254): raw 5%
+    // mince is ~21 g protein/100g, so 29 g means the grilled column was
+    // entered into the plain per-100g fields.
+    final item = mapper.mapProduct(
+      product: {
+        'code': '5054070875254',
+        'product_name': 'Lean Scotch Beef Steak Mince',
+        'categories_tags': ['en:meats', 'en:beef', 'en:ground-beef-steaks'],
+        'nutriments': {
+          'energy-kcal_100g': 172,
+          'proteins_100g': 29,
+          'fat_100g': 6.3,
+        },
+      },
+      rawJson: '{}',
+    );
+
+    expect(item.isCookedBasis, isTrue);
+  });
+
+  test('leaves plausibly-raw meat on the as-sold basis', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '999',
+        'product_name': 'Beef Mince 20% Fat',
+        'categories_tags': ['en:meats', 'en:beef'],
+        'nutriments': {
+          'energy-kcal_100g': 254,
+          'proteins_100g': 17,
+          'fat_100g': 20,
+        },
+      },
+      rawJson: '{}',
+    );
+
+    expect(item.isCookedBasis, isFalse);
+  });
 }

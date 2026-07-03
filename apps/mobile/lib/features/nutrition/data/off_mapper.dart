@@ -78,6 +78,17 @@ class OffMapper {
     // Only derived when the serving weight itself is trusted.
     final piece =
         servingSize == null ? null : parsePieceDescriptor(servingText);
+    // Cooked-basis detection: fresh meat/fish whose per-100g protein exceeds
+    // the raw physical ceiling carries the label's cooked ("grilled") column
+    // in OFF's plain fields, so amounts must be entered/converted as cooked
+    // weight (see cookedNutritionBasis).
+    final categoriesTags = product['categories_tags'];
+    final cookedBasis = detectCookedNutritionBasis(
+      categoriesTags: categoriesTags is List
+          ? categoriesTags.whereType<String>().toList()
+          : const <String>[],
+      proteinG100g: protein,
+    );
     // OFF data completeness in [0,1] — used to rank/filter live search results
     // so low-quality duplicates (often with miscoded calories) sink or drop out.
     final completeness = parseNullableDouble(product['completeness']);
@@ -119,6 +130,7 @@ class OffMapper {
       servingSizeG: servingSize,
       gramsPerPiece: piece?.gramsPerPiece,
       pieceUnit: piece?.unit,
+      nutritionBasis: cookedBasis ? cookedNutritionBasis : null,
       completeness: completeness,
       rawSourceJson: rawJson,
       nutrimentsJson: nutrimentsJson,

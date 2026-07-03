@@ -29,6 +29,13 @@ String describeAmount(double grams, FoodItem item) {
     final unit = pluralize(item.pieceUnit!, count);
     return '${formatAmount(count)} $unit (${formatAmount(grams)} g)';
   }
+  // Cooked-basis foods (sold raw, label per cooked weight) read as the raw
+  // weight the user actually put on the scale, with the cooked-equivalent
+  // grams the nutrition scales by in parentheses.
+  if (item.isCookedBasis) {
+    final raw = grams / kCookedYieldFactor;
+    return '${formatAmount(raw)} g raw (${formatAmount(grams)} g cooked)';
+  }
   final serving = item.servingSizeG;
   if (serving != null && serving > 0) {
     final servings = grams / serving;
@@ -219,6 +226,11 @@ class _AmountSheetState extends State<AmountSheet> {
   bool _showAllNutrients = false;
   // The selected meal type when editing; null in add mode (no selector shown).
   late String? _mealType = widget.initialMealType;
+  // For cooked-basis foods: whether typed grams are the raw (uncooked)
+  // weight, converted via [kCookedYieldFactor] into the cooked-equivalent
+  // grams the label values scale by. Raw is the default — the product is
+  // sold uncooked, so that's what the user's scale shows.
+  late bool _rawWeight = widget.item.isCookedBasis;
 
   bool get _showMealSelector =>
       widget.isEditing && widget.initialMealType != null;
@@ -264,7 +276,12 @@ class _AmountSheetState extends State<AmountSheet> {
       case AmountUnit.servings:
         return _serving!;
       case AmountUnit.grams:
-        return 1;
+        // In raw mode for a cooked-basis food, one typed gram of raw weight
+        // is only kCookedYieldFactor grams of the cooked weight that the
+        // per-100g label values scale against.
+        return widget.item.isCookedBasis && _rawWeight
+            ? kCookedYieldFactor
+            : 1;
     }
   }
 
@@ -327,6 +344,15 @@ class _AmountSheetState extends State<AmountSheet> {
     setState(() {
       _unit = unit;
       _setText(grams / _gramsPerUnit(unit));
+    });
+  }
+
+  void _setRawWeight(bool raw) {
+    if (raw == _rawWeight) return;
+    final grams = _grams ?? widget.initialGrams;
+    setState(() {
+      _rawWeight = raw;
+      _setText(grams / _gramsPerUnit(_unit));
     });
   }
 
@@ -429,7 +455,8 @@ class _AmountSheetState extends State<AmountSheet> {
                       Text(
                         widget.item.kcal100g == null
                             ? 'Calories per 100g unavailable'
-                            : '${widget.item.kcal100g!.round()} kcal per 100g',
+                            : '${widget.item.kcal100g!.round()} kcal per '
+                                '100g${widget.item.isCookedBasis ? ' cooked' : ''}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -501,6 +528,32 @@ class _AmountSheetState extends State<AmountSheet> {
                 onSelectionChanged: (s) => _setUnit(s.first),
                 showSelectedIcon: false,
                 style: ButtonStyle(visualDensity: VisualDensity.compact),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+
+            // Raw/cooked weight toggle for foods sold raw whose label states
+            // nutrition per cooked weight — lets the user type what their
+            // scale shows and have the water loss accounted for.
+            if (widget.item.isCookedBasis && _unit == AmountUnit.grams) ...[
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: true, label: Text('Raw weight')),
+                  ButtonSegment(value: false, label: Text('Cooked weight')),
+                ],
+                selected: {_rawWeight},
+                onSelectionChanged: (s) => _setRawWeight(s.first),
+                showSelectedIcon: false,
+                style: ButtonStyle(visualDensity: VisualDensity.compact),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'This label gives nutrition per 100 g cooked. Raw weights '
+                'are converted for you (~25% cooking loss).',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
             ],
@@ -740,15 +793,25 @@ class _AmountSheetState extends State<AmountSheet> {
       case AmountUnit.servings:
         return pluralize('serving', count);
       case AmountUnit.grams:
+        if (widget.item.isCookedBasis) {
+          return _rawWeight ? 'grams raw' : 'grams cooked';
+        }
         return 'grams';
     }
   }
 
   String? _conversionLabel(double? grams) {
     if (grams == null) return null;
-    // In a piece/serving unit, the helpful conversion is the raw grams.
+    // In a piece/serving unit, the helpful conversion is the plain grams.
     if (_unit != AmountUnit.grams) {
-      return '${formatAmount(grams)} g';
+      return '${formatAmount(grams)} g${widget.item.isCookedBasis ? ' cooked' : ''}';
+    }
+    // For a cooked-basis food, the helpful conversion is the other weight
+    // basis ([grams] is always the cooked-equivalent weight).
+    if (widget.item.isCookedBasis) {
+      return _rawWeight
+          ? '≈ ${formatAmount(grams)} g cooked'
+          : '≈ ${formatAmount(grams / kCookedYieldFactor)} g raw';
     }
     // In grams, show the closest piece (preferred) or serving equivalent.
     if (_hasPiece) {

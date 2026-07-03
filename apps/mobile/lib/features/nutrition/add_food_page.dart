@@ -247,7 +247,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final piece = item.gramsPerPiece;
     if (piece != null && piece > 0) return piece;
     final serving = item.servingSizeG;
-    return (serving != null && serving > 0) ? serving : 100.0;
+    if (serving != null && serving > 0) return serving;
+    // For cooked-basis foods the natural default is 100 g *raw* (what the
+    // scale shows for a product sold uncooked), stored as cooked-equivalent
+    // grams like every logged amount.
+    return item.isCookedBasis ? 100.0 * kCookedYieldFactor : 100.0;
   }
 
   // OFF text search can't return serving data, so an OFF result starts without a

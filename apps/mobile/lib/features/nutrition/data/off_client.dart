@@ -59,6 +59,8 @@ class OffClient {
     'serving_quantity_unit',
     'completeness',
     'nutriments',
+    // Needed by cooked-basis detection (see detectCookedNutritionBasis).
+    'categories_tags',
     'lang',
     'images',
   ];

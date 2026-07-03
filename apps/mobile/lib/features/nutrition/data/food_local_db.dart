@@ -209,6 +209,7 @@ class FoodLocalDb {
       fiberG100g: incoming.fiberG100g ?? existing.fiberG100g,
       saltG100g: incoming.saltG100g ?? existing.saltG100g,
       servingSizeG: incoming.servingSizeG ?? existing.servingSizeG,
+      nutritionBasis: incoming.nutritionBasis ?? existing.nutritionBasis,
       rawSourceJson: hasRawJson ? incoming.rawSourceJson : existing.rawSourceJson,
       nutrimentsJson: incoming.nutrimentsJson ?? existing.nutrimentsJson,
       lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
@@ -241,6 +242,7 @@ class FoodLocalDb {
     'serving_size_g': 'REAL',
     'grams_per_piece': 'REAL',
     'piece_unit': 'TEXT',
+    'nutrition_basis': 'TEXT',
     'raw_source_json': 'TEXT NOT NULL',
     'nutriments_json': 'TEXT',
     'last_used_at': 'TEXT',
@@ -289,7 +291,7 @@ class FoodLocalDb {
     final path = '${directory.path}/foods.db';
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
         await _createIndexes(db);
@@ -328,6 +330,11 @@ class FoodLocalDb {
           // nullable so existing rows simply have no piece dimension.
           await db.execute('ALTER TABLE foods ADD COLUMN grams_per_piece REAL');
           await db.execute('ALTER TABLE foods ADD COLUMN piece_unit TEXT');
+        }
+        if (oldVersion < 5) {
+          // Cooked-basis marker (see cookedNutritionBasis); nullable, so
+          // existing rows stay per-100g as sold.
+          await db.execute('ALTER TABLE foods ADD COLUMN nutrition_basis TEXT');
         }
       },
     );
