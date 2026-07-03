@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -9,7 +10,11 @@ def food_image_upload_path(instance: "FoodItem", filename: str) -> str:
 
 class FoodItem(models.Model):
     SOURCE_OPEN_FOOD_FACTS = "openfoodfacts"
-    SOURCE_CHOICES = [(SOURCE_OPEN_FOOD_FACTS, "Open Food Facts")]
+    SOURCE_CUSTOM = "custom"
+    SOURCE_CHOICES = [
+        (SOURCE_OPEN_FOOD_FACTS, "Open Food Facts"),
+        (SOURCE_CUSTOM, "Custom"),
+    ]
 
     IMAGE_STATUS_OK = "ok"
     IMAGE_STATUS_FAILED = "failed"
@@ -26,7 +31,20 @@ class FoodItem(models.Model):
         default=SOURCE_OPEN_FOOD_FACTS,
     )
     external_id = models.CharField(max_length=128)
-    barcode = models.CharField(max_length=64, unique=True, db_index=True)
+    # Null for foods without a barcode (user-created customs). NULLs never
+    # collide under the unique constraint, unlike the '' they replace.
+    barcode = models.CharField(
+        max_length=64, unique=True, null=True, blank=True, db_index=True
+    )
+    # Null = a global item (OFF); set = a user's private custom food, visible
+    # only to its owner.
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="custom_foods",
+    )
     name = models.CharField(max_length=255)
     brands = models.CharField(max_length=255, blank=True)
     image_url = models.URLField(blank=True)

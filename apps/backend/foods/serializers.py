@@ -120,7 +120,11 @@ class FoodItemIngestSerializer(serializers.Serializer):
         data = dict(self.validated_data)
         source = data["source"]
         external_id = data["external_id"]
-        barcode = data["barcode"]
+        # Blank barcodes are stored as NULL (the unique constraint ignores
+        # NULLs) and must never be used for lookup: filter(barcode=None)
+        # would match any barcode-less row and merge unrelated foods.
+        barcode = (data.get("barcode") or "").strip() or None
+        data["barcode"] = barcode
 
         incoming_signature = data.get("image_signature")
         if isinstance(incoming_signature, str):
@@ -148,7 +152,7 @@ class FoodItemIngestSerializer(serializers.Serializer):
             queryset = FoodItem.objects.all()
             if lock:
                 queryset = queryset.select_for_update()
-            by_barcode = queryset.filter(barcode=barcode).first()
+            by_barcode = queryset.filter(barcode=barcode).first() if barcode else None
             by_external = queryset.filter(
                 source=source, external_id=external_id
             ).first()
