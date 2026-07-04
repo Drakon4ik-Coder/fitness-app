@@ -148,6 +148,20 @@ class FoodLocalDb {
     return rows.map(FoodItem.fromDbMap).toList();
   }
 
+  /// The caller's live override shadowing the food with [barcode], if any —
+  /// lets a barcode scan resolve straight to the user's corrected copy.
+  Future<FoodItem?> fetchOverrideForBarcode(String barcode) async {
+    final db = await database;
+    final rows = await db.query(
+      'foods',
+      where: 'overrides_barcode = ?',
+      whereArgs: [barcode],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return FoodItem.fromDbMap(rows.first);
+  }
+
   Future<FoodItem?> fetchByBarcode(String barcode) async {
     final db = await database;
     final rows = await db.query(
@@ -259,6 +273,8 @@ class FoodLocalDb {
     'grams_per_piece': 'REAL',
     'piece_unit': 'TEXT',
     'nutrition_basis': 'TEXT',
+    'overrides_backend_id': 'INTEGER',
+    'overrides_barcode': 'TEXT',
     'raw_source_json': 'TEXT NOT NULL',
     'nutriments_json': 'TEXT',
     'last_used_at': 'TEXT',
@@ -307,7 +323,7 @@ class FoodLocalDb {
     final path = '${directory.path}/foods.db';
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
         await _createIndexes(db);
@@ -351,6 +367,16 @@ class FoodLocalDb {
           // Cooked-basis marker (see cookedNutritionBasis); nullable, so
           // existing rows stay per-100g as sold.
           await db.execute('ALTER TABLE foods ADD COLUMN nutrition_basis TEXT');
+        }
+        if (oldVersion < 6) {
+          // Fork-on-edit overrides (KAN-31): which global item a custom food
+          // shadows, by backend id and (locally) by barcode for scan lookup.
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN overrides_backend_id INTEGER',
+          );
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN overrides_barcode TEXT',
+          );
         }
       },
     );

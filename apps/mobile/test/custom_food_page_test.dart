@@ -10,6 +10,7 @@ import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 Future<CustomFoodResult? Function()> _openForm(
   WidgetTester tester, {
   FoodItem? initial,
+  FoodItem? overrideOf,
   Map<String, String> fields = const {},
 }) async {
   tester.view.physicalSize = const Size(1200, 3200);
@@ -28,7 +29,10 @@ Future<CustomFoodResult? Function()> _openForm(
               onPressed: () async {
                 result = await Navigator.of(context).push<CustomFoodResult>(
                   MaterialPageRoute(
-                    builder: (_) => CustomFoodPage(initial: initial),
+                    builder: (_) => CustomFoodPage(
+                      initial: initial,
+                      overrideOf: overrideOf,
+                    ),
                   ),
                 );
               },
@@ -189,6 +193,49 @@ void main() {
     expect(item.name, 'New name');
     expect(item.kcal100g, 200);
     expect(item.proteinG100g, 10);
+  });
+
+  testWidgets('override mode prefills from the global item and links to it',
+      (tester) async {
+    final global = FoodItem(
+      backendId: 42,
+      source: offSource,
+      externalId: '5054070875254',
+      barcode: '5054070875254',
+      name: 'Lean Beef Steak Mince',
+      brands: 'ASDA',
+      kcal100g: 172,
+      proteinG100g: 29,
+      fatG100g: 6.3,
+      rawSourceJson: '{}',
+    );
+
+    final resultOf = await _openForm(
+      tester,
+      overrideOf: global,
+      fields: {'Calories': '124', 'Protein': '21'},
+    );
+
+    // Override framing: banner + dedicated title.
+    expect(find.text('Edit nutrition'), findsOneWidget);
+    expect(find.textContaining('Your personal copy'), findsOneWidget);
+
+    await _tapSave(tester, editing: true);
+
+    final item = resultOf()?.item;
+    expect(item, isNotNull);
+    expect(item!.isOverride, isTrue);
+    expect(item.overridesBackendId, 42);
+    expect(item.overridesBarcode, '5054070875254');
+    expect(item.source, customSource);
+    expect(item.barcode, isNull);
+    // Prefilled from the global, edited fields win.
+    expect(item.name, 'Lean Beef Steak Mince');
+    expect(item.kcal100g, 124);
+    expect(item.proteinG100g, 21);
+    expect(item.fatG100g, 6.3);
+    // A fresh custom identity, not the global's.
+    expect(item.externalId, startsWith('cf-'));
   });
 
   testWidgets('delete asks for confirmation and pops a deleted result',

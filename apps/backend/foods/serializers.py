@@ -4,8 +4,33 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
-from foods.models import FoodItem
+from foods.models import FoodEditProposal, FoodItem
 from foods.images import images_ok as _images_ok
+
+# Nutrition fields snapshotted into FoodEditProposal.old/new_values.
+NUTRITION_FIELDS = (
+    "kcal_100g",
+    "protein_g_100g",
+    "carbs_g_100g",
+    "fat_g_100g",
+    "sugars_g_100g",
+    "fiber_g_100g",
+    "salt_g_100g",
+)
+
+
+def nutrition_snapshot(source: FoodItem | dict[str, Any]) -> dict[str, float | None]:
+    """Plain-float snapshot of the nutrition columns, JSON-safe."""
+
+    def value_of(field: str) -> Any:
+        if isinstance(source, FoodItem):
+            return getattr(source, field)
+        return source.get(field)
+
+    return {
+        field: (None if value_of(field) is None else float(value_of(field)))
+        for field in NUTRITION_FIELDS
+    }
 
 
 class FoodItemCompactSerializer(serializers.ModelSerializer):
@@ -22,7 +47,12 @@ class FoodItemCompactSerializer(serializers.ModelSerializer):
             "kcal_100g",
             "image_url",
             "barcode",
+            "overrides_food",
         )
+
+    overrides_food = serializers.IntegerField(
+        source="overrides_id", read_only=True, allow_null=True
+    )
 
     def get_image_url(self, obj: FoodItem) -> str | None:
         if _images_ok(obj) and obj.image:
@@ -58,7 +88,12 @@ class FoodItemSerializer(serializers.ModelSerializer):
             "image_signature",
             "raw_source_json",
             "nutriments_json",
+            "overrides_food",
         )
+
+    overrides_food = serializers.IntegerField(
+        source="overrides_id", read_only=True, allow_null=True
+    )
 
     def get_image_url(self, obj: FoodItem) -> str | None:
         if _images_ok(obj) and obj.image:
@@ -235,11 +270,25 @@ class CustomFoodSerializer(serializers.Serializer):
         allow_null=True,
     )
     nutriments_json = serializers.JSONField(required=False, allow_null=True)
+    # Fork-on-edit: id of the global item this custom food shadows for its
+    # owner. Every save against it also records a FoodEditProposal.
+    overrides_food = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_overrides_food(self, value: int | None) -> int | None:
+        if value is None:
+            return None
+        target = FoodItem.objects.filter(pk=value).first()
+        if target is None or target.owner_id is not None:
+            raise serializers.ValidationError(
+                "Overrides must target a global food item."
+            )
+        return value
 
     def save(self, **kwargs: Any) -> FoodItem:
         owner = kwargs["owner"]
         data = dict(self.validated_data)
         external_id = data.pop("external_id")
+        overrides_id = data.pop("overrides_food", None)
 
         with transaction.atomic():
             existing = (
@@ -256,16 +305,39 @@ class CustomFoodSerializer(serializers.Serializer):
                     setattr(existing, field, value)
                 # Re-upserting a soft-deleted food revives it.
                 existing.deleted_at = None
+                if overrides_id is not None:
+                    existing.overrides_id = overrides_id
                 existing.save()
-                return existing
-            return FoodItem.objects.create(
-                source=FoodItem.SOURCE_CUSTOM,
-                external_id=external_id,
-                barcode=None,
-                owner=owner,
-                raw_source_json={},
-                **data,
-            )
+                item = existing
+            else:
+                item = FoodItem.objects.create(
+                    source=FoodItem.SOURCE_CUSTOM,
+                    external_id=external_id,
+                    barcode=None,
+                    owner=owner,
+                    overrides_id=overrides_id,
+                    raw_source_json={},
+                    **data,
+                )
+            self._record_proposal(item, owner, data)
+            return item
+
+    def _record_proposal(
+        self, item: FoodItem, owner: Any, data: dict[str, Any]
+    ) -> None:
+        # Every save of an override is one piece of convergence evidence for
+        # the shadowed global item (KAN-32 groups these by food + user).
+        if item.overrides_id is None:
+            return
+        target = FoodItem.objects.filter(pk=item.overrides_id).first()
+        if target is None:
+            return
+        FoodEditProposal.objects.create(
+            user=owner,
+            food_item=target,
+            old_values=nutrition_snapshot(target),
+            new_values=nutrition_snapshot(data),
+        )
 
 
 class FoodItemCheckSerializer(serializers.Serializer):

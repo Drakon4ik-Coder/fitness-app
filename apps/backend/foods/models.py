@@ -49,6 +49,16 @@ class FoodItem(models.Model):
     # owner's MealEntry history. Deleted items vanish from search but keep
     # past logs intact; re-upserting the same external_id revives the food.
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # Fork-on-edit (KAN-31): a custom food may shadow a global item for its
+    # owner. The override carries the owner's corrected nutrition; the global
+    # row stays untouched for everyone else.
+    overrides = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="overridden_by",
+    )
     name = models.CharField(max_length=255)
     brands = models.CharField(max_length=255, blank=True)
     image_url = models.URLField(blank=True)
@@ -98,3 +108,47 @@ class FoodItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.source})"
+
+
+class FoodEditProposal(models.Model):
+    """One user's nutrition correction to a global food, captured whenever an
+    override is created or updated.
+
+    Does nothing on its own — it silently accumulates the evidence that
+    convergence promotion (KAN-32) consumes: several independent users
+    proposing matching values is what earns an edit shared-truth status.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_PROMOTED = "promoted"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_PROMOTED, "Promoted"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="food_edit_proposals",
+    )
+    food_item = models.ForeignKey(
+        FoodItem,
+        on_delete=models.CASCADE,
+        related_name="edit_proposals",
+    )
+    # Nutrition snapshots (plain floats) at proposal time: what the global
+    # item said, and what the user's override says instead.
+    old_values = models.JSONField()
+    new_values = models.JSONField()
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["food_item", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"proposal for {self.food_item_id} by {self.user_id}"

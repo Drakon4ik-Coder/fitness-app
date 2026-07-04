@@ -415,6 +415,91 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
+  // Resolves a backend id for a catalog (non-custom) food through the
+  // check/ingest flow. Returns the resolved item and whether the backend
+  // already holds good images for it.
+  Future<(FoodItem, bool)> _ensureGlobalBackendId(FoodItem item) async {
+    if (item.backendId != null) return (item, false);
+    if (item.contentHash.isNotEmpty) {
+      final check = await widget.foodsApi.checkFood(
+        source: item.source,
+        externalId: item.externalId,
+        contentHash: item.contentHash,
+        imageSignature: item.imageSignature,
+      );
+      if (check.upToDate && check.foodItemId != null) {
+        return (item.copyWith(backendId: check.foodItemId), check.imagesOk);
+      }
+    }
+    final result = await widget.foodsApi.ingestFood(item);
+    return (result.item, result.imagesOk);
+  }
+
+  // Fork-on-edit: opens the nutrition editor for a catalog food. Saving
+  // creates the user's private override, which shadows the global item in
+  // search/scan for them while everyone else keeps the original.
+  Future<void> _overrideFood(FoodItem global) async {
+    FocusScope.of(context).unfocus();
+    var target = global;
+    if (target.backendId == null) {
+      // The override links to the global row by backend id, so resolve one
+      // first (also what makes the OFF item exist server-side at all).
+      try {
+        final (resolved, _) = await _ensureGlobalBackendId(target);
+        target = resolved;
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+          return;
+        }
+        if (!mounted) return;
+        setState(() {
+          _message = 'Could not open the editor — check your connection.';
+          _messageTone = InlineBannerTone.error;
+        });
+        return;
+      }
+    }
+    if (!mounted) return;
+    final result = await Navigator.of(context).push<CustomFoodResult>(
+      MaterialPageRoute(builder: (_) => CustomFoodPage(overrideOf: target)),
+    );
+    final draft = result?.item;
+    if (draft == null || !mounted) return;
+    var item = draft;
+    try {
+      final synced = await widget.foodsApi.upsertCustomFood(item);
+      item = item.copyWith(backendId: synced.backendId);
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await widget.onLogout();
+        return;
+      }
+      // Offline: local copy wins for now, re-synced on submit.
+    }
+    final stored = await widget.localDb.upsertFood(item);
+    if (!mounted) return;
+    setState(() {
+      // Surface the override; _buildResults hides the shadowed global.
+      _localResults = [
+        stored,
+        for (final it in _localResults)
+          if (it.externalId != stored.externalId) it,
+      ];
+      // A staged copy of the global swaps to the override, keeping grams.
+      for (var i = 0; i < _addedItems.length; i++) {
+        final it = _addedItems[i].item;
+        final matchesGlobal = !it.isCustom &&
+            ((it.backendId != null && it.backendId == target.backendId) ||
+                (it.barcode != null && it.barcode == target.barcode));
+        if (matchesGlobal) {
+          _addedItems[i] =
+              _AddedFood(item: stored, grams: _addedItems[i].grams);
+        }
+      }
+    });
+  }
+
   // Deletes a custom food: backend soft-delete first (aborts on failure so
   // the two stores never diverge — a locally-deleted food would otherwise
   // resurface from typeahead), then the local row and any UI occurrence.
@@ -479,6 +564,26 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
     _lastScannedBarcode = barcode;
     _lastScannedAt = now;
+    // The user's override shadows the catalog product: a scan of the
+    // original's barcode resolves straight to their corrected copy.
+    final override = await widget.localDb.fetchOverrideForBarcode(barcode);
+    if (!mounted) return;
+    if (override != null) {
+      _ignoreSearchChange = true;
+      _searchController.text = barcode;
+      _searchController.selection = TextSelection.collapsed(
+        offset: _searchController.text.length,
+      );
+      _ignoreSearchChange = false;
+      setState(() {
+        _localResults = [override];
+        _backendResults = [];
+        _offResults = [];
+        _message = null;
+        _messageTone = null;
+      });
+      return;
+    }
     setState(() {
       _isOffLoading = true;
       _message = null;
@@ -575,25 +680,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
             // OFF ingest/check flow (which rejects the custom source).
             final synced = await widget.foodsApi.upsertCustomFood(selected);
             selected = selected.copyWith(backendId: synced.backendId);
-          } else if (selected.contentHash.isNotEmpty) {
-            final check = await widget.foodsApi.checkFood(
-              source: selected.source,
-              externalId: selected.externalId,
-              contentHash: selected.contentHash,
-              imageSignature: selected.imageSignature,
-            );
-            if (check.upToDate && check.foodItemId != null) {
-              selected = selected.copyWith(backendId: check.foodItemId);
-              imagesOk = check.imagesOk;
-            } else {
-              final result = await widget.foodsApi.ingestFood(selected);
-              selected = result.item;
-              imagesOk = result.imagesOk;
-            }
           } else {
-            final result = await widget.foodsApi.ingestFood(selected);
-            selected = result.item;
-            imagesOk = result.imagesOk;
+            final (resolved, resolvedImagesOk) =
+                await _ensureGlobalBackendId(selected);
+            selected = resolved;
+            imagesOk = resolvedImagesOk;
           }
         }
         if (selected.backendId == null) {
@@ -650,8 +741,28 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final results = <_FoodResult>[];
     final seenKeys = <String>{};
 
+    // Globals shadowed by one of the user's overrides are hidden — the
+    // override row (a custom food, present in local/backend results) stands
+    // in for them. OFF rows carry no backend id, so barcodes match those.
+    final overriddenIds = <int>{};
+    final overriddenBarcodes = <String>{};
+    for (final item in [..._localResults, ..._backendResults]) {
+      if (!item.isOverride) continue;
+      overriddenIds.add(item.overridesBackendId!);
+      final barcode = item.overridesBarcode;
+      if (barcode != null && barcode.isNotEmpty) {
+        overriddenBarcodes.add(barcode);
+      }
+    }
+    bool shadowed(FoodItem item) =>
+        !item.isCustom &&
+        ((item.backendId != null && overriddenIds.contains(item.backendId)) ||
+            (item.barcode != null &&
+                overriddenBarcodes.contains(item.barcode)));
+
     void addItems(List<FoodItem> items, _FoodResultOrigin origin) {
       for (final item in items) {
+        if (shadowed(item)) continue;
         final key = _resultKey(item);
         if (key == null || seenKeys.contains(key)) continue;
         seenKeys.add(key);
@@ -1187,9 +1298,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
                     isEnriching: _enrichingKey != null &&
                         _resultKey(item.item) == _enrichingKey,
                     onTap: () => _onResultTap(item),
+                    // Long-press: edit your own food, or fork a catalog item
+                    // into a personal override.
                     onLongPress: item.item.isCustom
                         ? () => _editCustomFood(item.item)
-                        : null,
+                        : () => _overrideFood(item.item),
                   );
                 },
               ),
@@ -1381,6 +1494,30 @@ class _FoodCard extends StatelessWidget {
                           Icons.check,
                           size: 14,
                           color: scheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  // The user's own foods are marked so it's clear these
+                  // values are theirs, not the shared catalog's.
+                  if (item.item.isCustom)
+                    Positioned(
+                      top: AppSpacing.sm,
+                      left: AppSpacing.sm,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          item.item.isOverride ? 'Edited by you' : 'Yours',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSecondaryContainer,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),

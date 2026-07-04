@@ -191,4 +191,41 @@ void main() {
     final restored = FoodItem.fromDbMap(item.toDbMap());
     expect(restored.isCookedBasis, isTrue);
   });
+
+  test('override link round-trips through db map and custom payload', () {
+    final item = FoodItem(
+      source: customSource,
+      externalId: 'cf-1',
+      name: 'Corrected mince',
+      brands: '',
+      kcal100g: 124,
+      rawSourceJson: '{}',
+      overridesBackendId: 42,
+      overridesBarcode: '5054070875254',
+    );
+
+    final restored = FoodItem.fromDbMap(item.toDbMap());
+    expect(restored.isOverride, isTrue);
+    expect(restored.overridesBackendId, 42);
+    expect(restored.overridesBarcode, '5054070875254');
+
+    final payload = item.toCustomPayload();
+    expect(payload['overrides_food'], 42);
+    // The barcode link is local-only scan plumbing, never sent.
+    expect(payload.containsKey('overrides_barcode'), isFalse);
+  });
+
+  test('fromBackendDetail restores the override link', () {
+    final item = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 7,
+      'source': 'custom',
+      'external_id': 'cf-1',
+      'name': 'Corrected mince',
+      'overrides_food': 42,
+      'raw_source_json': '{}',
+    });
+
+    expect(item.isOverride, isTrue);
+    expect(item.overridesBackendId, 42);
+  });
 }

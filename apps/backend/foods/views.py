@@ -65,6 +65,13 @@ class FoodTypeaheadView(APIView):
             # customs stay private and soft-deleted foods stay gone.
             .filter(Q(owner__isnull=True) | Q(owner=request.user))
             .filter(deleted_at__isnull=True)
+            # A global item the caller has overridden is replaced by their
+            # override (which matches the owner filter above); everyone else
+            # keeps seeing the global row.
+            .exclude(
+                overridden_by__owner_id=request.user.pk,
+                overridden_by__deleted_at__isnull=True,
+            )
             .order_by("name")
             .distinct()[:limit]
         )

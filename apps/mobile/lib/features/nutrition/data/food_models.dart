@@ -312,6 +312,8 @@ class FoodItem {
     this.gramsPerPiece,
     this.pieceUnit,
     this.nutritionBasis,
+    this.overridesBackendId,
+    this.overridesBarcode,
     this.completeness,
     required this.rawSourceJson,
     this.nutrimentsJson,
@@ -345,6 +347,12 @@ class FoodItem {
   // [cookedNutritionBasis] when the label's per-100g values describe the
   // cooked food while the product is sold raw; null = per 100 g as sold.
   final String? nutritionBasis;
+  // Fork-on-edit (KAN-31): backend id of the global item this custom food
+  // shadows for its owner; null for ordinary foods.
+  final int? overridesBackendId;
+  // Barcode of the shadowed item, kept locally so a scan can resolve straight
+  // to the override without a backend round-trip. Not sent to the backend.
+  final String? overridesBarcode;
   // OFF data `completeness` in [0,1] for ranking/filtering live search results.
   // Transient: only set on freshly mapped OFF hits, never persisted.
   final double? completeness;
@@ -356,6 +364,8 @@ class FoodItem {
   bool get isCookedBasis => nutritionBasis == cookedNutritionBasis;
 
   bool get isCustom => source == customSource;
+
+  bool get isOverride => isCustom && overridesBackendId != null;
 
   FoodItem copyWith({
     int? localId,
@@ -379,6 +389,8 @@ class FoodItem {
     double? gramsPerPiece,
     String? pieceUnit,
     String? nutritionBasis,
+    int? overridesBackendId,
+    String? overridesBarcode,
     double? completeness,
     String? rawSourceJson,
     Map<String, dynamic>? nutrimentsJson,
@@ -407,6 +419,8 @@ class FoodItem {
       gramsPerPiece: gramsPerPiece ?? this.gramsPerPiece,
       pieceUnit: pieceUnit ?? this.pieceUnit,
       nutritionBasis: nutritionBasis ?? this.nutritionBasis,
+      overridesBackendId: overridesBackendId ?? this.overridesBackendId,
+      overridesBarcode: overridesBarcode ?? this.overridesBarcode,
       completeness: completeness ?? this.completeness,
       rawSourceJson: rawSourceJson ?? this.rawSourceJson,
       nutrimentsJson: nutrimentsJson ?? this.nutrimentsJson,
@@ -438,6 +452,8 @@ class FoodItem {
       'grams_per_piece': gramsPerPiece,
       'piece_unit': pieceUnit,
       'nutrition_basis': nutritionBasis,
+      'overrides_backend_id': overridesBackendId,
+      'overrides_barcode': overridesBarcode,
       'raw_source_json': rawSourceJson,
       'nutriments_json':
           nutrimentsJson == null ? null : jsonEncode(nutrimentsJson),
@@ -507,6 +523,7 @@ class FoodItem {
       'salt_g_100g': round(saltG100g),
       'serving_size_g': round(servingSizeG),
       if (nutrimentsJson != null) 'nutriments_json': nutrimentsJson,
+      if (overridesBackendId != null) 'overrides_food': overridesBackendId,
     };
   }
 
@@ -534,6 +551,8 @@ class FoodItem {
       gramsPerPiece: parseNullableDouble(map['grams_per_piece']),
       pieceUnit: map['piece_unit'] as String?,
       nutritionBasis: map['nutrition_basis'] as String?,
+      overridesBackendId: map['overrides_backend_id'] as int?,
+      overridesBarcode: map['overrides_barcode'] as String?,
       rawSourceJson: (map['raw_source_json'] as String?) ?? '{}',
       nutrimentsJson: _decodeNutrimentsJson(nutrimentsRaw),
       lastUsedAt: map['last_used_at'] == null
@@ -561,6 +580,7 @@ class FoodItem {
       kcal100g: parseNullableDouble(map['kcal_100g']),
       contentHash: (map['content_hash'] as String?) ?? '',
       imageSignature: map['image_signature'] as String?,
+      overridesBackendId: map['overrides_food'] as int?,
       rawSourceJson: '{}',
       nutrimentsJson: null,
     );
@@ -617,6 +637,7 @@ class FoodItem {
       gramsPerPiece: piece?.gramsPerPiece,
       pieceUnit: piece?.unit,
       nutritionBasis: cookedBasis ? cookedNutritionBasis : null,
+      overridesBackendId: map['overrides_food'] as int?,
       rawSourceJson: rawJson,
       nutrimentsJson: nutrimentsJson,
     );

@@ -41,10 +41,16 @@ class CustomFoodResult {
 /// (`<offKey>_100g` + `<offKey>_unit`), so the breakdown view, focus pills,
 /// and amount sheet work on custom foods unchanged.
 class CustomFoodPage extends StatefulWidget {
-  const CustomFoodPage({super.key, this.initial});
+  const CustomFoodPage({super.key, this.initial, this.overrideOf});
 
   /// Existing custom food to edit; null creates a new one.
   final FoodItem? initial;
+
+  /// Fork-on-edit (KAN-31): the global item whose nutrition is being
+  /// corrected. The form prefills from it and saves a *new* custom food that
+  /// shadows it for this user — the global item stays untouched for everyone
+  /// else. Ignored when [initial] is set (the fork already exists).
+  final FoodItem? overrideOf;
 
   @override
   State<CustomFoodPage> createState() => _CustomFoodPageState();
@@ -67,24 +73,31 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
 
   static const Set<String> _mainMacroKeys = {'protein', 'carbs', 'fat'};
 
+  /// The item the form fields start from: the food being edited, or the
+  /// global item being forked into an override.
+  FoodItem? get _template => widget.initial ?? widget.overrideOf;
+
+  bool get _isOverride =>
+      widget.overrideOf != null || (widget.initial?.isOverride ?? false);
+
   @override
   void initState() {
     super.initState();
-    final initial = widget.initial;
-    _nameController = TextEditingController(text: initial?.name ?? '');
-    _brandController = TextEditingController(text: initial?.brands ?? '');
+    final template = _template;
+    _nameController = TextEditingController(text: template?.name ?? '');
+    _brandController = TextEditingController(text: template?.brands ?? '');
     _servingController = TextEditingController(
-      text: _numberText(initial?.servingSizeG),
+      text: _numberText(template?.servingSizeG),
     );
     _kcalController = TextEditingController(
-      text: _numberText(initial?.kcal100g),
+      text: _numberText(template?.kcal100g),
     );
     _nutrients = {
       for (final spec in kNutrientCatalog)
         spec.key: TextEditingController(
-          text: initial == null
+          text: template == null
               ? ''
-              : _numberText(nutrientPer100gForItem(spec, initial)),
+              : _numberText(nutrientPer100gForItem(spec, template)),
         ),
     };
     _baseline = {
@@ -187,6 +200,10 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
       source: customSource,
       externalId: initial?.externalId ?? newCustomFoodId(),
       barcode: null,
+      overridesBackendId:
+          initial?.overridesBackendId ?? widget.overrideOf?.backendId,
+      overridesBarcode:
+          initial?.overridesBarcode ?? widget.overrideOf?.barcode,
       name: _nameController.text.trim(),
       brands: _brandController.text.trim(),
       kcal100g: kcal,
@@ -206,13 +223,20 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
   }
 
   Future<void> _confirmDelete() async {
+    // For an override, deletion means reverting to the original values.
+    final isOverride = _isOverride;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete this food?'),
-        content: const Text(
-          'It disappears from search, but meals you already logged with it '
-          'keep their history.',
+        title: Text(
+          isOverride ? 'Revert to the original?' : 'Delete this food?',
+        ),
+        content: Text(
+          isOverride
+              ? 'Your corrected values are removed and the catalog item '
+                  'comes back. Logged meals keep their history.'
+              : 'It disappears from search, but meals you already logged '
+                  'with it keep their history.',
         ),
         actions: [
           TextButton(
@@ -222,7 +246,7 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
-              'Delete',
+              isOverride ? 'Revert' : 'Delete',
               style: TextStyle(color: Theme.of(ctx).colorScheme.error),
             ),
           ),
@@ -246,7 +270,13 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
         safeArea: true,
         padding: EdgeInsets.zero,
         appBar: AppBar(
-          title: Text(widget.initial == null ? 'Create food' : 'Edit food'),
+          title: Text(
+            _isOverride
+                ? 'Edit nutrition'
+                : widget.initial == null
+                    ? 'Create food'
+                    : 'Edit food',
+          ),
           centerTitle: false,
         ),
         body: Form(
@@ -259,6 +289,14 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
               AppSpacing.xxl,
             ),
             children: [
+              if (_isOverride) ...[
+                InlineBanner(
+                  message: 'Your personal copy — only you see these '
+                      'changes. The catalog item stays as-is for others.',
+                  tone: InlineBannerTone.info,
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               AppFormField(
                 controller: _nameController,
                 label: 'Name',
@@ -330,7 +368,9 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
               AppPrimaryButton(
                 onPressed: _save,
                 child: Text(
-                  widget.initial == null ? 'Create food' : 'Save changes',
+                  widget.initial == null && !_isOverride
+                      ? 'Create food'
+                      : 'Save changes',
                 ),
               ),
               if (widget.initial != null) ...[
@@ -338,7 +378,7 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
                 TextButton(
                   onPressed: _confirmDelete,
                   child: Text(
-                    'Delete food',
+                    _isOverride ? 'Revert to original' : 'Delete food',
                     style: theme.textTheme.labelLarge?.copyWith(
                       color: scheme.error,
                       fontWeight: FontWeight.bold,
