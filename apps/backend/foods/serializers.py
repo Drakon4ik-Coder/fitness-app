@@ -4,19 +4,8 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
-from foods.models import FoodEditProposal, FoodItem
+from foods.models import NUTRITION_FIELDS, FoodEditProposal, FoodItem
 from foods.images import images_ok as _images_ok
-
-# Nutrition fields snapshotted into FoodEditProposal.old/new_values.
-NUTRITION_FIELDS = (
-    "kcal_100g",
-    "protein_g_100g",
-    "carbs_g_100g",
-    "fat_g_100g",
-    "sugars_g_100g",
-    "fiber_g_100g",
-    "salt_g_100g",
-)
 
 
 def nutrition_snapshot(source: FoodItem | dict[str, Any]) -> dict[str, float | None]:
@@ -192,7 +181,15 @@ class FoodItemIngestSerializer(serializers.Serializer):
         item: FoodItem | None = None
 
         def apply_changes(target: FoodItem) -> None:
+            protected: tuple[str, ...] = ()
+            if target.community_verified_at is not None:
+                # Community-promoted nutrition outranks whatever OFF says now:
+                # a client re-ingesting stale OFF data may update names and
+                # images, never the verified values (columns or blob).
+                protected = (*NUTRITION_FIELDS, "nutriments_json")
             for field, value in data.items():
+                if field in protected:
+                    continue
                 setattr(target, field, value)
 
         def resolve_and_save(lock: bool) -> FoodItem:
@@ -338,6 +335,11 @@ class CustomFoodSerializer(serializers.Serializer):
             old_values=nutrition_snapshot(target),
             new_values=nutrition_snapshot(data),
         )
+        # Opportunistic promotion check: cheap when under quorum, and means
+        # convergence takes effect the moment the deciding edit lands.
+        from foods.promotion import promote_pending_edits
+
+        promote_pending_edits(target)
 
 
 class FoodItemCheckSerializer(serializers.Serializer):

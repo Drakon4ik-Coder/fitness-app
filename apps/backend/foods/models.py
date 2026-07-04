@@ -1,6 +1,19 @@
 from django.conf import settings
 from django.db import models
 
+# The nutrition columns governed by the edit-proposal/promotion flow: they
+# are snapshotted into FoodEditProposal rows and frozen against OFF
+# re-ingests once community-promoted.
+NUTRITION_FIELDS = (
+    "kcal_100g",
+    "protein_g_100g",
+    "carbs_g_100g",
+    "fat_g_100g",
+    "sugars_g_100g",
+    "fiber_g_100g",
+    "salt_g_100g",
+)
+
 
 def food_image_upload_path(instance: "FoodItem", filename: str) -> str:
     barcode = (instance.barcode or instance.external_id or "unknown").strip()
@@ -59,6 +72,11 @@ class FoodItem(models.Model):
         on_delete=models.CASCADE,
         related_name="overridden_by",
     )
+    # Set when convergence promotion (KAN-32) replaced this item's nutrition
+    # with community-verified values. While set, OFF re-ingests update
+    # everything EXCEPT the nutrition fields/blob, so a stale OFF entry can't
+    # stomp the promoted truth.
+    community_verified_at = models.DateTimeField(null=True, blank=True)
     name = models.CharField(max_length=255)
     brands = models.CharField(max_length=255, blank=True)
     image_url = models.URLField(blank=True)
