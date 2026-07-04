@@ -45,6 +45,10 @@ class FoodItem(models.Model):
         on_delete=models.CASCADE,
         related_name="custom_foods",
     )
+    # Soft delete for custom foods: hard-deleting would cascade into the
+    # owner's MealEntry history. Deleted items vanish from search but keep
+    # past logs intact; re-upserting the same external_id revives the food.
+    deleted_at = models.DateTimeField(null=True, blank=True)
     name = models.CharField(max_length=255)
     brands = models.CharField(max_length=255, blank=True)
     image_url = models.URLField(blank=True)

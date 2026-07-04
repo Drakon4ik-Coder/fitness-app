@@ -22,8 +22,21 @@ String newCustomFoodId({Random? random}) {
 /// Relative kcal-vs-macros disagreement above which the Atwater hint shows.
 const double kAtwaterHintThreshold = 0.15;
 
+/// Outcome of [CustomFoodPage]: a saved food, or a request to delete the one
+/// being edited (mirrors the amount sheet's AmountResult pattern).
+class CustomFoodResult {
+  const CustomFoodResult._({this.item, this.deleted = false});
+
+  factory CustomFoodResult.saved(FoodItem item) =>
+      CustomFoodResult._(item: item);
+  factory CustomFoodResult.deleted() => const CustomFoodResult._(deleted: true);
+
+  final FoodItem? item;
+  final bool deleted;
+}
+
 /// Create/edit form for a user's own food. Pure UI: collects the values and
-/// pops the built [FoodItem] — persistence and backend sync stay with the
+/// pops a [CustomFoodResult] — persistence and backend sync stay with the
 /// caller. Micros are written as OFF-format `nutriments_json`
 /// (`<offKey>_100g` + `<offKey>_unit`), so the breakdown view, focus pills,
 /// and amount sheet work on custom foods unchanged.
@@ -189,7 +202,36 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
       lastUsedAt: initial?.lastUsedAt,
       isFavorite: initial?.isFavorite ?? false,
     );
-    Navigator.of(context).pop(item);
+    Navigator.of(context).pop(CustomFoodResult.saved(item));
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this food?'),
+        content: const Text(
+          'It disappears from search, but meals you already logged with it '
+          'keep their history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              'Delete',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pop(CustomFoodResult.deleted());
+    }
   }
 
   @override
@@ -291,6 +333,19 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
                   widget.initial == null ? 'Create food' : 'Save changes',
                 ),
               ),
+              if (widget.initial != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                TextButton(
+                  onPressed: _confirmDelete,
+                  child: Text(
+                    'Delete food',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: scheme.error,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

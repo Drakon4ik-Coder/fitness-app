@@ -129,6 +129,22 @@ class FoodsApiService {
     }
   }
 
+  /// Soft-deletes one of the caller's custom foods. A 404 (already gone or
+  /// never synced) counts as success.
+  Future<void> deleteCustomFood(int backendId) async {
+    try {
+      await _dio.delete<void>('/api/v1/foods/custom/$backendId');
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return;
+      throw ApiException(
+        'Unable to delete food.',
+        statusCode: error.response?.statusCode,
+      );
+    } catch (_) {
+      throw ApiException('Unable to delete food.');
+    }
+  }
+
   Future<FoodCheckResult> checkFood({
     required String source,
     required String externalId,

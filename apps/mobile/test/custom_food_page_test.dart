@@ -6,8 +6,8 @@ import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
 /// Opens the form, fills [fields] (keyed by field label), and returns a
-/// getter for the FoodItem the page pops with — call it after tapping save.
-Future<FoodItem? Function()> _openForm(
+/// getter for the result the page pops with — call it after tapping save.
+Future<CustomFoodResult? Function()> _openForm(
   WidgetTester tester, {
   FoodItem? initial,
   Map<String, String> fields = const {},
@@ -17,7 +17,7 @@ Future<FoodItem? Function()> _openForm(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  FoodItem? result;
+  CustomFoodResult? result;
   await tester.pumpWidget(
     MaterialApp(
       theme: LuminaHealthTheme.dark(),
@@ -26,7 +26,7 @@ Future<FoodItem? Function()> _openForm(
           body: Center(
             child: ElevatedButton(
               onPressed: () async {
-                result = await Navigator.of(context).push<FoodItem>(
+                result = await Navigator.of(context).push<CustomFoodResult>(
                   MaterialPageRoute(
                     builder: (_) => CustomFoodPage(initial: initial),
                   ),
@@ -76,7 +76,7 @@ void main() {
     );
     await _tapSave(tester);
 
-    final item = resultOf();
+    final item = resultOf()?.item;
     expect(item, isNotNull);
     expect(item!.source, customSource);
     expect(item.isCustom, isTrue);
@@ -110,7 +110,7 @@ void main() {
     await tester.pumpAndSettle();
     await _tapSave(tester);
 
-    final item = resultOf();
+    final item = resultOf()?.item;
     expect(item, isNotNull);
     expect(item!.nutrimentsJson!['vitamin-c_100g'], 80);
     expect(item.nutrimentsJson!['vitamin-c_unit'], 'mg');
@@ -183,11 +183,48 @@ void main() {
     );
     await _tapSave(tester, editing: true);
 
-    final item = resultOf();
+    final item = resultOf()?.item;
     expect(item, isNotNull);
     expect(item!.externalId, 'cf-keep-me');
     expect(item.name, 'New name');
     expect(item.kcal100g, 200);
     expect(item.proteinG100g, 10);
+  });
+
+  testWidgets('delete asks for confirmation and pops a deleted result',
+      (tester) async {
+    final existing = FoodItem(
+      source: customSource,
+      externalId: 'cf-doomed',
+      name: 'Doomed food',
+      brands: '',
+      kcal100g: 100,
+      rawSourceJson: '{}',
+    );
+
+    final resultOf = await _openForm(tester, initial: existing);
+
+    // No delete affordance in create mode is covered implicitly: the button
+    // only renders with an initial item.
+    final deleteButton = find.text('Delete food');
+    await tester.ensureVisible(deleteButton);
+    await tester.tap(deleteButton);
+    await tester.pumpAndSettle();
+
+    // Cancel keeps the form open.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(resultOf(), isNull);
+    expect(find.text('Save changes'), findsOneWidget);
+
+    // Confirm pops with deleted=true.
+    await tester.tap(deleteButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(resultOf(), isNotNull);
+    expect(resultOf()!.deleted, isTrue);
+    expect(resultOf()!.item, isNull);
   });
 }

@@ -150,6 +150,50 @@ def test_typeahead_scopes_custom_foods_to_owner() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_delete_soft_deletes_and_hides_from_typeahead() -> None:
+    alice = _auth_client("alice@example.com")
+    created = alice.post("/api/v1/foods/custom", _payload(), format="json")
+    food_id = created.data["id"]
+
+    response = alice.delete(f"/api/v1/foods/custom/{food_id}")
+
+    assert response.status_code == 204
+    item = FoodItem.objects.get(pk=food_id)
+    assert item.deleted_at is not None
+    names = {
+        row["name"]
+        for row in alice.get("/api/v1/foods/typeahead", {"q": "granola"}).data
+    }
+    assert names == set()
+
+    # Re-upserting the same external_id revives the food.
+    revived = alice.post("/api/v1/foods/custom", _payload(), format="json")
+    assert revived.status_code == 200
+    assert FoodItem.objects.get(pk=food_id).deleted_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_delete_is_owner_scoped_and_custom_only() -> None:
+    alice = _auth_client("alice@example.com")
+    bob = _auth_client("bob@example.com")
+    created = alice.post("/api/v1/foods/custom", _payload(), format="json")
+    food_id = created.data["id"]
+    global_item = FoodItem.objects.create(
+        source=FoodItem.SOURCE_OPEN_FOOD_FACTS,
+        external_id="123",
+        barcode="123",
+        name="Global",
+        raw_source_json={},
+    )
+
+    assert bob.delete(f"/api/v1/foods/custom/{food_id}").status_code == 404
+    assert alice.delete(f"/api/v1/foods/custom/{global_item.id}").status_code == 404
+    assert FoodItem.objects.get(pk=food_id).deleted_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_ingest_rejects_custom_source() -> None:
     client = _auth_client("alice@example.com")
 

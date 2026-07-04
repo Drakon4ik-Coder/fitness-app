@@ -342,9 +342,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // missing a backendId), stored locally, and dropped into the Added list.
   Future<void> _openCustomFoodPage() async {
     FocusScope.of(context).unfocus();
-    final draft = await Navigator.of(context).push<FoodItem>(
+    final result = await Navigator.of(context).push<CustomFoodResult>(
       MaterialPageRoute(builder: (_) => const CustomFoodPage()),
     );
+    final draft = result?.item;
     if (draft == null || !mounted) return;
     var item = draft;
     try {
@@ -372,10 +373,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // in the results/Added lists.
   Future<void> _editCustomFood(FoodItem item) async {
     FocusScope.of(context).unfocus();
-    final updated = await Navigator.of(context).push<FoodItem>(
+    final result = await Navigator.of(context).push<CustomFoodResult>(
       MaterialPageRoute(builder: (_) => CustomFoodPage(initial: item)),
     );
-    if (updated == null || !mounted) return;
+    if (result == null || !mounted) return;
+    if (result.deleted) {
+      await _deleteCustomFood(item);
+      return;
+    }
+    final updated = result.item;
+    if (updated == null) return;
     var next = updated;
     try {
       final synced = await widget.foodsApi.upsertCustomFood(next);
@@ -404,6 +411,45 @@ class _AddFoodPageState extends State<AddFoodPage> {
       ];
       _backendResults = [
         for (final it in _backendResults) matches(it) ? stored : it,
+      ];
+    });
+  }
+
+  // Deletes a custom food: backend soft-delete first (aborts on failure so
+  // the two stores never diverge — a locally-deleted food would otherwise
+  // resurface from typeahead), then the local row and any UI occurrence.
+  Future<void> _deleteCustomFood(FoodItem item) async {
+    if (item.backendId != null) {
+      try {
+        await widget.foodsApi.deleteCustomFood(item.backendId!);
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+          return;
+        }
+        if (!mounted) return;
+        setState(() {
+          _message = 'Could not delete the food — check your connection.';
+          _messageTone = InlineBannerTone.error;
+        });
+        return;
+      }
+    }
+    if (item.localId != null) {
+      await widget.localDb.deleteFood(item.localId!);
+    }
+    if (!mounted) return;
+    bool matches(FoodItem candidate) =>
+        candidate.isCustom && candidate.externalId == item.externalId;
+    setState(() {
+      _addedItems.removeWhere((added) => matches(added.item));
+      _localResults = [
+        for (final it in _localResults)
+          if (!matches(it)) it,
+      ];
+      _backendResults = [
+        for (final it in _backendResults)
+          if (!matches(it)) it,
       ];
     });
   }

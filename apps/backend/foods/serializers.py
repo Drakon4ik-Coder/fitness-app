@@ -254,6 +254,8 @@ class CustomFoodSerializer(serializers.Serializer):
                     )
                 for field, value in data.items():
                     setattr(existing, field, value)
+                # Re-upserting a soft-deleted food revives it.
+                existing.deleted_at = None
                 existing.save()
                 return existing
             return FoodItem.objects.create(

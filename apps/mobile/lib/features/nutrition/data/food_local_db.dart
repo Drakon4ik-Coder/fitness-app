@@ -85,6 +85,11 @@ class FoodLocalDb {
     return merged.copyWith(localId: id);
   }
 
+  Future<void> deleteFood(int localId) async {
+    final db = await database;
+    await db.delete('foods', where: 'id = ?', whereArgs: [localId]);
+  }
+
   Future<void> updateLastUsed(int localId, DateTime usedAt) async {
     final db = await database;
     await db.update(

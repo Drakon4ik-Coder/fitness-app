@@ -62,8 +62,9 @@ class FoodTypeaheadView(APIView):
                 Q(name__icontains=query) | Q(brands__icontains=query)
             )
             # Global items plus the caller's own custom foods; other users'
-            # customs stay private.
+            # customs stay private and soft-deleted foods stay gone.
             .filter(Q(owner__isnull=True) | Q(owner=request.user))
+            .filter(deleted_at__isnull=True)
             .order_by("name")
             .distinct()[:limit]
         )
@@ -109,6 +110,33 @@ class CustomFoodView(APIView):
         item = serializer.save(owner=request.user)
         output = FoodItemSerializer(item, context={"request": request})
         return Response(output.data)
+
+
+class CustomFoodDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Deleted"),
+            401: OpenApiResponse(description="Unauthorized"),
+            404: OpenApiResponse(description="Not found"),
+        },
+    )
+    def delete(self, request: Request, food_item_id: int) -> Response:
+        # Soft delete: the food disappears from search but logged meals keep
+        # their history. 404 for missing AND not-owned alike, so existence of
+        # other users' foods never leaks.
+        item = FoodItem.objects.filter(
+            pk=food_item_id,
+            source=FoodItem.SOURCE_CUSTOM,
+            owner_id=request.user.pk,
+        ).first()
+        if item is None:
+            return Response({"detail": "Not found."}, status=404)
+        if item.deleted_at is None:
+            item.deleted_at = timezone.now()
+            item.save(update_fields=["deleted_at"])
+        return Response(status=204)
 
 
 class FoodImageUploadView(APIView):
