@@ -9,6 +9,7 @@ import '../../ui_system/tokens.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/food_models.dart';
+import 'data/food_sync.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
@@ -17,6 +18,7 @@ import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
 import 'custom_food_page.dart';
+import 'food_detail_page.dart';
 import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
 import 'widgets/amount_sheet.dart';
@@ -54,6 +56,7 @@ class AddFoodPage extends StatefulWidget {
     required this.selectedDate,
     this.initialMeal,
     this.focusSpecs,
+    this.catalog,
   });
 
   final FoodLocalDb localDb;
@@ -68,6 +71,10 @@ class AddFoodPage extends StatefulWidget {
   /// summary card and the amount sheet's preview pills so this page tracks the
   /// same nutrients as the today page. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
+
+  /// The full goal-resolved catalog, forwarded to the food detail page so its
+  /// per-100g targets match the today page. Null falls back to the defaults.
+  final List<NutrientSpec>? catalog;
 
   @override
   State<AddFoodPage> createState() => _AddFoodPageState();
@@ -326,14 +333,97 @@ class _AddFoodPageState extends State<AddFoodPage> {
       initialGrams: entry.grams,
       isEditing: true,
       focusSpecs: _focusSpecs,
+      onViewDetails: _openFoodDetail,
     );
     if (result == null || !mounted) return;
     setState(() {
       if (result.removed) {
         _addedItems.removeAt(index);
       } else if (result.grams != null) {
-        _addedItems[index] = _AddedFood(item: entry.item, grams: result.grams!);
+        // Re-read the staged item: viewing details from the sheet may have
+        // replaced it (an edit or a fresh override) while the sheet was open.
+        _addedItems[index] =
+            _AddedFood(item: _addedItems[index].item, grams: result.grams!);
       }
+    });
+  }
+
+  /// Pushes the read-first food detail page (KAN-33). Edits made there are
+  /// propagated into this page's lists as they happen; resolves with the
+  /// updated item (or null if nothing changed) so the amount sheet can
+  /// refresh its preview.
+  Future<FoodItem?> _openFoodDetail(FoodItem item) async {
+    FoodItem? updated;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => FoodDetailPage(
+          item: item,
+          foodsApi: widget.foodsApi,
+          localDb: widget.localDb,
+          onLogout: widget.onLogout,
+          catalog: widget.catalog ?? kNutrientCatalog,
+          onItemChanged: (next) {
+            updated = next;
+            _applyCustomFoodUpdate(next);
+          },
+          onItemReverted: _applyCustomFoodRemoval,
+        ),
+      ),
+    );
+    return updated;
+  }
+
+  /// Reflects a saved custom food everywhere it can appear: its own rows in
+  /// the results/Added lists and — for overrides — any staged copy of the
+  /// global it shadows. A fresh fork not yet in any list is surfaced in the
+  /// local results, standing in for the shadowed global that _buildResults
+  /// hides.
+  void _applyCustomFoodUpdate(FoodItem stored) {
+    bool isSelf(FoodItem candidate) =>
+        candidate.isCustom && candidate.externalId == stored.externalId;
+    bool isShadowedGlobal(FoodItem candidate) =>
+        stored.isOverride &&
+        !candidate.isCustom &&
+        ((candidate.backendId != null &&
+                candidate.backendId == stored.overridesBackendId) ||
+            (candidate.barcode != null &&
+                candidate.barcode!.isNotEmpty &&
+                candidate.barcode == stored.overridesBarcode));
+    bool matches(FoodItem candidate) =>
+        isSelf(candidate) || isShadowedGlobal(candidate);
+
+    List<FoodItem> swap(List<FoodItem> list) =>
+        [for (final it in list) matches(it) ? stored : it];
+
+    setState(() {
+      for (var i = 0; i < _addedItems.length; i++) {
+        if (matches(_addedItems[i].item)) {
+          _addedItems[i] =
+              _AddedFood(item: stored, grams: _addedItems[i].grams);
+        }
+      }
+      _localResults = swap(_localResults);
+      _backendResults = swap(_backendResults);
+      if (!_localResults.any(isSelf) && !_backendResults.any(isSelf)) {
+        _localResults = [stored, ..._localResults];
+      }
+    });
+  }
+
+  /// Drops a deleted/reverted custom food from every list on this page.
+  void _applyCustomFoodRemoval(FoodItem item) {
+    bool matches(FoodItem candidate) =>
+        candidate.isCustom && candidate.externalId == item.externalId;
+    setState(() {
+      _addedItems.removeWhere((added) => matches(added.item));
+      _localResults = [
+        for (final it in _localResults)
+          if (!matches(it)) it,
+      ];
+      _backendResults = [
+        for (final it in _backendResults)
+          if (!matches(it)) it,
+      ];
     });
   }
 
@@ -347,19 +437,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
     );
     final draft = result?.item;
     if (draft == null || !mounted) return;
-    var item = draft;
-    try {
-      final synced = await widget.foodsApi.upsertCustomFood(item);
-      item = item.copyWith(backendId: synced.backendId);
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
-        return;
-      }
-      // Offline or server hiccup: keep the local copy, sync on submit.
-    }
-    final stored = await widget.localDb.upsertFood(item);
-    if (!mounted) return;
+    final stored = await saveCustomFoodDraft(
+      draft,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onUnauthorized: widget.onLogout,
+    );
+    if (stored == null || !mounted) return;
     HapticFeedback.selectionClick();
     setState(() {
       _addedItems.add(
@@ -383,56 +467,14 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
     final updated = result.item;
     if (updated == null) return;
-    var next = updated;
-    try {
-      final synced = await widget.foodsApi.upsertCustomFood(next);
-      next = next.copyWith(backendId: synced.backendId);
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
-        return;
-      }
-      // Offline: local copy wins for now, re-synced on submit.
-    }
-    final stored = await widget.localDb.upsertFood(next);
-    if (!mounted) return;
-
-    bool matches(FoodItem candidate) =>
-        candidate.isCustom && candidate.externalId == stored.externalId;
-    setState(() {
-      for (var i = 0; i < _addedItems.length; i++) {
-        if (matches(_addedItems[i].item)) {
-          _addedItems[i] =
-              _AddedFood(item: stored, grams: _addedItems[i].grams);
-        }
-      }
-      _localResults = [
-        for (final it in _localResults) matches(it) ? stored : it,
-      ];
-      _backendResults = [
-        for (final it in _backendResults) matches(it) ? stored : it,
-      ];
-    });
-  }
-
-  // Resolves a backend id for a catalog (non-custom) food through the
-  // check/ingest flow. Returns the resolved item and whether the backend
-  // already holds good images for it.
-  Future<(FoodItem, bool)> _ensureGlobalBackendId(FoodItem item) async {
-    if (item.backendId != null) return (item, false);
-    if (item.contentHash.isNotEmpty) {
-      final check = await widget.foodsApi.checkFood(
-        source: item.source,
-        externalId: item.externalId,
-        contentHash: item.contentHash,
-        imageSignature: item.imageSignature,
-      );
-      if (check.upToDate && check.foodItemId != null) {
-        return (item.copyWith(backendId: check.foodItemId), check.imagesOk);
-      }
-    }
-    final result = await widget.foodsApi.ingestFood(item);
-    return (result.item, result.imagesOk);
+    final stored = await saveCustomFoodDraft(
+      updated,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onUnauthorized: widget.onLogout,
+    );
+    if (stored == null || !mounted) return;
+    _applyCustomFoodUpdate(stored);
   }
 
   // Fork-on-edit: opens the nutrition editor for a catalog food. Saving
@@ -445,7 +487,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
       // The override links to the global row by backend id, so resolve one
       // first (also what makes the OFF item exist server-side at all).
       try {
-        final (resolved, _) = await _ensureGlobalBackendId(target);
+        final (resolved, _) =
+            await ensureGlobalBackendId(target, foodsApi: widget.foodsApi);
         target = resolved;
       } on ApiException catch (error) {
         if (error.isUnauthorized) {
@@ -466,77 +509,37 @@ class _AddFoodPageState extends State<AddFoodPage> {
     );
     final draft = result?.item;
     if (draft == null || !mounted) return;
-    var item = draft;
-    try {
-      final synced = await widget.foodsApi.upsertCustomFood(item);
-      item = item.copyWith(backendId: synced.backendId);
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
-        return;
-      }
-      // Offline: local copy wins for now, re-synced on submit.
-    }
-    final stored = await widget.localDb.upsertFood(item);
-    if (!mounted) return;
-    setState(() {
-      // Surface the override; _buildResults hides the shadowed global.
-      _localResults = [
-        stored,
-        for (final it in _localResults)
-          if (it.externalId != stored.externalId) it,
-      ];
-      // A staged copy of the global swaps to the override, keeping grams.
-      for (var i = 0; i < _addedItems.length; i++) {
-        final it = _addedItems[i].item;
-        final matchesGlobal = !it.isCustom &&
-            ((it.backendId != null && it.backendId == target.backendId) ||
-                (it.barcode != null && it.barcode == target.barcode));
-        if (matchesGlobal) {
-          _addedItems[i] =
-              _AddedFood(item: stored, grams: _addedItems[i].grams);
-        }
-      }
-    });
+    final stored = await saveCustomFoodDraft(
+      draft,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onUnauthorized: widget.onLogout,
+    );
+    if (stored == null || !mounted) return;
+    _applyCustomFoodUpdate(stored);
   }
 
-  // Deletes a custom food: backend soft-delete first (aborts on failure so
-  // the two stores never diverge — a locally-deleted food would otherwise
-  // resurface from typeahead), then the local row and any UI occurrence.
+  // Deletes a custom food (backend soft-delete + local row) and drops it
+  // from every list on this page.
   Future<void> _deleteCustomFood(FoodItem item) async {
-    if (item.backendId != null) {
-      try {
-        await widget.foodsApi.deleteCustomFood(item.backendId!);
-      } on ApiException catch (error) {
-        if (error.isUnauthorized) {
-          await widget.onLogout();
-          return;
-        }
-        if (!mounted) return;
+    final outcome = await deleteCustomFoodEverywhere(
+      item,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onUnauthorized: widget.onLogout,
+    );
+    if (!mounted) return;
+    switch (outcome) {
+      case CustomFoodDeleteOutcome.unauthorized:
+        return;
+      case CustomFoodDeleteOutcome.failed:
         setState(() {
           _message = 'Could not delete the food — check your connection.';
           _messageTone = InlineBannerTone.error;
         });
-        return;
-      }
+      case CustomFoodDeleteOutcome.deleted:
+        _applyCustomFoodRemoval(item);
     }
-    if (item.localId != null) {
-      await widget.localDb.deleteFood(item.localId!);
-    }
-    if (!mounted) return;
-    bool matches(FoodItem candidate) =>
-        candidate.isCustom && candidate.externalId == item.externalId;
-    setState(() {
-      _addedItems.removeWhere((added) => matches(added.item));
-      _localResults = [
-        for (final it in _localResults)
-          if (!matches(it)) it,
-      ];
-      _backendResults = [
-        for (final it in _backendResults)
-          if (!matches(it)) it,
-      ];
-    });
   }
 
   Future<void> _openScanPage() async {
@@ -681,8 +684,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
             final synced = await widget.foodsApi.upsertCustomFood(selected);
             selected = selected.copyWith(backendId: synced.backendId);
           } else {
-            final (resolved, resolvedImagesOk) =
-                await _ensureGlobalBackendId(selected);
+            final (resolved, resolvedImagesOk) = await ensureGlobalBackendId(
+              selected,
+              foodsApi: widget.foodsApi,
+            );
             selected = resolved;
             imagesOk = resolvedImagesOk;
           }

@@ -37,11 +37,13 @@ class FoodItemCompactSerializer(serializers.ModelSerializer):
             "image_url",
             "barcode",
             "overrides_food",
+            "community_verified_at",
         )
 
     overrides_food = serializers.IntegerField(
         source="overrides_id", read_only=True, allow_null=True
     )
+    community_verified_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     def get_image_url(self, obj: FoodItem) -> str | None:
         if _images_ok(obj) and obj.image:
@@ -78,11 +80,13 @@ class FoodItemSerializer(serializers.ModelSerializer):
             "raw_source_json",
             "nutriments_json",
             "overrides_food",
+            "community_verified_at",
         )
 
     overrides_food = serializers.IntegerField(
         source="overrides_id", read_only=True, allow_null=True
     )
+    community_verified_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     def get_image_url(self, obj: FoodItem) -> str | None:
         if _images_ok(obj) and obj.image:

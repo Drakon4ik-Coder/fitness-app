@@ -195,3 +195,19 @@ def test_sweep_promotes_eligible_foods() -> None:
 
     assert sweep() == 1
     assert sweep() == 0  # nothing pending afterwards
+
+
+@pytest.mark.django_db
+def test_serializers_expose_community_verified_at() -> None:
+    from django.utils import timezone
+
+    from foods.serializers import FoodItemCompactSerializer, FoodItemSerializer
+
+    food = _global_mince()
+    assert FoodItemSerializer(food).data["community_verified_at"] is None
+    assert FoodItemCompactSerializer(food).data["community_verified_at"] is None
+
+    food.community_verified_at = timezone.now()
+    food.save(update_fields=["community_verified_at"])
+    assert FoodItemSerializer(food).data["community_verified_at"] is not None
+    assert FoodItemCompactSerializer(food).data["community_verified_at"] is not None

@@ -270,6 +270,11 @@ String? _servingSizeTextFromRaw(String rawSourceJson) {
   return null;
 }
 
+DateTime? _parseBackendDateTime(dynamic value) {
+  if (value is! String || value.trim().isEmpty) return null;
+  return DateTime.tryParse(value);
+}
+
 Map<String, dynamic>? _decodeNutrimentsJson(String? nutrimentsRaw) {
   if (nutrimentsRaw == null) {
     return null;
@@ -314,6 +319,7 @@ class FoodItem {
     this.nutritionBasis,
     this.overridesBackendId,
     this.overridesBarcode,
+    this.communityVerifiedAt,
     this.completeness,
     required this.rawSourceJson,
     this.nutrimentsJson,
@@ -353,6 +359,10 @@ class FoodItem {
   // Barcode of the shadowed item, kept locally so a scan can resolve straight
   // to the override without a backend round-trip. Not sent to the backend.
   final String? overridesBarcode;
+  // When the community convergence system (KAN-32) promoted user-agreed
+  // nutrition into this item's shared values; null for unverified foods.
+  // Server-owned — read from API responses, never sent back.
+  final DateTime? communityVerifiedAt;
   // OFF data `completeness` in [0,1] for ranking/filtering live search results.
   // Transient: only set on freshly mapped OFF hits, never persisted.
   final double? completeness;
@@ -366,6 +376,8 @@ class FoodItem {
   bool get isCustom => source == customSource;
 
   bool get isOverride => isCustom && overridesBackendId != null;
+
+  bool get isCommunityVerified => communityVerifiedAt != null;
 
   FoodItem copyWith({
     int? localId,
@@ -391,6 +403,7 @@ class FoodItem {
     String? nutritionBasis,
     int? overridesBackendId,
     String? overridesBarcode,
+    DateTime? communityVerifiedAt,
     double? completeness,
     String? rawSourceJson,
     Map<String, dynamic>? nutrimentsJson,
@@ -421,6 +434,7 @@ class FoodItem {
       nutritionBasis: nutritionBasis ?? this.nutritionBasis,
       overridesBackendId: overridesBackendId ?? this.overridesBackendId,
       overridesBarcode: overridesBarcode ?? this.overridesBarcode,
+      communityVerifiedAt: communityVerifiedAt ?? this.communityVerifiedAt,
       completeness: completeness ?? this.completeness,
       rawSourceJson: rawSourceJson ?? this.rawSourceJson,
       nutrimentsJson: nutrimentsJson ?? this.nutrimentsJson,
@@ -454,6 +468,7 @@ class FoodItem {
       'nutrition_basis': nutritionBasis,
       'overrides_backend_id': overridesBackendId,
       'overrides_barcode': overridesBarcode,
+      'community_verified_at': communityVerifiedAt?.toIso8601String(),
       'raw_source_json': rawSourceJson,
       'nutriments_json':
           nutrimentsJson == null ? null : jsonEncode(nutrimentsJson),
@@ -553,6 +568,9 @@ class FoodItem {
       nutritionBasis: map['nutrition_basis'] as String?,
       overridesBackendId: map['overrides_backend_id'] as int?,
       overridesBarcode: map['overrides_barcode'] as String?,
+      communityVerifiedAt: map['community_verified_at'] == null
+          ? null
+          : DateTime.tryParse(map['community_verified_at'] as String),
       rawSourceJson: (map['raw_source_json'] as String?) ?? '{}',
       nutrimentsJson: _decodeNutrimentsJson(nutrimentsRaw),
       lastUsedAt: map['last_used_at'] == null
@@ -581,6 +599,7 @@ class FoodItem {
       contentHash: (map['content_hash'] as String?) ?? '',
       imageSignature: map['image_signature'] as String?,
       overridesBackendId: map['overrides_food'] as int?,
+      communityVerifiedAt: _parseBackendDateTime(map['community_verified_at']),
       rawSourceJson: '{}',
       nutrimentsJson: null,
     );
@@ -638,6 +657,7 @@ class FoodItem {
       pieceUnit: piece?.unit,
       nutritionBasis: cookedBasis ? cookedNutritionBasis : null,
       overridesBackendId: map['overrides_food'] as int?,
+      communityVerifiedAt: _parseBackendDateTime(map['community_verified_at']),
       rawSourceJson: rawJson,
       nutrimentsJson: nutrimentsJson,
     );

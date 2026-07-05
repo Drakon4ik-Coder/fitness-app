@@ -228,4 +228,60 @@ void main() {
     expect(item.isOverride, isTrue);
     expect(item.overridesBackendId, 42);
   });
+
+  test('community verified marker round-trips through the local db map', () {
+    final verifiedAt = DateTime.utc(2026, 7, 1, 12);
+    final item = FoodItem(
+      source: offSource,
+      externalId: '123',
+      name: 'Mince',
+      brands: '',
+      rawSourceJson: '{}',
+      communityVerifiedAt: verifiedAt,
+    );
+
+    final restored = FoodItem.fromDbMap(item.toDbMap());
+    expect(restored.isCommunityVerified, isTrue);
+    expect(restored.communityVerifiedAt, verifiedAt);
+    // Server-owned: never sent back on either write path.
+    expect(
+      item.toBackendPayload().containsKey('community_verified_at'),
+      isFalse,
+    );
+    expect(
+      item.toCustomPayload().containsKey('community_verified_at'),
+      isFalse,
+    );
+  });
+
+  test('backend parsers read community_verified_at', () {
+    final detail = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 7,
+      'source': 'openfoodfacts',
+      'external_id': '123',
+      'name': 'Mince',
+      'community_verified_at': '2026-07-01T12:00:00Z',
+      'raw_source_json': '{}',
+    });
+    expect(detail.isCommunityVerified, isTrue);
+
+    final summary = FoodItem.fromBackendSummary(<String, dynamic>{
+      'id': 7,
+      'source': 'openfoodfacts',
+      'external_id': '123',
+      'name': 'Mince',
+      'community_verified_at': '2026-07-01T12:00:00Z',
+    });
+    expect(summary.isCommunityVerified, isTrue);
+
+    final unverified = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 8,
+      'source': 'openfoodfacts',
+      'external_id': '456',
+      'name': 'Apple',
+      'community_verified_at': null,
+      'raw_source_json': '{}',
+    });
+    expect(unverified.isCommunityVerified, isFalse);
+  });
 }

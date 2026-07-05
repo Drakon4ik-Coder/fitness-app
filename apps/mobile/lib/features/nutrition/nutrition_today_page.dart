@@ -7,10 +7,12 @@ import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_page.dart';
+import 'food_detail_page.dart';
 import 'meal_suggestion.dart';
 import 'nutrition_detail_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
+import 'data/food_models.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
@@ -325,6 +327,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           selectedDate: _selectedDate,
           initialMeal: meal,
           focusSpecs: _focusSpecs,
+          catalog: _catalog,
         ),
       ),
     );
@@ -358,6 +361,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         onUpdateEntry: (entry, {quantityG, mealType}) =>
             _updateEntry(entry, quantityG: quantityG, mealType: mealType),
         onDeleteEntry: (entry) => _deleteEntry(entry),
+        onViewFoodDetails: _openFoodDetail,
         onAddMore: () {
           Navigator.of(context).pop();
           _openAddFoodSheet(context, initialMeal: meal.mealType);
@@ -368,6 +372,26 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     // any edits or deletes made inside it. A no-op refetch when nothing changed.
     if (!mounted) return;
     await _loadDay();
+  }
+
+  /// Pushes the read-first food page (KAN-33) for a logged food. Resolves
+  /// with the item as edited there (null = unchanged); the day itself is
+  /// refreshed by the meal sheet's dismissal reload.
+  Future<FoodItem?> _openFoodDetail(FoodItem item) async {
+    FoodItem? updated;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => FoodDetailPage(
+          item: item,
+          foodsApi: _foodsApi,
+          localDb: _localDb,
+          onLogout: _handleLogout,
+          catalog: _catalog,
+          onItemChanged: (next) => updated = next,
+        ),
+      ),
+    );
+    return updated;
   }
 
   void _openNutrientDetail(BuildContext context) {

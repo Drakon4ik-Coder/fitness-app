@@ -179,6 +179,7 @@ Future<AmountResult?> showAmountSheet({
   required bool isEditing,
   String? initialMealType,
   List<NutrientSpec>? focusSpecs,
+  Future<FoodItem?> Function(FoodItem item)? onViewDetails,
 }) {
   return showModalBottomSheet<AmountResult>(
     context: context,
@@ -191,6 +192,7 @@ Future<AmountResult?> showAmountSheet({
       isEditing: isEditing,
       initialMealType: initialMealType,
       focusSpecs: focusSpecs,
+      onViewDetails: onViewDetails,
     ),
   );
 }
@@ -203,6 +205,7 @@ class AmountSheet extends StatefulWidget {
     required this.isEditing,
     this.initialMealType,
     this.focusSpecs,
+    this.onViewDetails,
   });
 
   final FoodItem item;
@@ -216,11 +219,20 @@ class AmountSheet extends StatefulWidget {
   /// live-preview pills. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
 
+  /// Opens the food detail page for the sheet's food (KAN-33), resolving with
+  /// the updated item when it was edited there (null = unchanged). When set,
+  /// the header (thumbnail + name) becomes tappable; when null the header is
+  /// inert, so call sites without the detail-page services keep working.
+  final Future<FoodItem?> Function(FoodItem item)? onViewDetails;
+
   @override
   State<AmountSheet> createState() => _AmountSheetState();
 }
 
 class _AmountSheetState extends State<AmountSheet> {
+  // The food being amounted. Live: viewing details can replace it (an edit or
+  // a fresh override), and the preview/breakdown recompute from the new values.
+  late FoodItem _item = widget.item;
   late final TextEditingController _controller;
   late AmountUnit _unit;
   bool _showAllNutrients = false;
@@ -230,19 +242,19 @@ class _AmountSheetState extends State<AmountSheet> {
   // weight, converted via [kCookedYieldFactor] into the cooked-equivalent
   // grams the label values scale by. Raw is the default — the product is
   // sold uncooked, so that's what the user's scale shows.
-  late bool _rawWeight = widget.item.isCookedBasis;
+  late bool _rawWeight = _item.isCookedBasis;
 
   bool get _showMealSelector =>
       widget.isEditing && widget.initialMealType != null;
 
   double? get _serving {
-    final serving = widget.item.servingSizeG;
+    final serving = _item.servingSizeG;
     return (serving != null && serving > 0) ? serving : null;
   }
 
   double? get _piece {
-    final piece = widget.item.gramsPerPiece;
-    return (piece != null && piece > 0 && widget.item.pieceUnit != null)
+    final piece = _item.gramsPerPiece;
+    return (piece != null && piece > 0 && _item.pieceUnit != null)
         ? piece
         : null;
   }
@@ -251,7 +263,7 @@ class _AmountSheetState extends State<AmountSheet> {
   bool get _hasPiece => _piece != null;
 
   String? get _imageUrl {
-    final url = widget.item.imageUrl?.trim();
+    final url = _item.imageUrl?.trim();
     return (url != null && url.isNotEmpty) ? url : null;
   }
 
@@ -279,7 +291,7 @@ class _AmountSheetState extends State<AmountSheet> {
         // In raw mode for a cooked-basis food, one typed gram of raw weight
         // is only kCookedYieldFactor grams of the cooked weight that the
         // per-100g label values scale against.
-        return widget.item.isCookedBasis && _rawWeight
+        return _item.isCookedBasis && _rawWeight
             ? kCookedYieldFactor
             : 1;
     }
@@ -364,6 +376,13 @@ class _AmountSheetState extends State<AmountSheet> {
     );
   }
 
+  Future<void> _openDetails() async {
+    final updated = await widget.onViewDetails!(_item);
+    if (updated != null && mounted) {
+      setState(() => _item = updated);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -371,7 +390,7 @@ class _AmountSheetState extends State<AmountSheet> {
     final grams = _grams;
     final factor = (grams ?? 0) / 100.0;
 
-    final kcal = ((widget.item.kcal100g ?? 0) * factor).round();
+    final kcal = ((_item.kcal100g ?? 0) * factor).round();
     // The user's focus nutrients as preview pills, matching the today page's
     // card (same nutrients, same slot colors). Null when the food carries no
     // data for one — the pill shows a dash rather than a misleading 0.
@@ -379,7 +398,7 @@ class _AmountSheetState extends State<AmountSheet> {
     final focusAmounts = [
       for (final spec in focusSpecs)
         () {
-          final per100 = nutrientPer100gForItem(spec, widget.item);
+          final per100 = nutrientPer100gForItem(spec, _item);
           return per100 == null ? null : per100 * factor;
         }(),
     ];
@@ -389,7 +408,7 @@ class _AmountSheetState extends State<AmountSheet> {
     // detail beyond the macro pills already shown.
     final nutrientTotals = grams == null
         ? const <NutrientTotal>[]
-        : nutrientTotalsForItem(widget.item, grams);
+        : nutrientTotalsForItem(_item, grams);
     final hasNutrientDetail = nutrientTotals.any((t) => t.hasData);
 
     final unitLabel = _unitNoun(_value ?? 0);
@@ -434,37 +453,65 @@ class _AmountSheetState extends State<AmountSheet> {
                 ),
               ),
             ),
-            Row(
-              children: [
-                FoodThumb(url: _imageUrl, size: 48),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.item.name,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+            // Header: thumbnail + name. With [onViewDetails] wired it opens
+            // the food detail page (full nutrition facts + visible edit),
+            // signalled by the trailing chevron.
+            Builder(
+              builder: (context) {
+                final canViewDetails = widget.onViewDetails != null;
+                final header = Row(
+                  children: [
+                    FoodThumb(url: _imageUrl, size: 48),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _item.name,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _item.kcal100g == null
+                                ? 'Calories per 100g unavailable'
+                                : '${_item.kcal100g!.round()} kcal per '
+                                    '100g${_item.isCookedBasis ? ' cooked' : ''}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.item.kcal100g == null
-                            ? 'Calories per 100g unavailable'
-                            : '${widget.item.kcal100g!.round()} kcal per '
-                                '100g${widget.item.isCookedBasis ? ' cooked' : ''}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                    ),
+                    if (canViewDetails)
+                      Icon(
+                        Icons.chevron_right,
+                        color: scheme.onSurfaceVariant,
                       ),
-                    ],
+                  ],
+                );
+                if (!canViewDetails) return header;
+                return Semantics(
+                  button: true,
+                  label: '${_item.name}, view food details',
+                  child: InkWell(
+                    onTap: _openDetails,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: header,
+                    ),
                   ),
-                ),
-              ],
+                );
+              },
             ),
             const SizedBox(height: AppSpacing.lg),
 
@@ -535,7 +582,7 @@ class _AmountSheetState extends State<AmountSheet> {
             // Raw/cooked weight toggle for foods sold raw whose label states
             // nutrition per cooked weight — lets the user type what their
             // scale shows and have the water loss accounted for.
-            if (widget.item.isCookedBasis && _unit == AmountUnit.grams) ...[
+            if (_item.isCookedBasis && _unit == AmountUnit.grams) ...[
               SegmentedButton<bool>(
                 segments: const [
                   ButtonSegment(value: true, label: Text('Raw weight')),
@@ -776,7 +823,7 @@ class _AmountSheetState extends State<AmountSheet> {
   String _segmentLabel(AmountUnit unit) {
     switch (unit) {
       case AmountUnit.pieces:
-        final noun = '${widget.item.pieceUnit!}s';
+        final noun = '${_item.pieceUnit!}s';
         return noun[0].toUpperCase() + noun.substring(1);
       case AmountUnit.servings:
         return 'Servings';
@@ -789,11 +836,11 @@ class _AmountSheetState extends State<AmountSheet> {
   String _unitNoun(double count) {
     switch (_unit) {
       case AmountUnit.pieces:
-        return pluralize(widget.item.pieceUnit!, count);
+        return pluralize(_item.pieceUnit!, count);
       case AmountUnit.servings:
         return pluralize('serving', count);
       case AmountUnit.grams:
-        if (widget.item.isCookedBasis) {
+        if (_item.isCookedBasis) {
           return _rawWeight ? 'grams raw' : 'grams cooked';
         }
         return 'grams';
@@ -804,11 +851,11 @@ class _AmountSheetState extends State<AmountSheet> {
     if (grams == null) return null;
     // In a piece/serving unit, the helpful conversion is the plain grams.
     if (_unit != AmountUnit.grams) {
-      return '${formatAmount(grams)} g${widget.item.isCookedBasis ? ' cooked' : ''}';
+      return '${formatAmount(grams)} g${_item.isCookedBasis ? ' cooked' : ''}';
     }
     // For a cooked-basis food, the helpful conversion is the other weight
     // basis ([grams] is always the cooked-equivalent weight).
-    if (widget.item.isCookedBasis) {
+    if (_item.isCookedBasis) {
       return _rawWeight
           ? '≈ ${formatAmount(grams)} g cooked'
           : '≈ ${formatAmount(grams / kCookedYieldFactor)} g raw';
@@ -816,7 +863,7 @@ class _AmountSheetState extends State<AmountSheet> {
     // In grams, show the closest piece (preferred) or serving equivalent.
     if (_hasPiece) {
       final count = grams / _piece!;
-      return '≈ ${formatAmount(count)} ${pluralize(widget.item.pieceUnit!, count)}';
+      return '≈ ${formatAmount(count)} ${pluralize(_item.pieceUnit!, count)}';
     }
     if (_hasServing) {
       final servings = grams / _serving!;

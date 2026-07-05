@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../ui_system/tokens.dart';
+import '../data/food_models.dart';
 import '../data/nutrient_catalog.dart';
 import '../data/nutrition_api_service.dart';
 import 'amount_sheet.dart';
@@ -23,6 +24,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.onDeleteEntry,
     required this.onAddMore,
     this.focusSpecs,
+    this.onViewFoodDetails,
   });
 
   final String mealLabel;
@@ -51,6 +53,12 @@ class MealDetailSheet extends StatefulWidget {
   /// The user's focus nutrients, forwarded to the amount sheet so its preview
   /// pills match the today page. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
+
+  /// Opens the food detail page (KAN-33) for a logged food, resolving with
+  /// the updated item when it was edited there (null = unchanged). Enables
+  /// the "Food details" link in each expanded row and the amount sheet's
+  /// header tap; null hides both.
+  final Future<FoodItem?> Function(FoodItem item)? onViewFoodDetails;
 
   @override
   State<MealDetailSheet> createState() => _MealDetailSheetState();
@@ -143,6 +151,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
       isEditing: true,
       initialMealType: entry.mealType,
       focusSpecs: widget.focusSpecs,
+      onViewDetails: widget.onViewFoodDetails,
     );
     if (result == null || !mounted) return;
     if (result.removed) {
@@ -289,6 +298,10 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                             busy: _busyEntryId == entry.id || _movingAll,
                             onEdit: () => _editAmount(entry),
                             onDelete: () => _delete(entry),
+                            onViewDetails: widget.onViewFoodDetails == null
+                                ? null
+                                : () =>
+                                    widget.onViewFoodDetails!(entry.foodItem),
                           );
                         },
                       ),
@@ -442,12 +455,17 @@ class _EntryRow extends StatefulWidget {
     required this.busy,
     required this.onEdit,
     required this.onDelete,
+    this.onViewDetails,
   });
 
   final NutritionEntry entry;
   final bool busy;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+
+  /// Opens the food detail page for this entry's food. Shown as a "Food
+  /// details" link inside the expanded breakdown; null hides the link.
+  final Future<void> Function()? onViewDetails;
 
   @override
   State<_EntryRow> createState() => _EntryRowState();
@@ -565,9 +583,44 @@ class _EntryRowState extends State<_EntryRow> {
                     AppSpacing.lg,
                     AppSpacing.sm,
                   ),
-                  child: NutrientBreakdownView(
-                    totals: totals,
-                    showEmptyRows: false,
+                  child: Column(
+                    children: [
+                      NutrientBreakdownView(
+                        totals: totals,
+                        showEmptyRows: false,
+                      ),
+                      // Entry point to the read-first food page (KAN-33):
+                      // full per-100g facts, provenance, and the visible
+                      // "Edit nutrition facts" action.
+                      if (widget.onViewDetails != null)
+                        InkWell(
+                          onTap: widget.onViewDetails,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.sm,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Food details',
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: scheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.xs),
+                                Icon(
+                                  Icons.chevron_right,
+                                  size: 18,
+                                  color: scheme.primary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 )
               : const SizedBox(width: double.infinity),

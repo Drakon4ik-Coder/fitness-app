@@ -100,6 +100,19 @@ class FoodLocalDb {
     );
   }
 
+  /// Sets the favorite flag directly. Deliberately not routed through
+  /// [upsertFood]: its merge ORs favorites together (so a stale fetch never
+  /// clears one), which would make un-favoriting impossible.
+  Future<void> setFavorite(int localId, bool isFavorite) async {
+    final db = await database;
+    await db.update(
+      'foods',
+      {'is_favorite': isFavorite ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [localId],
+    );
+  }
+
   Future<void> updateBackendId(int localId, int backendId) async {
     final db = await database;
     await db.update(
@@ -240,6 +253,8 @@ class FoodLocalDb {
       saltG100g: incoming.saltG100g ?? existing.saltG100g,
       servingSizeG: incoming.servingSizeG ?? existing.servingSizeG,
       nutritionBasis: incoming.nutritionBasis ?? existing.nutritionBasis,
+      communityVerifiedAt:
+          incoming.communityVerifiedAt ?? existing.communityVerifiedAt,
       rawSourceJson: hasRawJson ? incoming.rawSourceJson : existing.rawSourceJson,
       nutrimentsJson: incoming.nutrimentsJson ?? existing.nutrimentsJson,
       lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
@@ -275,6 +290,7 @@ class FoodLocalDb {
     'nutrition_basis': 'TEXT',
     'overrides_backend_id': 'INTEGER',
     'overrides_barcode': 'TEXT',
+    'community_verified_at': 'TEXT',
     'raw_source_json': 'TEXT NOT NULL',
     'nutriments_json': 'TEXT',
     'last_used_at': 'TEXT',
@@ -323,7 +339,7 @@ class FoodLocalDb {
     final path = '${directory.path}/foods.db';
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
         await _createIndexes(db);
@@ -376,6 +392,14 @@ class FoodLocalDb {
           );
           await db.execute(
             'ALTER TABLE foods ADD COLUMN overrides_barcode TEXT',
+          );
+        }
+        if (oldVersion < 7) {
+          // Community convergence marker (KAN-32): when the shared item's
+          // nutrition was promoted from converged user edits. Nullable —
+          // existing rows are simply unverified.
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN community_verified_at TEXT',
           );
         }
       },
