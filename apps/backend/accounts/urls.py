@@ -2,12 +2,12 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from accounts.views import (
+    EmailVerifiedTokenObtainPairView,
+    GoogleLoginView,
     MeView,
     PasswordResetRequestView,
     RegisterView,
     ResendVerificationView,
-    EmailVerifiedTokenObtainPairView,
-    GoogleLoginView,
     reset_password,
     verify_email,
 )

@@ -85,6 +85,9 @@ class EmailVerificationToken(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     used_at = models.DateTimeField(null=True, blank=True)
 
+    def __str__(self) -> str:
+        return f"verification for {self.user.email}"
+
     @staticmethod
     def hash_token(raw: str) -> str:
         return hashlib.sha256(raw.encode()).hexdigest()
@@ -99,9 +102,6 @@ class EmailVerificationToken(models.Model):
     @property
     def is_expired(self) -> bool:
         return timezone.now() > self.created_at + settings.EMAIL_VERIFICATION_TTL
-
-    def __str__(self) -> str:
-        return f"verification for {self.user.email}"
 
 
 class PasswordResetToken(models.Model):
@@ -121,6 +121,9 @@ class PasswordResetToken(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     used_at = models.DateTimeField(null=True, blank=True)
 
+    def __str__(self) -> str:
+        return f"password reset for {self.user.email}"
+
     @staticmethod
     def hash_token(raw: str) -> str:
         return hashlib.sha256(raw.encode()).hexdigest()
@@ -135,6 +138,3 @@ class PasswordResetToken(models.Model):
     @property
     def is_expired(self) -> bool:
         return timezone.now() > self.created_at + settings.PASSWORD_RESET_TTL
-
-    def __str__(self) -> str:
-        return f"password reset for {self.user.email}"

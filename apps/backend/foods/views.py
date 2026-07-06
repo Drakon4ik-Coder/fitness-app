@@ -8,8 +8,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from foods.models import FoodItem
 from foods.images import images_ok, safe_signature, validate_and_normalize_image
+from foods.models import FoodItem
 from foods.serializers import (
     CustomFoodSerializer,
     FoodItemCheckResponseSerializer,

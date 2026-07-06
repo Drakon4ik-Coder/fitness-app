@@ -1,8 +1,9 @@
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+
 import environ
-import os
 import sentry_sdk
 
 env = environ.Env()
@@ -76,7 +77,8 @@ AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "NAME": "django.contrib.auth.password_validation."
+        "UserAttributeSimilarityValidator",
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",

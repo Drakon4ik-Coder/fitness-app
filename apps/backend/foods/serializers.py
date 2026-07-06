@@ -4,8 +4,8 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
-from foods.models import NUTRITION_FIELDS, FoodEditProposal, FoodItem
 from foods.images import images_ok as _images_ok
+from foods.models import NUTRITION_FIELDS, FoodEditProposal, FoodItem
 
 
 def nutrition_snapshot(source: FoodItem | dict[str, Any]) -> dict[str, float | None]:

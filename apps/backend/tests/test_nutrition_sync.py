@@ -3,8 +3,8 @@ replay, LWW conflict resolution, uuid addressing, and tombstone propagation."""
 
 import uuid
 from datetime import timedelta
-from urllib.parse import quote
 from decimal import Decimal
+from urllib.parse import quote
 
 import pytest
 from django.utils import timezone

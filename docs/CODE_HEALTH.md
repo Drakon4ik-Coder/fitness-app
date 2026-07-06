@@ -216,6 +216,15 @@ CLAUDE.md instead — but removal is the recommendation.
 
 ### P8 — Lint configuration is looser than the codebase deserves
 
+> **Status: RESOLVED (July 2026).** Mobile: `unawaited_futures`,
+> `avoid_dynamic_calls`, `directives_ordering`, `prefer_final_locals` enabled
+> (all violations fixed — deliberate fire-and-forget calls are now explicit
+> `unawaited(...)`); repo reformatted with Dart 3.9 tall style in a standalone
+> commit; `dart format --set-exit-if-changed` added to CI and
+> `make check-mobile`. Backend: ruff `select = ["E","F","I","B","DJ"]` with
+> DJ001 ignored (shipped schema) and migrations exempt from E501; standalone
+> isort removed (ruff `I` replaces it).
+
 **Problem.** `analysis_options.yaml` is the stock `flutter_lints` template
 with zero customization; CI runs `dart analyze` and `flutter test` but not
 `dart format --set-exit-if-changed`. Backend `ruff` runs with default rule
@@ -267,7 +276,7 @@ which means regressions won't be caught.
 | 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
 | 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (crash-reporter wiring pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
 | 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing | Long-term velocity |
-| 6 | Lint tightening + format CI step (P8) | ~1 h | Locks in current quality |
+| 6 | ~~Lint tightening + format CI step (P8)~~ **done** | ~1 h | Locks in current quality |
 | 7 | Tokens + small dedup (P7); catalog drift check (Notes) | opportunistic | Consistency |
 
 Items 1–3 are safe, mechanical, and can be done in a single short session.

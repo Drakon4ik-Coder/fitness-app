@@ -1,6 +1,18 @@
 import logging
 
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema
+from google.auth import exceptions as google_exceptions
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -8,32 +20,19 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.db import IntegrityError
-from django.http import HttpRequest, HttpResponse
-from django.shortcuts import render
-from django.utils import timezone
-from django.views.decorators.http import require_http_methods
-from google.auth import exceptions as google_exceptions
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token as google_id_token
-
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from accounts.models import EmailVerificationToken, PasswordResetToken
 from accounts.serializers import (
-    UserRegistrationSerializer,
-    UserSerializer,
-    UserUpdateSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
     PasswordResetRequestSerializer,
     ResendVerificationSerializer,
     TokenPairSerializer,
+    UserRegistrationSerializer,
+    UserSerializer,
+    UserUpdateSerializer,
 )
 from accounts.services import (
     create_user_with_defaults,

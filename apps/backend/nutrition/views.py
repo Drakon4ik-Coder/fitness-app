@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from nutrients.catalog import NUTRIENT_CATALOG
 from nutrition.models import MealEntry
 from nutrition.serializers import (
     MealEntryCreateSerializer,
@@ -25,7 +26,6 @@ from nutrition.serializers import (
     NutritionDaySerializer,
     SyncPageSerializer,
 )
-from nutrients.catalog import NUTRIENT_CATALOG
 from nutrition.utils import (
     calculate_macros,
     calculate_nutrients,

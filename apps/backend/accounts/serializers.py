@@ -1,11 +1,12 @@
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
 from accounts.services import create_user_with_defaults
 
 User = get_user_model()
@@ -67,7 +68,8 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         error_messages={
-            "invalid": "Usernames are 3-20 characters: letters, numbers and underscores."
+            "invalid": "Usernames are 3-20 characters: "
+            "letters, numbers and underscores."
         },
         validators=[
             UniqueValidator(

@@ -1,8 +1,8 @@
 import re
 
 import pytest
-from django.core import mail
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import Client
 from django.utils import timezone
 from rest_framework.test import APIClient
