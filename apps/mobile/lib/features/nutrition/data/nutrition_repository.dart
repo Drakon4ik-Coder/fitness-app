@@ -394,10 +394,7 @@ class NutritionRepository {
 
   NutritionDayLog _composeDayLog(DateTime date, List<StoredEntry> entries) {
     final meals = <String, List<NutritionEntry>>{
-      'breakfast': [],
-      'lunch': [],
-      'dinner': [],
-      'snacks': [],
+      for (final meal in MealType.values) meal.wireName: <NutritionEntry>[],
     };
     var kcal = 0.0, protein = 0.0, carbs = 0.0, fat = 0.0;
     for (final stored in entries) {

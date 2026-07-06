@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fitness_app/features/nutrition/add_food_page.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart'
     show MealTimeStat, NutritionEntry;

@@ -141,14 +141,21 @@ class _FoodImageState extends State<FoodImage> {
 
 enum AmountUnit { pieces, servings, grams }
 
+/// Icon for each meal slot. Lives in the widget layer (not on [MealType])
+/// so the data layer stays free of Flutter imports.
+IconData mealTypeIcon(MealType meal) => switch (meal) {
+  MealType.breakfast => Icons.breakfast_dining,
+  MealType.lunch => Icons.lunch_dining,
+  MealType.dinner => Icons.dinner_dining,
+  MealType.snacks => Icons.emoji_food_beverage,
+};
+
 /// The meal types an entry can be moved between, with their display label and
 /// icon (icons match the meal cards on the today page). Keyed by the backend
 /// `meal_type` name.
-const List<({String name, String label, IconData icon})> kMealTypeOptions = [
-  (name: 'breakfast', label: 'Breakfast', icon: Icons.breakfast_dining),
-  (name: 'lunch', label: 'Lunch', icon: Icons.lunch_dining),
-  (name: 'dinner', label: 'Dinner', icon: Icons.dinner_dining),
-  (name: 'snacks', label: 'Snacks', icon: Icons.emoji_food_beverage),
+final List<({String name, String label, IconData icon})> kMealTypeOptions = [
+  for (final meal in MealType.values)
+    (name: meal.wireName, label: meal.label, icon: mealTypeIcon(meal)),
 ];
 
 /// Outcome of the amount bottom sheet: either a saved amount (with an optional

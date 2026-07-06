@@ -20,6 +20,7 @@ import 'data/nutrition_local_store.dart';
 import 'data/nutrition_repository.dart';
 import 'data/off_client.dart';
 import 'data/user_preferences.dart';
+import 'widgets/amount_sheet.dart' show mealTypeIcon;
 import 'widgets/meal_detail_sheet.dart';
 import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 
@@ -517,38 +518,15 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
 
   List<_MealSummary> _buildMealSummaries() {
     final Map<String, List<NutritionEntry>> meals = _dayLog?.meals ?? {};
-    final order = <String, ({MealType type, IconData icon, String label})>{
-      'breakfast': (
-        type: MealType.breakfast,
-        icon: Icons.breakfast_dining,
-        label: 'Breakfast',
-      ),
-      'lunch': (type: MealType.lunch, icon: Icons.lunch_dining, label: 'Lunch'),
-      'dinner': (
-        type: MealType.dinner,
-        icon: Icons.dinner_dining,
-        label: 'Dinner',
-      ),
-      'snacks': (
-        type: MealType.snacks,
-        icon: Icons.emoji_food_beverage,
-        label: 'Snacks',
-      ),
-    };
-
-    final summaries = <_MealSummary>[];
-    for (final entry in order.entries) {
-      final meta = entry.value;
-      summaries.add(
+    return [
+      for (final meal in MealType.values)
         _MealSummary(
-          name: meta.label,
-          mealType: meta.type,
-          icon: meta.icon,
-          entries: meals[entry.key] ?? const [],
+          name: meal.label,
+          mealType: meal,
+          icon: mealTypeIcon(meal),
+          entries: meals[meal.wireName] ?? const [],
         ),
-      );
-    }
-    return summaries;
+    ];
   }
 
   @override

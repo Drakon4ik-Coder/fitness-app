@@ -9,6 +9,34 @@ const String offSource = 'openfoodfacts';
 /// ingest/check flow; `externalId` is a client-generated id.
 const String customSource = 'custom';
 
+/// The four meal slots a day log is grouped into.
+///
+/// [wireName] is the `meal_type` string used by the API and the local store.
+/// It is spelled out (rather than relying on the enum's own [name]) so a
+/// Dart-side rename can never silently change the wire contract.
+enum MealType {
+  breakfast('breakfast', 'Breakfast'),
+  lunch('lunch', 'Lunch'),
+  dinner('dinner', 'Dinner'),
+  snacks('snacks', 'Snacks');
+
+  const MealType(this.wireName, this.label);
+
+  /// Backend `meal_type` value and local-store key.
+  final String wireName;
+
+  /// User-facing display name.
+  final String label;
+
+  /// The meal for a wire string, or null for an unknown value.
+  static MealType? fromWire(String value) {
+    for (final meal in values) {
+      if (meal.wireName == value) return meal;
+    }
+    return null;
+  }
+}
+
 double? parseNullableDouble(dynamic value) {
   if (value == null) {
     return null;

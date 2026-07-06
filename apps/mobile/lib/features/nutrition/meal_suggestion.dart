@@ -1,4 +1,4 @@
-import 'add_food_page.dart' show MealType;
+import 'data/food_models.dart' show MealType;
 import 'data/nutrition_api_service.dart' show MealTimeStat, NutritionEntry;
 
 /// How recently the slot's main meal must have been logged for us to assume the
@@ -37,7 +37,7 @@ Map<MealType, MealWindow> buildMealWindows(Map<String, MealTimeStat>? learned) {
     MealType.lunch,
     MealType.dinner,
   ]) {
-    final stat = learned?[meal.name];
+    final stat = learned?[meal.wireName];
     windows[meal] = stat != null
         ? MealWindow(centerHour: stat.typicalHour, halfWidth: stat.halfWidth)
         : _defaultWindows[meal]!;
@@ -63,7 +63,7 @@ MealType suggestMealType({
   final slot = _mealForHour(now, windows ?? _defaultWindows);
 
   if (slot != MealType.snacks &&
-      _hasRecentEntry(mealsLogged[slot.name], now)) {
+      _hasRecentEntry(mealsLogged[slot.wireName], now)) {
     return MealType.snacks;
   }
   return slot;

@@ -87,6 +87,13 @@ the *least* direct test coverage (see P4).
 
 ### P2 — `MealType` (a domain type) lives inside a page file
 
+> **Status: RESOLVED (July 2026).** `MealType` now lives in
+> `data/food_models.dart` with explicit `wireName` (guards the API contract
+> against enum renames), `label`, and `fromWire`. The icon mapping stays in
+> the widget layer (`mealTypeIcon` in `amount_sheet.dart`). Raw
+> `'breakfast'`-string literals in the repository, today page, and
+> `kMealTypeOptions` were replaced with `MealType.values` iteration.
+
 **Problem.** `enum MealType { breakfast, lunch, dinner, snacks }` is defined
 at `add_food_page.dart:1399`. `nutrition_today_page.dart` and
 `meal_suggestion.dart` import a 1,676-line page just for the enum. Meanwhile
@@ -249,7 +256,7 @@ which means regressions won't be caught.
 |---|--------|--------|--------|
 | 1 | ~~Create `/CLAUDE.md`; fix stale ARCHITECTURE.md claims (P5)~~ **done** | ~1 h | Stops agents inheriting wrong assumptions |
 | 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
-| 3 | Move `MealType` to `food_models.dart` (P2) | ~1 h | Untangles page imports |
+| 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
 | 4 | Central `mapApiErrors` helper + logging seam (P3) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
 | 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing | Long-term velocity |
 | 6 | Lint tightening + format CI step (P8) | ~1 h | Locks in current quality |

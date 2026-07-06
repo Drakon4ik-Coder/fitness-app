@@ -721,7 +721,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         // log immediately and replays to the server when connectivity returns.
         await widget.repository.createEntry(
           food: selected,
-          mealType: _selectedMeal.name,
+          mealType: _selectedMeal.wireName,
           quantityG: added.grams,
           consumedAt: consumedAt,
         );
@@ -883,9 +883,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: MealType.values.map((meal) {
-              final label = meal.name[0].toUpperCase() + meal.name.substring(1);
               return ListTile(
-                title: Text(label),
+                title: Text(meal.label),
                 selected: meal == _selectedMeal,
                 selectedColor: Theme.of(context).colorScheme.primary,
                 onTap: () {
@@ -923,8 +922,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       }
     }
 
-    final mealLabel =
-        _selectedMeal.name[0].toUpperCase() + _selectedMeal.name.substring(1);
+    final mealLabel = _selectedMeal.label;
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -1396,7 +1394,6 @@ String _focusValueText(double value, String unit) =>
 // personalized) daily target, so the bars track the user's own goals.
 const double _mealShareOfDailyTarget = 0.3;
 
-enum MealType { breakfast, lunch, dinner, snacks }
 
 enum _FoodResultOrigin { local, backend, off }
 
