@@ -173,6 +173,10 @@ incomplete.
 
 ### P6 — Unused dependencies mislead readers
 
+> **Status: RESOLVED (July 2026).** Both packages removed from
+> `pubspec.yaml`; full test suite (165 cases) and analyzer pass. The
+> no-framework rule lives in `/CLAUDE.md`.
+
 **Problem.** `hooks_riverpod` and `go_router` are declared in
 `apps/mobile/pubspec.yaml` but the project deliberately uses neither
 (ARCHITECTURE.md even documents them as unused). Declared-but-banned
@@ -244,7 +248,7 @@ which means regressions won't be caught.
 | # | Action | Effort | Payoff |
 |---|--------|--------|--------|
 | 1 | ~~Create `/CLAUDE.md`; fix stale ARCHITECTURE.md claims (P5)~~ **done** | ~1 h | Stops agents inheriting wrong assumptions |
-| 2 | Remove `hooks_riverpod` + `go_router` (P6) | 10 min | Removes a framework trap |
+| 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
 | 3 | Move `MealType` to `food_models.dart` (P2) | ~1 h | Untangles page imports |
 | 4 | Central `mapApiErrors` helper + logging seam (P3) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
 | 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing | Long-term velocity |

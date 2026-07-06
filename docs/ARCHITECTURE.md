@@ -34,10 +34,10 @@ fitness-app/
 | User model | **Custom `accounts.User`** (`AbstractUser`, email as login identity, `timezone` field). Plus `EmailVerificationToken`, `PasswordResetToken`. |
 | Database | **Postgres** via `DATABASE_URL` env var (sqlite in tests) |
 | API docs | Auto-generated via `drf-spectacular`; served at `/api/docs/` (Swagger UI) |
-| Flutter state mgmt | **Plain `StatefulWidget` + `setState`** — no framework, by decision (see `/CLAUDE.md`). `hooks_riverpod` in pubspec is unused, slated for removal. |
+| Flutter state mgmt | **Plain `StatefulWidget` + `setState`** — no framework, by decision (see `/CLAUDE.md`) |
 | Flutter theming | **Dark-only**: `LuminaHealthTheme.dark()` fills the light slot in `main.dart`; there is no theme toggling. |
 | Flutter HTTP client | **Dio** (`^5.9.0`) |
-| Flutter routing | **Imperative `Navigator`**. `go_router` in pubspec is unused, slated for removal. Top-level auth routing is the `AuthGate` switch in `main.dart`. |
+| Flutter routing | **Imperative `Navigator`**. Top-level auth routing is the `AuthGate` switch in `main.dart`. |
 | Flutter JSON models | **Hand-written** — no `json_serializable` or `freezed` |
 | Offline story | Entry-level local cache + outbox + delta sync (KAN-28). See `nutrition_repository.dart` and `nutrition/views.py` docstrings. |
 
@@ -218,9 +218,6 @@ foods server-side.
 
 ## Notable gaps / quirks
 
-- **`hooks_riverpod` and `go_router`** are in `pubspec.yaml` but unused and
-  slated for removal (`docs/CODE_HEALTH.md` P6). Their presence is not an
-  invitation to use them.
 - **No shared Dio instance** — each API service constructs its own, then
   registers it with the shared `AuthInterceptor`. If more services are added
   this pattern should be centralised.

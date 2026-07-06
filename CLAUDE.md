@@ -21,8 +21,7 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
 
 1. **No state-management or routing frameworks.** Plain `StatefulWidget` +
    `setState`; imperative `Navigator`. No Riverpod, no go_router, no get_it,
-   no bloc. (`hooks_riverpod`/`go_router` in pubspec are unused leftovers
-   slated for removal — their presence is not permission to use them.)
+   no bloc. Do not add such packages to `pubspec.yaml`.
 2. **Constructor DI.** Services are nullable constructor params with real
    defaults; tests pass fakes (see `MainShell`, `main_shell_test.dart`).
 3. **Layering (mobile).** Pages → `NutritionRepository` → API services +
