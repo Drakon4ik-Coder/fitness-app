@@ -271,7 +271,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   void _setTodayDate() {
-    _selectedDate = DateUtils.dateOnly(DateTime.now());
+    setState(() {
+      _selectedDate = DateUtils.dateOnly(DateTime.now());
+    });
     _loadDay();
   }
 
@@ -606,20 +608,139 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
             SafeArea(
               child: CustomScrollView(
                 slivers: [
-                  if (_showSpinner)
-                    SliverToBoxAdapter(
-                      key: const Key("nutritionLoadingSpinner"),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg,
-                        ),
-                        child: LinearProgressIndicator(
-                          minHeight: 2,
-                          color: scheme.primary,
-                          backgroundColor: scheme.surfaceContainer,
+                  // Wordmark scrolls away with the content; only the compact
+                  // date bar below stays pinned (KAN-34).
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.xs),
+                      child: Center(
+                        child: Text(
+                          'SYMBIO',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: LuminaHealthColors.primary.withValues(
+                              alpha: 0.6,
+                            ),
+                            letterSpacing: 2.0,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                          ),
                         ),
                       ),
                     ),
+                  ),
+                  // Pinned compact date bar so the viewed day is visible at
+                  // any scroll position. Transparent at rest (the hero
+                  // gradient shows through); opaque once meal cards scroll
+                  // under it so they don't visually collide.
+                  SliverAppBar(
+                    pinned: true,
+                    primary: false,
+                    automaticallyImplyLeading: false,
+                    toolbarHeight: 52,
+                    titleSpacing: AppSpacing.sm,
+                    backgroundColor: WidgetStateColor.resolveWith(
+                      (states) => states.contains(WidgetState.scrolledUnder)
+                          ? scheme.surface
+                          : Colors.transparent,
+                    ),
+                    title: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Previous day',
+                          icon: const Icon(Icons.chevron_left),
+                          color: LuminaHealthColors.primary,
+                          onPressed: () => _changeDate(-1),
+                        ),
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: InkWell(
+                                  onTap: () => _pickDate(context),
+                                  // Kept as a shortcut; the Today chip is the
+                                  // discoverable affordance.
+                                  onDoubleTap: () => _setTodayDate(),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.sm,
+                                      vertical: AppSpacing.xs,
+                                    ),
+                                    child: Text(
+                                      _dateLabel(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleLarge
+                                          ?.copyWith(
+                                            color: LuminaHealthColors.primary,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (!isToday)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: AppSpacing.sm,
+                                  ),
+                                  child: ActionChip(
+                                    key: const Key('todayChip'),
+                                    tooltip: 'Back to today',
+                                    onPressed: _setTodayDate,
+                                    visualDensity: VisualDensity.compact,
+                                    backgroundColor: scheme.primary.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                    side: BorderSide(
+                                      color: scheme.primary.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                    ),
+                                    label: Text(
+                                      'Today',
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: scheme.primary,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Next day',
+                          icon: const Icon(Icons.chevron_right),
+                          color: isToday ? null : LuminaHealthColors.primary,
+                          onPressed: isToday ? null : () => _changeDate(1),
+                        ),
+                      ],
+                    ),
+                    // Always-reserved slot for the loading bar so its
+                    // appearance doesn't shift content (KAN-25).
+                    bottom: PreferredSize(
+                      preferredSize: const Size.fromHeight(2),
+                      child: SizedBox(
+                        height: 2,
+                        child: _showSpinner
+                            ? Padding(
+                                key: const Key("nutritionLoadingSpinner"),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.lg,
+                                ),
+                                child: LinearProgressIndicator(
+                                  minHeight: 2,
+                                  color: scheme.primary,
+                                  backgroundColor: scheme.surfaceContainer,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
                   if (_errorMessage != null)
                     SliverToBoxAdapter(
                       child: Padding(
@@ -635,64 +756,6 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         ),
                       ),
                     ),
-                  // Top Header
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.lg,
-                        vertical: AppSpacing.sm,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.chevron_left),
-                            color: LuminaHealthColors.primary,
-                            onPressed: () => _changeDate(-1),
-                          ),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'SYMBIO',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: LuminaHealthColors.primary.withValues(
-                                    alpha: 0.6,
-                                  ),
-                                  letterSpacing: 2.0,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
-                              InkWell(
-                                onTap: () => _pickDate(context),
-                                onDoubleTap: () => _setTodayDate(),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.sm,
-                                    vertical: AppSpacing.xs,
-                                  ),
-                                  child: Text(
-                                    _dateLabel(),
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: LuminaHealthColors.primary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.chevron_right),
-                            color: isToday ? null : LuminaHealthColors.primary,
-                            onPressed: isToday ? null : () => _changeDate(1),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                   // Hero Biometric Section
                   SliverToBoxAdapter(
                     child: Padding(

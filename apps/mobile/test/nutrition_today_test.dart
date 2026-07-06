@@ -288,4 +288,65 @@ void main() {
     expect(find.text('2000'), findsOneWidget);
     expect(store.payloadWrites, contains(_todayKey()));
   });
+
+  testWidgets(
+    'pinned date bar stays visible on scroll and Today chip returns to today',
+    (WidgetTester tester) async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _dayPayload(date: _todayKey(), kcal: 0),
+              ),
+            );
+          },
+        ),
+      );
+      final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: nutritionApi,
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // On today: no Today chip, and the next-day chevron is disabled.
+      expect(find.byKey(const Key('todayChip')), findsNothing);
+      final nextButton = tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byTooltip('Next day'),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(nextButton.onPressed, isNull);
+
+      // Step back a day: label flips and the Today chip appears.
+      await tester.tap(find.byTooltip('Previous day'));
+      await tester.pumpAndSettle();
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(find.byKey(const Key('todayChip')), findsOneWidget);
+
+      // Scroll the content away: the date bar stays pinned near the top.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+      await tester.pumpAndSettle();
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Yesterday')).dy, lessThan(60));
+
+      // The chip returns to today and disappears once there.
+      await tester.tap(find.byKey(const Key('todayChip')));
+      await tester.pumpAndSettle();
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.byKey(const Key('todayChip')), findsNothing);
+    },
+  );
 }
