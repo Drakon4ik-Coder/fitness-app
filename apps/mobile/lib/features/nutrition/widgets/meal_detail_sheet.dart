@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
@@ -96,7 +98,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
       _movingAll = false;
       _entries.removeWhere(moved.contains);
     });
-    if (moved.isNotEmpty) HapticFeedback.mediumImpact();
+    if (moved.isNotEmpty) unawaited(HapticFeedback.mediumImpact());
     if (_entries.isEmpty && mounted) {
       Navigator.of(context).pop();
     } else if (mounted) {
@@ -185,7 +187,8 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
         }
       }
     });
-    if (mealChanged && updated != null) HapticFeedback.selectionClick();
+    if (mealChanged && updated != null)
+      unawaited(HapticFeedback.selectionClick());
     if (_entries.isEmpty && mounted) {
       Navigator.of(context).pop();
     }
@@ -226,7 +229,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
         _entries.removeWhere((e) => e.id == entry.id);
       }
     });
-    if (success) HapticFeedback.mediumImpact();
+    if (success) unawaited(HapticFeedback.mediumImpact());
     if (_entries.isEmpty && mounted) {
       Navigator.of(context).pop();
     }

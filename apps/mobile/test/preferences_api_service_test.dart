@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/preferences_api_service.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('fetch parses units, calorie goal and nutrient goals', () async {

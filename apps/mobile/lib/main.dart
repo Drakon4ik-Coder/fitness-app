@@ -1,11 +1,13 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 
 import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
-import 'features/main_shell.dart';
 import 'features/login_page.dart';
+import 'features/main_shell.dart';
 import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
 
@@ -67,7 +69,7 @@ class _AuthGateState extends State<AuthGate> {
           : null;
       _isLoading = false;
     });
-    if (token != null) _reportTimezone(token);
+    if (token != null) unawaited(_reportTimezone(token));
   }
 
   Future<void> _handleLoggedIn() async {
@@ -86,7 +88,7 @@ class _AuthGateState extends State<AuthGate> {
             )
           : null;
     });
-    if (token != null) _reportTimezone(token);
+    if (token != null) unawaited(_reportTimezone(token));
   }
 
   /// Tell the backend the device's IANA timezone so it can convert UTC meal

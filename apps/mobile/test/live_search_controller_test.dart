@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/foods_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/off_client.dart';
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/live_search_controller.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 /// Hand-rolled fake backend typeahead source (no mocking lib). Records calls
 /// and lets a test control when each typeahead future completes.

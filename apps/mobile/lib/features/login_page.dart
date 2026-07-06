@@ -5,11 +5,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
 import '../core/google_auth_service.dart';
-
-import 'forgot_password_page.dart';
-import 'register_page.dart';
 import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
+import 'forgot_password_page.dart';
+import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({

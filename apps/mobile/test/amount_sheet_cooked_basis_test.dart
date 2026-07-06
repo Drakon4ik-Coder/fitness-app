@@ -1,9 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 // Modeled on UK lean beef mince whose label states nutrition per 100 g
 // grilled: 172 kcal / 29 g protein per cooked 100 g.

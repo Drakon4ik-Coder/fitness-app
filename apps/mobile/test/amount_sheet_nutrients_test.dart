@@ -1,10 +1,9 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/nutrient_catalog.dart';
 import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 FoodItem _food({Map<String, dynamic>? nutriments}) => FoodItem(
   source: offSource,

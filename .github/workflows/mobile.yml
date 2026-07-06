@@ -44,6 +44,9 @@ jobs:
       - name: Flutter Pub Get
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
         run: flutter pub get
+      - name: Check formatting
+        if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
+        run: dart format --output=none --set-exit-if-changed .
       - name: Analyze
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
         run: dart analyze

@@ -1,6 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('toBackendPayload falls back on invalid raw_source_json', () {

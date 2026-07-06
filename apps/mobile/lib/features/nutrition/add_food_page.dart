@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
+import 'custom_food_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/food_models.dart';
@@ -17,7 +19,6 @@ import 'data/off_client.dart';
 import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
-import 'custom_food_page.dart';
 import 'food_detail_page.dart';
 import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
@@ -319,7 +320,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       if (_indexOfAdded(item) >= 0) return;
     }
 
-    HapticFeedback.selectionClick();
+    unawaited(HapticFeedback.selectionClick());
     setState(() {
       _addedItems.add(_AddedFood(item: item, grams: _defaultGramsFor(item)));
     });
@@ -449,7 +450,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       onUnauthorized: widget.onLogout,
     );
     if (stored == null || !mounted) return;
-    HapticFeedback.selectionClick();
+    unawaited(HapticFeedback.selectionClick());
     setState(() {
       _addedItems.add(
         _AddedFood(item: stored, grams: _defaultGramsFor(stored)),
@@ -732,7 +733,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       }
 
       if (!mounted) return;
-      HapticFeedback.mediumImpact();
+      unawaited(HapticFeedback.mediumImpact());
       Navigator.of(context).pop(true);
     } on ApiException catch (error) {
       if (error.isUnauthorized) {

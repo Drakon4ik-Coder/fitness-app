@@ -1,13 +1,12 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/core/auth_service.dart';
 import 'package:fitness_app/features/main_shell.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/preferences_api_service.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import 'in_memory_nutrition_store.dart';
 

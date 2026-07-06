@@ -1,6 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/off_mapper.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('maps OFF product to normalized fields with kcal fallback', () {

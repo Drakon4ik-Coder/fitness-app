@@ -2,9 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../core/environment.dart';
-import 'nutrition/nutrition_today_page.dart';
 import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
+import 'nutrition/nutrition_today_page.dart';
 
 class BarcodeLookupPage extends StatefulWidget {
   const BarcodeLookupPage({

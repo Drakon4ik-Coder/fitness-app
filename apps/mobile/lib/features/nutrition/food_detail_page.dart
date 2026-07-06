@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
@@ -91,7 +93,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
     }
     await widget.localDb.setFavorite(item.localId!, next);
     if (!mounted) return;
-    HapticFeedback.selectionClick();
+    unawaited(HapticFeedback.selectionClick());
     setState(() => _item = item.copyWith(isFavorite: next));
     widget.onItemChanged?.call(_item);
   }
@@ -207,7 +209,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
           _message = 'Could not remove the food — check your connection.';
         });
       case CustomFoodDeleteOutcome.deleted:
-        HapticFeedback.mediumImpact();
+        unawaited(HapticFeedback.mediumImpact());
         widget.onItemReverted?.call(_item);
         Navigator.of(context).pop();
     }

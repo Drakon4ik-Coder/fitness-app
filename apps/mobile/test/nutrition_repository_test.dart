@@ -1,9 +1,8 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_repository.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 import 'in_memory_nutrition_store.dart';
 

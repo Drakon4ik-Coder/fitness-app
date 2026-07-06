@@ -84,6 +84,7 @@ check-backend:
 check-mobile:
 	@echo "==> check-mobile"
 	@cd $(MOBILE_DIR) && flutter pub get
+	@$(MAKE) fmt-mobile
 	@cd $(MOBILE_DIR) && dart analyze
 	@cd $(MOBILE_DIR) && flutter test
 

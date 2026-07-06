@@ -1,8 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('throws when key reused with different type', () async {

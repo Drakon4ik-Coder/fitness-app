@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   final options = RequestOptions(path: '/x');
