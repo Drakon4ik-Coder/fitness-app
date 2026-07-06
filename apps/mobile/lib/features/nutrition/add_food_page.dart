@@ -1394,7 +1394,6 @@ String _focusValueText(double value, String unit) =>
 // personalized) daily target, so the bars track the user's own goals.
 const double _mealShareOfDailyTarget = 0.3;
 
-
 enum _FoodResultOrigin { local, backend, off }
 
 class _FoodResult {

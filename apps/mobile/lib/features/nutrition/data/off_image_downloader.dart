@@ -13,17 +13,15 @@ class OffImageResult {
 
 class OffImageDownloader {
   OffImageDownloader({String? userAgent, OffRateLimiter? rateLimiter})
-      : _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
-        _dio = Dio(
-          BaseOptions(
-            headers: {
-              'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
-            },
-            responseType: ResponseType.bytes,
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 20),
-          ),
-        );
+    : _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
+      _dio = Dio(
+        BaseOptions(
+          headers: {'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent},
+          responseType: ResponseType.bytes,
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 20),
+        ),
+      );
 
   final Dio _dio;
   final OffRateLimiter _rateLimiter;

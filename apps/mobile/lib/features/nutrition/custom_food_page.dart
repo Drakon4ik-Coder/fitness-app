@@ -109,12 +109,12 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
   }
 
   Iterable<TextEditingController> get _allControllers => [
-        _nameController,
-        _brandController,
-        _servingController,
-        _kcalController,
-        ..._nutrients.values,
-      ];
+    _nameController,
+    _brandController,
+    _servingController,
+    _kcalController,
+    ..._nutrients.values,
+  ];
 
   @override
   void dispose() {
@@ -127,8 +127,7 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
   // Rebuild on any edit: drives the dirty flag and the live Atwater hint.
   void _onChanged() => setState(() {});
 
-  bool get _dirty =>
-      _allControllers.any((c) => c.text != _baseline[c]);
+  bool get _dirty => _allControllers.any((c) => c.text != _baseline[c]);
 
   static String _numberText(double? value) {
     if (value == null) return '';
@@ -202,8 +201,7 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
       barcode: null,
       overridesBackendId:
           initial?.overridesBackendId ?? widget.overrideOf?.backendId,
-      overridesBarcode:
-          initial?.overridesBarcode ?? widget.overrideOf?.barcode,
+      overridesBarcode: initial?.overridesBarcode ?? widget.overrideOf?.barcode,
       name: _nameController.text.trim(),
       brands: _brandController.text.trim(),
       kcal100g: kcal,
@@ -234,9 +232,9 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
         content: Text(
           isOverride
               ? 'Your corrected values are removed and the catalog item '
-                  'comes back. Logged meals keep their history.'
+                    'comes back. Logged meals keep their history.'
               : 'It disappears from search, but meals you already logged '
-                  'with it keep their history.',
+                    'with it keep their history.',
         ),
         actions: [
           TextButton(
@@ -274,8 +272,8 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
             _isOverride
                 ? 'Edit nutrition'
                 : widget.initial == null
-                    ? 'Create food'
-                    : 'Edit food',
+                ? 'Create food'
+                : 'Edit food',
           ),
           centerTitle: false,
         ),
@@ -291,7 +289,8 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
             children: [
               if (_isOverride) ...[
                 InlineBanner(
-                  message: 'Your personal copy — only you see these '
+                  message:
+                      'Your personal copy — only you see these '
                       'changes. The catalog item stays as-is for others.',
                   tone: InlineBannerTone.info,
                 ),
@@ -420,9 +419,7 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       textInputAction: TextInputAction.next,
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
-      ],
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
       decoration: InputDecoration(labelText: label, suffixText: unit),
       autovalidateMode: AutovalidateMode.onUserInteraction,
       validator: (raw) =>

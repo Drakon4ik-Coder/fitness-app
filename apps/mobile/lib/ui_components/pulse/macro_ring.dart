@@ -28,8 +28,7 @@ class MacroRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final progress =
-        goal <= 0 ? 0.0 : math.min(1.0, current / goal).toDouble();
+    final progress = goal <= 0 ? 0.0 : math.min(1.0, current / goal).toDouble();
     final labelStyle = theme.textTheme.labelLarge?.copyWith(
       fontWeight: FontWeight.w600,
       color: theme.colorScheme.onSurface,
@@ -62,12 +61,7 @@ class MacroRing extends StatelessWidget {
                 TextSpan(
                   text: '$label\n',
                   style: labelStyle,
-                  children: [
-                    TextSpan(
-                      text: valueLabel,
-                      style: valueStyle,
-                    ),
-                  ],
+                  children: [TextSpan(text: valueLabel, style: valueStyle)],
                 ),
                 textAlign: TextAlign.center,
                 maxLines: 2,

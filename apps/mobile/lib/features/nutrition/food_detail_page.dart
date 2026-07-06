@@ -68,17 +68,17 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
   /// Per-100g totals via the item-aware reader, so older rows carrying only
   /// the flat macro columns (no nutriments blob) still show their macros.
   List<NutrientTotal> get _totalsPer100g => [
-        for (final spec in widget.catalog)
-          () {
-            final per100 = nutrientPer100gForItem(spec, _item);
-            return NutrientTotal(
-              spec: spec,
-              amount: per100,
-              reportedCount: per100 != null ? 1 : 0,
-              totalCount: 1,
-            );
-          }(),
-      ];
+    for (final spec in widget.catalog)
+      () {
+        final per100 = nutrientPer100gForItem(spec, _item);
+        return NutrientTotal(
+          spec: spec,
+          amount: per100,
+          reportedCount: per100 != null ? 1 : 0,
+          totalCount: 1,
+        );
+      }(),
+  ];
 
   // ---- Actions ------------------------------------------------------------
 
@@ -107,8 +107,10 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
         _message = null;
       });
       try {
-        final (resolved, _) =
-            await ensureGlobalBackendId(target, foodsApi: widget.foodsApi);
+        final (resolved, _) = await ensureGlobalBackendId(
+          target,
+          foodsApi: widget.foodsApi,
+        );
         target = resolved;
         _item = resolved;
       } on ApiException catch (error) {
@@ -224,27 +226,27 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
                 'revert anytime to get it back.',
           )
         : _item.isCustom
-            ? const _ProvenanceChipData(
-                icon: Icons.person_outline,
-                label: 'Your food',
-                explanation:
-                    'You created this food. It is private to you and never '
-                    'appears in anyone else\'s search.',
-              )
-            : _item.source == offSource
-                ? const _ProvenanceChipData(
-                    icon: Icons.public,
-                    label: 'OpenFoodFacts',
-                    explanation:
-                        'These values come from OpenFoodFacts, a community '
-                        'database of food labels. Spotted a mistake? Use '
-                        '"Edit nutrition facts" to fix it for yourself.',
-                  )
-                : _ProvenanceChipData(
-                    icon: Icons.public,
-                    label: _item.source,
-                    explanation: 'Catalog food from "${_item.source}".',
-                  );
+        ? const _ProvenanceChipData(
+            icon: Icons.person_outline,
+            label: 'Your food',
+            explanation:
+                'You created this food. It is private to you and never '
+                'appears in anyone else\'s search.',
+          )
+        : _item.source == offSource
+        ? const _ProvenanceChipData(
+            icon: Icons.public,
+            label: 'OpenFoodFacts',
+            explanation:
+                'These values come from OpenFoodFacts, a community '
+                'database of food labels. Spotted a mistake? Use '
+                '"Edit nutrition facts" to fix it for yourself.',
+          )
+        : _ProvenanceChipData(
+            icon: Icons.public,
+            label: _item.source,
+            explanation: 'Catalog food from "${_item.source}".',
+          );
     return [
       source,
       if (_item.isCommunityVerified)
@@ -353,7 +355,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
             kcal == null
                 ? 'Calories per 100 g unavailable'
                 : '${kcal.round()} kcal per 100 g'
-                    '${_item.isCookedBasis ? ' cooked' : ''}',
+                      '${_item.isCookedBasis ? ' cooked' : ''}',
             style: theme.textTheme.titleSmall?.copyWith(
               color: scheme.primary,
               fontWeight: FontWeight.w600,
@@ -375,9 +377,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
                   ),
                   label: Text(chip.label),
                   labelStyle: theme.textTheme.labelLarge?.copyWith(
-                    color: chip.highlighted
-                        ? scheme.primary
-                        : scheme.onSurface,
+                    color: chip.highlighted ? scheme.primary : scheme.onSurface,
                     fontWeight: FontWeight.w600,
                   ),
                   backgroundColor: chip.highlighted
@@ -507,10 +507,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
     }
     final serving = _item.servingSizeG;
     if (serving != null && serving > 0) {
-      rows.add((
-        label: 'Serving size',
-        value: '${formatAmount(serving)} g',
-      ));
+      rows.add((label: 'Serving size', value: '${formatAmount(serving)} g'));
     }
     return rows;
   }

@@ -8,10 +8,7 @@ import '../../ui_system/tokens.dart';
 /// shows a segmented bar plus a requirement checklist. Purely informational —
 /// the form's own validator still enforces the hard minimum.
 class PasswordStrengthMeter extends StatelessWidget {
-  const PasswordStrengthMeter({
-    super.key,
-    required this.password,
-  });
+  const PasswordStrengthMeter({super.key, required this.password});
 
   final String password;
 
@@ -52,9 +49,7 @@ class PasswordStrengthMeter extends StatelessWidget {
                   duration: const Duration(milliseconds: 200),
                   height: 4,
                   decoration: BoxDecoration(
-                    color: i < _score
-                        ? color
-                        : scheme.surfaceContainerHighest,
+                    color: i < _score ? color : scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -105,10 +100,7 @@ class _Hint extends StatelessWidget {
           color: color,
         ),
         const SizedBox(width: 2),
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(color: color),
-        ),
+        Text(label, style: theme.textTheme.labelSmall?.copyWith(color: color)),
       ],
     );
   }

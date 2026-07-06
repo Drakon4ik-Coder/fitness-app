@@ -84,10 +84,36 @@ class PieceDescriptor {
 // Measure words that look like a leading count but are units/portions, not
 // countable pieces. "2 eggs" is a piece; "1 serving"/"100 g"/"1 cup" is not.
 const Set<String> _measureWords = {
-  'g', 'gr', 'gram', 'grams', 'kg', 'mg', 'ml', 'l', 'cl', 'dl', 'oz', 'lb',
-  'fl', 'floz', 'cup', 'cups', 'tbsp', 'tsp', 'tbs', 'teaspoon', 'teaspoons',
-  'tablespoon', 'tablespoons', 'serving', 'servings', 'serv', 'portion',
-  'portions', 'glass', 'glasses',
+  'g',
+  'gr',
+  'gram',
+  'grams',
+  'kg',
+  'mg',
+  'ml',
+  'l',
+  'cl',
+  'dl',
+  'oz',
+  'lb',
+  'fl',
+  'floz',
+  'cup',
+  'cups',
+  'tbsp',
+  'tsp',
+  'tbs',
+  'teaspoon',
+  'teaspoons',
+  'tablespoon',
+  'tablespoons',
+  'serving',
+  'servings',
+  'serv',
+  'portion',
+  'portions',
+  'glass',
+  'glasses',
 };
 
 final RegExp _gramUnitRegExp = RegExp(
@@ -225,8 +251,9 @@ bool detectCookedNutritionBasis({
   int? ciqualCode,
 }) {
   if (proteinG100g == null) return false;
-  final referenceProtein =
-      ciqualCode == null ? null : ciqualRawProteinG100g[ciqualCode];
+  final referenceProtein = ciqualCode == null
+      ? null
+      : ciqualRawProteinG100g[ciqualCode];
   if (referenceProtein != null &&
       referenceProtein >= _minCiqualReferenceProteinG100g) {
     return proteinG100g / referenceProtein >= _cookedVsRawProteinRatio;
@@ -498,8 +525,9 @@ class FoodItem {
       'overrides_barcode': overridesBarcode,
       'community_verified_at': communityVerifiedAt?.toIso8601String(),
       'raw_source_json': rawSourceJson,
-      'nutriments_json':
-          nutrimentsJson == null ? null : jsonEncode(nutrimentsJson),
+      'nutriments_json': nutrimentsJson == null
+          ? null
+          : jsonEncode(nutrimentsJson),
       'last_used_at': lastUsedAt?.toIso8601String(),
       'is_favorite': isFavorite ? 1 : 0,
     };
@@ -615,7 +643,8 @@ class FoodItem {
     return FoodItem(
       backendId: backendId,
       source: (map['source'] as String?) ?? offSource,
-      externalId: (map['external_id'] as String?) ??
+      externalId:
+          (map['external_id'] as String?) ??
           barcode ??
           backendId?.toString() ??
           '',
@@ -643,10 +672,10 @@ class FoodItem {
         : jsonEncode(rawSource ?? <String, dynamic>{});
     final Map<String, dynamic>? nutrimentsJson =
         nutrimentsRaw is Map<String, dynamic>
-            ? nutrimentsRaw
-            : nutrimentsRaw is String
-                ? _decodeNutrimentsJson(nutrimentsRaw)
-                : null;
+        ? nutrimentsRaw
+        : nutrimentsRaw is String
+        ? _decodeNutrimentsJson(nutrimentsRaw)
+        : null;
     // The backend has no dedicated piece columns, so re-derive the piece
     // descriptor from the round-tripped raw serving_size text.
     final servingSizeG = parseNullableDouble(map['serving_size_g']);
@@ -663,7 +692,8 @@ class FoodItem {
     return FoodItem(
       backendId: backendId,
       source: (map['source'] as String?) ?? offSource,
-      externalId: (map['external_id'] as String?) ??
+      externalId:
+          (map['external_id'] as String?) ??
           barcode ??
           backendId?.toString() ??
           '',

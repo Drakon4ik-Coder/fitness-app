@@ -255,7 +255,9 @@ class FoodLocalDb {
       nutritionBasis: incoming.nutritionBasis ?? existing.nutritionBasis,
       communityVerifiedAt:
           incoming.communityVerifiedAt ?? existing.communityVerifiedAt,
-      rawSourceJson: hasRawJson ? incoming.rawSourceJson : existing.rawSourceJson,
+      rawSourceJson: hasRawJson
+          ? incoming.rawSourceJson
+          : existing.rawSourceJson,
       nutrimentsJson: incoming.nutrimentsJson ?? existing.nutrimentsJson,
       lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
       isFavorite: incoming.isFavorite || existing.isFavorite,
@@ -322,16 +324,12 @@ class FoodLocalDb {
       'raw_source_json, nutriments_json, last_used_at, is_favorite';
 
   Future<void> _createIndexes(DatabaseExecutor db) async {
-    await db.execute(
-      'CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)',
-    );
+    await db.execute('CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)');
     await db.execute(
       'CREATE UNIQUE INDEX idx_foods_source_external_id ON foods(source, external_id)',
     );
     await db.execute('CREATE INDEX idx_foods_name ON foods(name)');
-    await db.execute(
-      'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
-    );
+    await db.execute('CREATE INDEX idx_foods_last_used ON foods(last_used_at)');
   }
 
   Future<Database> _openDatabase() async {

@@ -90,7 +90,8 @@ class _NeonPillButtonState extends State<NeonPillButton> {
             ),
           )
         : DefaultTextStyle(
-            style: textStyle?.copyWith(
+            style:
+                textStyle?.copyWith(
                   color: contentColor,
                   fontWeight: FontWeight.w700,
                 ) ??

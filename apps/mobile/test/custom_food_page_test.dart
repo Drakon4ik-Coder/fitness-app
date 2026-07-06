@@ -66,8 +66,9 @@ Future<void> _tapSave(WidgetTester tester, {bool editing = false}) async {
 }
 
 void main() {
-  testWidgets('builds a custom food with OFF-format nutriments',
-      (tester) async {
+  testWidgets('builds a custom food with OFF-format nutriments', (
+    tester,
+  ) async {
     final resultOf = await _openForm(
       tester,
       fields: {
@@ -97,8 +98,9 @@ void main() {
     expect(item.nutrimentsJson!['proteins_unit'], 'g');
   });
 
-  testWidgets('micros entered in the expandable groups land in the blob',
-      (tester) async {
+  testWidgets('micros entered in the expandable groups land in the blob', (
+    tester,
+  ) async {
     final resultOf = await _openForm(
       tester,
       fields: {'Name': 'Fortified thing', 'Calories': '100'},
@@ -122,8 +124,9 @@ void main() {
     expect(item.nutrimentsJson!.containsKey('iron_100g'), isFalse);
   });
 
-  testWidgets('shows the Atwater hint when kcal disagrees with macros',
-      (tester) async {
+  testWidgets('shows the Atwater hint when kcal disagrees with macros', (
+    tester,
+  ) async {
     await _openForm(
       tester,
       fields: {
@@ -163,8 +166,9 @@ void main() {
     expect(find.text('Required'), findsOneWidget);
   });
 
-  testWidgets('editing prefills fields and keeps the external id',
-      (tester) async {
+  testWidgets('editing prefills fields and keeps the external id', (
+    tester,
+  ) async {
     final existing = FoodItem(
       source: customSource,
       externalId: 'cf-keep-me',
@@ -195,8 +199,9 @@ void main() {
     expect(item.proteinG100g, 10);
   });
 
-  testWidgets('override mode prefills from the global item and links to it',
-      (tester) async {
+  testWidgets('override mode prefills from the global item and links to it', (
+    tester,
+  ) async {
     final global = FoodItem(
       backendId: 42,
       source: offSource,
@@ -238,8 +243,9 @@ void main() {
     expect(item.externalId, startsWith('cf-'));
   });
 
-  testWidgets('delete asks for confirmation and pops a deleted result',
-      (tester) async {
+  testWidgets('delete asks for confirmation and pops a deleted result', (
+    tester,
+  ) async {
     final existing = FoodItem(
       source: customSource,
       externalId: 'cf-doomed',

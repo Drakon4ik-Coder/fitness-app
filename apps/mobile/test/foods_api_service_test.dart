@@ -12,11 +12,7 @@ void main() {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           handler.resolve(
-            Response(
-              requestOptions: options,
-              statusCode: 200,
-              data: null,
-            ),
+            Response(requestOptions: options, statusCode: 200, data: null),
           );
         },
       ),

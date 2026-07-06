@@ -59,8 +59,7 @@ class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
     }
     _initialCalorieText = _calorieController.text;
     _initialGoalTexts = {
-      for (final entry in _goalControllers.entries)
-        entry.key: entry.value.text,
+      for (final entry in _goalControllers.entries) entry.key: entry.value.text,
     };
     _calorieController.addListener(_recomputeDirty);
     for (final controller in _goalControllers.values) {

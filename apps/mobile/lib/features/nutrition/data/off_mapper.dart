@@ -43,16 +43,20 @@ class OffMapper {
     final rawServing = product['serving_size'];
     // A numeric serving_size is already grams; stringify it so the shared text
     // parser handles it uniformly (and finds no spurious piece count).
-    final servingText =
-        rawServing is num ? rawServing.toString() : _stringValue(rawServing);
-    final sqUnit = _stringValue(product['serving_quantity_unit'])?.toLowerCase();
+    final servingText = rawServing is num
+        ? rawServing.toString()
+        : _stringValue(rawServing);
+    final sqUnit = _stringValue(
+      product['serving_quantity_unit'],
+    )?.toLowerCase();
     final leadingPiece = parseLeadingPiece(servingText);
     var servingSize = gramsFromServingText(servingText);
     if (servingSize == null) {
       final sq = _parseServingQuantity(product['serving_quantity']);
       final unitIsMass =
           sqUnit == null || sqUnit.isEmpty || sqUnit == 'g' || sqUnit == 'ml';
-      final isCountArtifact = leadingPiece != null &&
+      final isCountArtifact =
+          leadingPiece != null &&
           sq != null &&
           (sq - leadingPiece.count).abs() < 1e-6;
       if (sq != null && unitIsMass && !isCountArtifact) {
@@ -76,8 +80,9 @@ class OffMapper {
     }
     // A piece descriptor lets the UI count in whole pieces (eggs, burgers).
     // Only derived when the serving weight itself is trusted.
-    final piece =
-        servingSize == null ? null : parsePieceDescriptor(servingText);
+    final piece = servingSize == null
+        ? null
+        : parsePieceDescriptor(servingText);
     // Cooked-basis detection: a label whose protein sits far above the raw
     // CIQUAL reference (or above the raw physical ceiling for fresh meat/fish
     // categories) carries the cooked ("grilled") column in OFF's plain

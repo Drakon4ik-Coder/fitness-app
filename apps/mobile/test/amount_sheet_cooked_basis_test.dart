@@ -8,17 +8,17 @@ import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 // Modeled on UK lean beef mince whose label states nutrition per 100 g
 // grilled: 172 kcal / 29 g protein per cooked 100 g.
 FoodItem _mince({String? basis = cookedNutritionBasis}) => FoodItem(
-      source: offSource,
-      externalId: '5054070875254',
-      name: 'Lean Beef Steak Mince',
-      brands: '',
-      rawSourceJson: '{}',
-      kcal100g: 172,
-      proteinG100g: 29,
-      carbsG100g: 0,
-      fatG100g: 6.3,
-      nutritionBasis: basis,
-    );
+  source: offSource,
+  externalId: '5054070875254',
+  name: 'Lean Beef Steak Mince',
+  brands: '',
+  rawSourceJson: '{}',
+  kcal100g: 172,
+  proteinG100g: 29,
+  carbsG100g: 0,
+  fatG100g: 6.3,
+  nutritionBasis: basis,
+);
 
 Future<void> _pumpSheet(
   WidgetTester tester,
@@ -58,8 +58,9 @@ void main() {
     expect(find.text('129'), findsOneWidget);
   });
 
-  testWidgets('switching to cooked weight re-expresses the same amount',
-      (tester) async {
+  testWidgets('switching to cooked weight re-expresses the same amount', (
+    tester,
+  ) async {
     await _pumpSheet(tester, _mince());
 
     await tester.tap(find.text('Cooked weight'));
@@ -71,8 +72,9 @@ void main() {
     expect(find.text('129'), findsOneWidget);
   });
 
-  testWidgets('typed raw grams convert through the cooked yield',
-      (tester) async {
+  testWidgets('typed raw grams convert through the cooked yield', (
+    tester,
+  ) async {
     await _pumpSheet(tester, _mince());
 
     await tester.enterText(find.byType(TextField), '200');
@@ -90,9 +92,11 @@ void main() {
     expect(find.text('172 kcal per 100g'), findsOneWidget);
   });
 
-  test('describeAmount reads raw with the cooked equivalent in parentheses',
-      () {
-    expect(describeAmount(75, _mince()), '100 g raw (75 g cooked)');
-    expect(describeAmount(100, _mince(basis: null)), '100 g');
-  });
+  test(
+    'describeAmount reads raw with the cooked equivalent in parentheses',
+    () {
+      expect(describeAmount(75, _mince()), '100 g raw (75 g cooked)');
+      expect(describeAmount(100, _mince(basis: null)), '100 g');
+    },
+  );
 }

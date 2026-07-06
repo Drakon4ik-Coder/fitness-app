@@ -28,18 +28,14 @@ class AppScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectivePadding =
-        padding ?? const EdgeInsets.all(AppSpacing.lg);
+    final effectivePadding = padding ?? const EdgeInsets.all(AppSpacing.lg);
     final Widget content = scrollable
         ? SingleChildScrollView(
             padding: effectivePadding,
             physics: scrollPhysics,
             child: body,
           )
-        : Padding(
-            padding: effectivePadding,
-            child: body,
-          );
+        : Padding(padding: effectivePadding, child: body);
     final Widget wrapped = safeArea ? SafeArea(child: content) : content;
 
     return Scaffold(

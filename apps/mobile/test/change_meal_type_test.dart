@@ -8,22 +8,22 @@ import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
 FoodItem _food() => FoodItem(
-      source: offSource,
-      externalId: 'x',
-      name: 'Oatmeal',
-      brands: '',
-      rawSourceJson: '{}',
-      kcal100g: 380,
-    );
+  source: offSource,
+  externalId: 'x',
+  name: 'Oatmeal',
+  brands: '',
+  rawSourceJson: '{}',
+  kcal100g: 380,
+);
 
 NutritionEntry _entry(String mealType, {int id = 42}) => NutritionEntry(
-      id: id,
-      mealType: mealType,
-      consumedAt: DateTime(2024, 1, 1, 8),
-      quantityG: 100,
-      kcal: 380,
-      foodItem: _food(),
-    );
+  id: id,
+  mealType: mealType,
+  consumedAt: DateTime(2024, 1, 1, 8),
+  quantityG: 100,
+  kcal: 380,
+  foodItem: _food(),
+);
 
 void _tallSurface(WidgetTester tester) {
   tester.view.physicalSize = const Size(1200, 3000);
@@ -33,8 +33,9 @@ void _tallSurface(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets('edit sheet shows the meal selector and returns the new meal',
-      (tester) async {
+  testWidgets('edit sheet shows the meal selector and returns the new meal', (
+    tester,
+  ) async {
     _tallSurface(tester);
     AmountResult? result;
     await tester.pumpWidget(
@@ -92,8 +93,9 @@ void main() {
     expect(find.widgetWithText(ChoiceChip, 'Lunch'), findsNothing);
   });
 
-  testWidgets('moving a meal calls onUpdateEntry and drops it from the list',
-      (tester) async {
+  testWidgets('moving a meal calls onUpdateEntry and drops it from the list', (
+    tester,
+  ) async {
     _tallSurface(tester);
     String? capturedMeal;
     await tester.pumpWidget(

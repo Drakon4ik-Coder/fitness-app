@@ -282,10 +282,10 @@ class _AmountSheetState extends State<AmountSheet> {
 
   // Units offered in the toggle, in display order. Always ends with Grams.
   List<AmountUnit> get _units => [
-        if (_hasPiece) AmountUnit.pieces,
-        if (_servingDiffersFromPiece) AmountUnit.servings,
-        AmountUnit.grams,
-      ];
+    if (_hasPiece) AmountUnit.pieces,
+    if (_servingDiffersFromPiece) AmountUnit.servings,
+    AmountUnit.grams,
+  ];
 
   // Grams represented by one of the given unit.
   double _gramsPerUnit(AmountUnit unit) {
@@ -298,9 +298,7 @@ class _AmountSheetState extends State<AmountSheet> {
         // In raw mode for a cooked-basis food, one typed gram of raw weight
         // is only kCookedYieldFactor grams of the cooked weight that the
         // per-100g label values scale against.
-        return _item.isCookedBasis && _rawWeight
-            ? kCookedYieldFactor
-            : 1;
+        return _item.isCookedBasis && _rawWeight ? kCookedYieldFactor : 1;
     }
   }
 
@@ -310,8 +308,8 @@ class _AmountSheetState extends State<AmountSheet> {
     _unit = _hasPiece
         ? AmountUnit.pieces
         : _hasServing
-            ? AmountUnit.servings
-            : AmountUnit.grams;
+        ? AmountUnit.servings
+        : AmountUnit.grams;
     _controller = TextEditingController(
       text: formatAmount(_valueForGrams(widget.initialGrams)),
     );
@@ -448,111 +446,231 @@ class _AmountSheetState extends State<AmountSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(999),
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
               ),
-            ),
-            // Header: thumbnail + name. With [onViewDetails] wired it opens
-            // the food detail page (full nutrition facts + visible edit),
-            // signalled by the trailing chevron.
-            Builder(
-              builder: (context) {
-                final canViewDetails = widget.onViewDetails != null;
-                final header = Row(
-                  children: [
-                    FoodThumb(url: _imageUrl, size: 48),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _item.name,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
+              // Header: thumbnail + name. With [onViewDetails] wired it opens
+              // the food detail page (full nutrition facts + visible edit),
+              // signalled by the trailing chevron.
+              Builder(
+                builder: (context) {
+                  final canViewDetails = widget.onViewDetails != null;
+                  final header = Row(
+                    children: [
+                      FoodThumb(url: _imageUrl, size: 48),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _item.name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _item.kcal100g == null
-                                ? 'Calories per 100g unavailable'
-                                : '${_item.kcal100g!.round()} kcal per '
-                                    '100g${_item.isCookedBasis ? ' cooked' : ''}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
+                            const SizedBox(height: 2),
+                            Text(
+                              _item.kcal100g == null
+                                  ? 'Calories per 100g unavailable'
+                                  : '${_item.kcal100g!.round()} kcal per '
+                                        '100g${_item.isCookedBasis ? ' cooked' : ''}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                      ),
+                      if (canViewDetails)
+                        Icon(
+                          Icons.chevron_right,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                    ],
+                  );
+                  if (!canViewDetails) return header;
+                  return Semantics(
+                    button: true,
+                    label: '${_item.name}, view food details',
+                    child: InkWell(
+                      onTap: _openDetails,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.xs,
+                        ),
+                        child: header,
                       ),
                     ),
-                    if (canViewDetails)
-                      Icon(
-                        Icons.chevron_right,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                  ],
-                );
-                if (!canViewDetails) return header;
-                return Semantics(
-                  button: true,
-                  label: '${_item.name}, view food details',
-                  child: InkWell(
-                    onTap: _openDetails,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.xs,
-                      ),
-                      child: header,
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: AppSpacing.lg),
+                  );
+                },
+              ),
+              const SizedBox(height: AppSpacing.lg),
 
-            // Meal selector (editing only) — lets the user move a logged entry
-            // to a different meal, e.g. fixing a mis-suggested meal type.
-            if (_showMealSelector) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'MEAL',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+              // Meal selector (editing only) — lets the user move a logged entry
+              // to a different meal, e.g. fixing a mis-suggested meal type.
+              if (_showMealSelector) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'MEAL',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onSurfaceVariant,
+                      letterSpacing: 1.5,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: kMealTypeOptions.map((option) {
+                    final selected = option.name == _mealType;
+                    return ChoiceChip(
+                      label: Text(option.label),
+                      avatar: Icon(
+                        option.icon,
+                        size: 18,
+                        color: selected ? scheme.onPrimary : scheme.onSurface,
+                      ),
+                      selected: selected,
+                      showCheckmark: false,
+                      onSelected: (_) =>
+                          setState(() => _mealType = option.name),
+                      backgroundColor: scheme.surfaceContainerLow,
+                      selectedColor: scheme.primary,
+                      labelStyle: theme.textTheme.labelLarge?.copyWith(
+                        color: selected ? scheme.onPrimary : scheme.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      side: BorderSide.none,
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
+
+              // Unit toggle (shown when more than one unit is available, e.g. a
+              // food counted in pieces or with a known serving size).
+              if (_units.length > 1) ...[
+                SegmentedButton<AmountUnit>(
+                  segments: _units
+                      .map(
+                        (u) => ButtonSegment(
+                          value: u,
+                          label: Text(_segmentLabel(u)),
+                        ),
+                      )
+                      .toList(),
+                  selected: {_unit},
+                  onSelectionChanged: (s) => _setUnit(s.first),
+                  showSelectedIcon: false,
+                  style: ButtonStyle(visualDensity: VisualDensity.compact),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
+
+              // Raw/cooked weight toggle for foods sold raw whose label states
+              // nutrition per cooked weight — lets the user type what their
+              // scale shows and have the water loss accounted for.
+              if (_item.isCookedBasis && _unit == AmountUnit.grams) ...[
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: true, label: Text('Raw weight')),
+                    ButtonSegment(value: false, label: Text('Cooked weight')),
+                  ],
+                  selected: {_rawWeight},
+                  onSelectionChanged: (s) => _setRawWeight(s.first),
+                  showSelectedIcon: false,
+                  style: ButtonStyle(visualDensity: VisualDensity.compact),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'This label gives nutrition per 100 g cooked. Raw weights '
+                  'are converted for you (~25% cooking loss).',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
-                    letterSpacing: 1.5,
-                    fontSize: 10,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
+
+              // Stepper: −  [ number ]  +
+              Row(
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () => _bump(-1),
+                    iconSize: 24,
+                    tooltip: 'Decrease',
+                    icon: const Icon(Icons.remove),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      textAlign: TextAlign.center,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _submit(),
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: () => _bump(1),
+                    iconSize: 24,
+                    tooltip: 'Increase',
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
+              Center(
+                child: Text(
+                  conversion == null ? unitLabel : '$unitLabel  •  $conversion',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Quick presets
               Wrap(
+                alignment: WrapAlignment.center,
                 spacing: AppSpacing.sm,
                 runSpacing: AppSpacing.sm,
-                children: kMealTypeOptions.map((option) {
-                  final selected = option.name == _mealType;
+                children: _presets.map((preset) {
+                  final selected = (_value ?? -1) == preset;
+                  final label = _unit == AmountUnit.grams
+                      ? '${formatAmount(preset)}g'
+                      : '${formatAmount(preset)}×';
                   return ChoiceChip(
-                    label: Text(option.label),
-                    avatar: Icon(
-                      option.icon,
-                      size: 18,
-                      color: selected ? scheme.onPrimary : scheme.onSurface,
-                    ),
+                    label: Text(label),
                     selected: selected,
                     showCheckmark: false,
-                    onSelected: (_) => setState(() => _mealType = option.name),
+                    onSelected: (_) => _setText(preset),
                     backgroundColor: scheme.surfaceContainerLow,
                     selectedColor: scheme.primary,
                     labelStyle: theme.textTheme.labelLarge?.copyWith(
@@ -564,261 +682,143 @@ class _AmountSheetState extends State<AmountSheet> {
                 }).toList(),
               ),
               const SizedBox(height: AppSpacing.lg),
-            ],
 
-            // Unit toggle (shown when more than one unit is available, e.g. a
-            // food counted in pieces or with a known serving size).
-            if (_units.length > 1) ...[
-              SegmentedButton<AmountUnit>(
-                segments: _units
-                    .map(
-                      (u) => ButtonSegment(
-                        value: u,
-                        label: Text(_segmentLabel(u)),
-                      ),
-                    )
-                    .toList(),
-                selected: {_unit},
-                onSelectionChanged: (s) => _setUnit(s.first),
-                showSelectedIcon: false,
-                style: ButtonStyle(visualDensity: VisualDensity.compact),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
-
-            // Raw/cooked weight toggle for foods sold raw whose label states
-            // nutrition per cooked weight — lets the user type what their
-            // scale shows and have the water loss accounted for.
-            if (_item.isCookedBasis && _unit == AmountUnit.grams) ...[
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: true, label: Text('Raw weight')),
-                  ButtonSegment(value: false, label: Text('Cooked weight')),
-                ],
-                selected: {_rawWeight},
-                onSelectionChanged: (s) => _setRawWeight(s.first),
-                showSelectedIcon: false,
-                style: ButtonStyle(visualDensity: VisualDensity.compact),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'This label gives nutrition per 100 g cooked. Raw weights '
-                'are converted for you (~25% cooking loss).',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              // Live preview
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
-
-            // Stepper: −  [ number ]  +
-            Row(
-              children: [
-                IconButton.filledTonal(
-                  onPressed: () => _bump(-1),
-                  iconSize: 24,
-                  tooltip: 'Decrease',
-                  icon: const Icon(Icons.remove),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    textAlign: TextAlign.center,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _submit(),
-                    style: theme.textTheme.displaySmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                IconButton.filledTonal(
-                  onPressed: () => _bump(1),
-                  iconSize: 24,
-                  tooltip: 'Increase',
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            Center(
-              child: Text(
-                conversion == null ? unitLabel : '$unitLabel  •  $conversion',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Quick presets
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: _presets.map((preset) {
-                final selected = (_value ?? -1) == preset;
-                final label = _unit == AmountUnit.grams
-                    ? '${formatAmount(preset)}g'
-                    : '${formatAmount(preset)}×';
-                return ChoiceChip(
-                  label: Text(label),
-                  selected: selected,
-                  showCheckmark: false,
-                  onSelected: (_) => _setText(preset),
-                  backgroundColor: scheme.surfaceContainerLow,
-                  selectedColor: scheme.primary,
-                  labelStyle: theme.textTheme.labelLarge?.copyWith(
-                    color: selected ? scheme.onPrimary : scheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  side: BorderSide.none,
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Live preview
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        '$kcal',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: scheme.primary,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          '$kcal',
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: scheme.primary,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'kcal',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      for (var i = 0; i < focusSpecs.length; i++) ...[
-                        if (i > 0) const SizedBox(width: AppSpacing.sm),
-                        MacroPill(
-                          label: focusSpecs[i].pillLabel,
-                          value: focusAmounts[i],
-                          unit: focusSpecs[i].unit,
-                          color: LuminaHealthColors.focusAccents[i %
-                              LuminaHealthColors.focusAccents.length],
+                        const SizedBox(width: 4),
+                        Text(
+                          'kcal',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // Full nutrient breakdown, revealed on demand so the user can check
-            // vitamins/minerals before committing without cluttering the sheet.
-            if (hasNutrientDetail) ...[
-              const SizedBox(height: AppSpacing.sm),
-              InkWell(
-                onTap: () =>
-                    setState(() => _showAllNutrients = !_showAllNutrients),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.sm,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _showAllNutrients
-                            ? 'Hide nutrition facts'
-                            : 'View nutrition facts',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      AnimatedRotation(
-                        turns: _showAllNutrients ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 200),
-                        child: Icon(
-                          Icons.expand_more,
-                          size: 18,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    Row(
+                      children: [
+                        for (var i = 0; i < focusSpecs.length; i++) ...[
+                          if (i > 0) const SizedBox(width: AppSpacing.sm),
+                          MacroPill(
+                            label: focusSpecs[i].pillLabel,
+                            value: focusAmounts[i],
+                            unit: focusSpecs[i].unit,
+                            color:
+                                LuminaHealthColors.focusAccents[i %
+                                    LuminaHealthColors.focusAccents.length],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 200),
-                alignment: Alignment.topCenter,
-                child: _showAllNutrients
-                    ? NutrientBreakdownView(
-                        totals: nutrientTotals,
-                        showEmptyRows: false,
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
-            ],
-            const SizedBox(height: AppSpacing.lg),
+              // Full nutrient breakdown, revealed on demand so the user can check
+              // vitamins/minerals before committing without cluttering the sheet.
+              if (hasNutrientDetail) ...[
+                const SizedBox(height: AppSpacing.sm),
+                InkWell(
+                  onTap: () =>
+                      setState(() => _showAllNutrients = !_showAllNutrients),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.sm,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _showAllNutrients
+                              ? 'Hide nutrition facts'
+                              : 'View nutrition facts',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        AnimatedRotation(
+                          turns: _showAllNutrients ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Icon(
+                            Icons.expand_more,
+                            size: 18,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  alignment: Alignment.topCenter,
+                  child: _showAllNutrients
+                      ? NutrientBreakdownView(
+                          totals: nutrientTotals,
+                          showEmptyRows: false,
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.lg),
 
-            // Primary action
-            SizedBox(
-              height: 52,
-              child: FilledButton(
-                onPressed: grams == null ? null : _submit,
-                style: FilledButton.styleFrom(
-                  backgroundColor: scheme.primary,
-                  foregroundColor: scheme.onPrimary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
+              // Primary action
+              SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: grams == null ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
                   ),
-                ),
-                child: Text(
-                  widget.isEditing ? 'Save changes' : 'Add to meal',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: scheme.onPrimary,
-                  ),
-                ),
-              ),
-            ),
-            if (widget.isEditing) ...[
-              const SizedBox(height: AppSpacing.xs),
-              TextButton(
-                onPressed: () =>
-                    Navigator.of(context).pop(AmountResult.remove()),
-                child: Text(
-                  'Remove from meal',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: scheme.error,
-                    fontWeight: FontWeight.bold,
+                  child: Text(
+                    widget.isEditing ? 'Save changes' : 'Add to meal',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onPrimary,
+                    ),
                   ),
                 ),
               ),
+              if (widget.isEditing) ...[
+                const SizedBox(height: AppSpacing.xs),
+                TextButton(
+                  onPressed: () =>
+                      Navigator.of(context).pop(AmountResult.remove()),
+                  child: Text(
+                    'Remove from meal',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: scheme.error,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
           ),
         ),
       ),

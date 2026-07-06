@@ -23,8 +23,9 @@ class InlineBanner extends StatelessWidget {
     final Color background = isError
         ? colorScheme.errorContainer
         : colorScheme.secondaryContainer;
-    final Color foreground =
-        isError ? colorScheme.onErrorContainer : colorScheme.onSecondaryContainer;
+    final Color foreground = isError
+        ? colorScheme.onErrorContainer
+        : colorScheme.onSecondaryContainer;
     final IconData displayIcon =
         icon ?? (isError ? Icons.error_outline : Icons.info_outline);
 
@@ -36,9 +37,7 @@ class InlineBanner extends StatelessWidget {
         decoration: BoxDecoration(
           color: background,
           borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(
-            color: colorScheme.outline.withValues(alpha: 0.4),
-          ),
+          border: Border.all(color: colorScheme.outline.withValues(alpha: 0.4)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,10 +47,9 @@ class InlineBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: foreground),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: foreground),
               ),
             ),
           ],

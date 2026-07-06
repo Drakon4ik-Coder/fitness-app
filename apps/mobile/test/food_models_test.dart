@@ -82,19 +82,21 @@ void main() {
     });
 
     group('CIQUAL raw-reference cross-check', () {
-      test('flags protein far above the raw reference, no categories needed',
-          () {
-        // CIQUAL 6250 "Beef, minced steak, 5% fat, raw" = 21.9 g protein;
-        // the label's 29 g is the grilled column (ratio 1.32).
-        expect(
-          detectCookedNutritionBasis(
-            categoriesTags: const [],
-            proteinG100g: 29,
-            ciqualCode: 6250,
-          ),
-          isTrue,
-        );
-      });
+      test(
+        'flags protein far above the raw reference, no categories needed',
+        () {
+          // CIQUAL 6250 "Beef, minced steak, 5% fat, raw" = 21.9 g protein;
+          // the label's 29 g is the grilled column (ratio 1.32).
+          expect(
+            detectCookedNutritionBasis(
+              categoriesTags: const [],
+              proteinG100g: 29,
+              ciqualCode: 6250,
+            ),
+            isTrue,
+          );
+        },
+      );
 
       test('catches cooked values the raw ceiling alone would miss', () {
         // Cooked 20% mince is ~24 g protein — under the 25 g ceiling — but
@@ -109,19 +111,21 @@ void main() {
         );
       });
 
-      test('a raw reference match near the label suppresses the ceiling rule',
-          () {
-        // 26 g protein would trip the category ceiling, but it is only 1.19x
-        // the raw reference — plausibly raw, so the reference wins.
-        expect(
-          detectCookedNutritionBasis(
-            categoriesTags: const ['en:meats', 'en:beef'],
-            proteinG100g: 26,
-            ciqualCode: 6250,
-          ),
-          isFalse,
-        );
-      });
+      test(
+        'a raw reference match near the label suppresses the ceiling rule',
+        () {
+          // 26 g protein would trip the category ceiling, but it is only 1.19x
+          // the raw reference — plausibly raw, so the reference wins.
+          expect(
+            detectCookedNutritionBasis(
+              categoriesTags: const ['en:meats', 'en:beef'],
+              proteinG100g: 26,
+              ciqualCode: 6250,
+            ),
+            isFalse,
+          );
+        },
+      );
 
       test('an unknown code falls back to the category heuristic', () {
         expect(
@@ -136,8 +140,7 @@ void main() {
     });
   });
 
-  test('fromBackendDetail re-derives the cooked basis from raw categories',
-      () {
+  test('fromBackendDetail re-derives the cooked basis from raw categories', () {
     final item = FoodItem.fromBackendDetail(<String, dynamic>{
       'id': 7,
       'name': 'Lean Beef Steak Mince',
@@ -149,20 +152,23 @@ void main() {
     expect(item.isCookedBasis, isTrue);
   });
 
-  test('fromBackendDetail re-derives the cooked basis from the CIQUAL match',
-      () {
-    // No category tags needed: the round-tripped Agribalyse block alone
-    // identifies the raw reference food.
-    final item = FoodItem.fromBackendDetail(<String, dynamic>{
-      'id': 7,
-      'name': 'Lean Beef Steak Mince',
-      'protein_g_100g': 29,
-      'raw_source_json': '{"product": {"ecoscore_data": {"agribalyse": '
-          '{"agribalyse_food_code": "6250"}}}}',
-    });
+  test(
+    'fromBackendDetail re-derives the cooked basis from the CIQUAL match',
+    () {
+      // No category tags needed: the round-tripped Agribalyse block alone
+      // identifies the raw reference food.
+      final item = FoodItem.fromBackendDetail(<String, dynamic>{
+        'id': 7,
+        'name': 'Lean Beef Steak Mince',
+        'protein_g_100g': 29,
+        'raw_source_json':
+            '{"product": {"ecoscore_data": {"agribalyse": '
+            '{"agribalyse_food_code": "6250"}}}}',
+      });
 
-    expect(item.isCookedBasis, isTrue);
-  });
+      expect(item.isCookedBasis, isTrue);
+    },
+  );
 
   test('fromBackendSummary keeps the custom source and external id', () {
     final item = FoodItem.fromBackendSummary(<String, dynamic>{

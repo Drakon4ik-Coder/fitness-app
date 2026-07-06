@@ -125,8 +125,8 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                 child: Text(
                   'Move all to…',
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               for (final option in targets)
@@ -301,7 +301,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                             onViewDetails: widget.onViewFoodDetails == null
                                 ? null
                                 : () =>
-                                    widget.onViewFoodDetails!(entry.foodItem),
+                                      widget.onViewFoodDetails!(entry.foodItem),
                           );
                         },
                       ),

@@ -7,17 +7,17 @@ import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
 FoodItem _food({Map<String, dynamic>? nutriments}) => FoodItem(
-      source: offSource,
-      externalId: 'x',
-      name: 'Orange juice',
-      brands: '',
-      rawSourceJson: '{}',
-      kcal100g: 45,
-      proteinG100g: 1,
-      carbsG100g: 10,
-      fatG100g: 0,
-      nutrimentsJson: nutriments,
-    );
+  source: offSource,
+  externalId: 'x',
+  name: 'Orange juice',
+  brands: '',
+  rawSourceJson: '{}',
+  kcal100g: 45,
+  proteinG100g: 1,
+  carbsG100g: 10,
+  fatG100g: 0,
+  nutrimentsJson: nutriments,
+);
 
 Future<void> _pumpSheet(
   WidgetTester tester,
@@ -45,15 +45,18 @@ Future<void> _pumpSheet(
 }
 
 void main() {
-  testWidgets('amount sheet reveals the scaled nutrient breakdown on demand',
-      (tester) async {
+  testWidgets('amount sheet reveals the scaled nutrient breakdown on demand', (
+    tester,
+  ) async {
     await _pumpSheet(
       tester,
-      _food(nutriments: {
-        'proteins_100g': 1,
-        'vitamin-c_100g': 50,
-        'vitamin-c_unit': 'mg',
-      }),
+      _food(
+        nutriments: {
+          'proteins_100g': 1,
+          'vitamin-c_100g': 50,
+          'vitamin-c_unit': 'mg',
+        },
+      ),
     );
 
     // Collapsed by default — vitamins not shown, just the disclosure toggle.
@@ -69,14 +72,16 @@ void main() {
     expect(find.textContaining('50 / 80 mg'), findsOneWidget);
   });
 
-  testWidgets('no disclosure when the food carries no nutrient detail',
-      (tester) async {
+  testWidgets('no disclosure when the food carries no nutrient detail', (
+    tester,
+  ) async {
     await _pumpSheet(tester, _food(nutriments: null));
     expect(find.text('View nutrition facts'), findsNothing);
   });
 
-  testWidgets('preview pills default to the macro trio from column data',
-      (tester) async {
+  testWidgets('preview pills default to the macro trio from column data', (
+    tester,
+  ) async {
     // No nutriments blob — the classic macros fall back to the flat columns.
     await _pumpSheet(tester, _food(nutriments: null));
 
@@ -89,8 +94,9 @@ void main() {
     expect(find.text('0g'), findsOneWidget);
   });
 
-  testWidgets('preview pills follow the provided focus nutrients',
-      (tester) async {
+  testWidgets('preview pills follow the provided focus nutrients', (
+    tester,
+  ) async {
     await _pumpSheet(
       tester,
       _food(nutriments: {'fiber_100g': 5, 'sodium_100g': 0.4}),

@@ -32,13 +32,14 @@ class FoodsApiService {
     required String accessToken,
     AuthInterceptor? authInterceptor,
     Dio? dio,
-  }) : _dio = dio ??
-            Dio(
-              BaseOptions(
-                baseUrl: EnvironmentConfig.apiBaseUrl,
-                headers: {'Authorization': 'Bearer $accessToken'},
-              ),
-            ) {
+  }) : _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: EnvironmentConfig.apiBaseUrl,
+               headers: {'Authorization': 'Bearer $accessToken'},
+             ),
+           ) {
     authInterceptor?.attachTo(_dio);
   }
 
@@ -52,10 +53,7 @@ class FoodsApiService {
     return mapApiErrors('Unable to search foods.', () async {
       final response = await _dio.get<List<dynamic>>(
         '/api/v1/foods/typeahead',
-        queryParameters: {
-          'q': query,
-          'limit': limit,
-        },
+        queryParameters: {'q': query, 'limit': limit},
       );
       final data = response.data;
       if (data == null) {

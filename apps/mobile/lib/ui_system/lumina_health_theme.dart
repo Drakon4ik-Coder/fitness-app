@@ -96,7 +96,10 @@ class LuminaHealthEffects extends ThemeExtension<LuminaHealthEffects> {
   }
 
   @override
-  LuminaHealthEffects lerp(ThemeExtension<LuminaHealthEffects>? other, double t) {
+  LuminaHealthEffects lerp(
+    ThemeExtension<LuminaHealthEffects>? other,
+    double t,
+  ) {
     if (other is! LuminaHealthEffects) {
       return this;
     }
@@ -104,9 +107,14 @@ class LuminaHealthEffects extends ThemeExtension<LuminaHealthEffects> {
       glowLow: lerpDouble(glowLow, other.glowLow, t),
       glowMedium: lerpDouble(glowMedium, other.glowMedium, t),
       glowHigh: lerpDouble(glowHigh, other.glowHigh, t),
-      glassOverlayOpacity: lerpDouble(glassOverlayOpacity, other.glassOverlayOpacity, t),
+      glassOverlayOpacity: lerpDouble(
+        glassOverlayOpacity,
+        other.glassOverlayOpacity,
+        t,
+      ),
       blurRadius: lerpDouble(blurRadius, other.blurRadius, t),
-      ringTrackColor: Color.lerp(ringTrackColor, other.ringTrackColor, t) ?? ringTrackColor,
+      ringTrackColor:
+          Color.lerp(ringTrackColor, other.ringTrackColor, t) ?? ringTrackColor,
     );
   }
 
@@ -196,7 +204,9 @@ class LuminaHealthTheme {
           minimumSize: const Size.fromHeight(48),
           elevation: 8,
           shadowColor: scheme.primary.withValues(alpha: 0.5),
-          textStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          textStyle: textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
@@ -208,7 +218,9 @@ class LuminaHealthTheme {
           minimumSize: const Size.fromHeight(48),
           elevation: 8,
           shadowColor: scheme.primary.withValues(alpha: 0.5),
-          textStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          textStyle: textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
@@ -252,9 +264,9 @@ class LuminaHealthTheme {
   /// live-updating numbers (kcal, macros) don't shift horizontally.
   static TextTheme _buildTextTheme(ColorScheme scheme) {
     final base = ThemeData(brightness: Brightness.dark).textTheme.apply(
-          bodyColor: scheme.onSurface,
-          displayColor: scheme.onSurface,
-        );
+      bodyColor: scheme.onSurface,
+      displayColor: scheme.onSurface,
+    );
     final body = GoogleFonts.interTextTheme(base);
     const tabular = <FontFeature>[FontFeature.tabularFigures()];
 

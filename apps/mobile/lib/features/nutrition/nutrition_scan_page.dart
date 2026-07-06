@@ -41,9 +41,7 @@ class _NutritionScanPageState extends State<NutritionScanPage> {
     final theme = Theme.of(context);
 
     return AppScaffold(
-      appBar: AppBar(
-        title: const Text('Scan'),
-      ),
+      appBar: AppBar(title: const Text('Scan')),
       scrollable: true,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -36,8 +36,9 @@ enum _Stage { request, sent }
 
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  late final TextEditingController _emailController =
-      TextEditingController(text: widget.initialEmail ?? '');
+  late final TextEditingController _emailController = TextEditingController(
+    text: widget.initialEmail ?? '',
+  );
 
   _Stage _stage = _Stage.request;
   bool _isLoading = false;
@@ -110,7 +111,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       }
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reset link sent again. Check your inbox.')),
+        const SnackBar(
+          content: Text('Reset link sent again. Check your inbox.'),
+        ),
       );
       _startCooldown();
     } on AuthException catch (error) {
@@ -118,9 +121,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         return;
       }
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
@@ -293,10 +296,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.lg),
-            InlineBanner(
-              message: _errorMessage!,
-              tone: InlineBannerTone.error,
-            ),
+            InlineBanner(message: _errorMessage!, tone: InlineBannerTone.error),
           ],
           const SizedBox(height: AppSpacing.xl),
 

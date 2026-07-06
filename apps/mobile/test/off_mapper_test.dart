@@ -280,10 +280,7 @@ void main() {
         'product_name': 'Suspect Burger',
         'serving_size': '1 burger (232 g)',
         'serving_quantity': 232,
-        'nutriments': {
-          'energy-kcal_100g': 250,
-          'energy-kcal_serving': 50,
-        },
+        'nutriments': {'energy-kcal_100g': 250, 'energy-kcal_serving': 50},
       },
       rawJson: '{"product": {"product_name": "Suspect Burger"}}',
     );
@@ -333,10 +330,7 @@ void main() {
         'product_name': 'Good Burger',
         'serving_size': '1 burger (232 g)',
         'serving_quantity': 232,
-        'nutriments': {
-          'energy-kcal_100g': 250,
-          'energy-kcal_serving': 580,
-        },
+        'nutriments': {'energy-kcal_100g': 250, 'energy-kcal_serving': 580},
       },
       rawJson: '{"product": {"product_name": "Good Burger"}}',
     );

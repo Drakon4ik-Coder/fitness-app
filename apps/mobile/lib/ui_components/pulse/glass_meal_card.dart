@@ -24,8 +24,9 @@ class GlassMealCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final effects = LuminaHealthTheme.effectsOf(context);
     final radius = borderRadius ?? BorderRadius.circular(AppRadius.lg);
-    final overlayColor =
-        scheme.onSurface.withValues(alpha: effects.glassOverlayOpacity);
+    final overlayColor = scheme.onSurface.withValues(
+      alpha: effects.glassOverlayOpacity,
+    );
     final borderColor = scheme.outlineVariant.withValues(alpha: 0.6);
 
     final content = Padding(
@@ -51,20 +52,14 @@ class GlassMealCard extends StatelessWidget {
     );
 
     if (onTap == null) {
-      return ClipRRect(
-        borderRadius: radius,
-        child: blurred,
-      );
+      return ClipRRect(borderRadius: radius, child: blurred);
     }
 
     return ClipRRect(
       borderRadius: radius,
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          child: blurred,
-        ),
+        child: InkWell(onTap: onTap, child: blurred),
       ),
     );
   }

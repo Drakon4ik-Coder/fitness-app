@@ -9,10 +9,7 @@ import 'glowing_progress_ring.dart';
 /// centre on a dark disc. Because it is painted (not a raster asset) it never
 /// pixelates, even when scaled up.
 class BrandMark extends StatelessWidget {
-  const BrandMark({
-    super.key,
-    this.size = 84,
-  });
+  const BrandMark({super.key, this.size = 84});
 
   final double size;
 

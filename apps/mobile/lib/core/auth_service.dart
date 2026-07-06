@@ -47,15 +47,16 @@ class AuthService {
   /// updateProfile) transparently refresh an expired access token and retry —
   /// without it a stale token 401s silently.
   AuthService({Dio? dio, AuthInterceptor? authInterceptor})
-      : _dio = dio ??
-            Dio(
-              BaseOptions(
-                baseUrl: EnvironmentConfig.apiBaseUrl,
-                connectTimeout: _connectTimeout,
-                sendTimeout: _sendTimeout,
-                receiveTimeout: _receiveTimeout,
-              ),
-            ) {
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: EnvironmentConfig.apiBaseUrl,
+              connectTimeout: _connectTimeout,
+              sendTimeout: _sendTimeout,
+              receiveTimeout: _receiveTimeout,
+            ),
+          ) {
     authInterceptor?.attachTo(_dio);
   }
 
@@ -68,10 +69,7 @@ class AuthService {
     try {
       final response = await _dio.post(
         '/api/v1/auth/token',
-        data: {
-          'email': email,
-          'password': password,
-        },
+        data: {'email': email, 'password': password},
       );
       final data = response.data;
       if (data is Map) {
@@ -88,7 +86,8 @@ class AuthService {
         // Surfaces server messages such as the email-verification gate,
         // falling back to a generic credential error.
         final message = _firstErrorMessage(error.response?.data);
-        final unverified = statusCode == 400 &&
+        final unverified =
+            statusCode == 400 &&
             (message?.toLowerCase().contains('confirm your email') ?? false);
         throw AuthException(
           message ?? 'Invalid email or password.',
@@ -111,9 +110,13 @@ class AuthService {
         data: {'email': email},
       );
     } on DioException {
-      throw AuthException('Could not resend the email. Please try again later.');
+      throw AuthException(
+        'Could not resend the email. Please try again later.',
+      );
     } catch (_) {
-      throw AuthException('Could not resend the email. Please try again later.');
+      throw AuthException(
+        'Could not resend the email. Please try again later.',
+      );
     }
   }
 
@@ -123,10 +126,7 @@ class AuthService {
   /// a network/server failure.
   Future<void> requestPasswordReset(String email) async {
     try {
-      await _dio.post(
-        '/api/v1/auth/password-reset',
-        data: {'email': email},
-      );
+      await _dio.post('/api/v1/auth/password-reset', data: {'email': email});
     } on DioException {
       throw AuthException('Could not send the email. Please try again later.');
     } catch (_) {
@@ -154,12 +154,15 @@ class AuthService {
         final message = _firstErrorMessage(error.response?.data);
         throw AuthException(message ?? 'Google sign-in was rejected.');
       }
-      throw AuthException('Unable to sign in with Google. Please try again later.');
+      throw AuthException(
+        'Unable to sign in with Google. Please try again later.',
+      );
     } catch (_) {
-      throw AuthException('Unable to sign in with Google. Please try again later.');
+      throw AuthException(
+        'Unable to sign in with Google. Please try again later.',
+      );
     }
   }
-
 
   Future<String> refresh(String refreshToken) async {
     try {
@@ -186,16 +189,15 @@ class AuthService {
     try {
       await _dio.post(
         '/api/v1/auth/register',
-        data: {
-          'email': email,
-          'password': password,
-        },
+        data: {'email': email, 'password': password},
       );
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
       if (statusCode == 400) {
         final message = _firstErrorMessage(error.response?.data);
-        throw AuthException(message ?? 'Please check your details and try again.');
+        throw AuthException(
+          message ?? 'Please check your details and try again.',
+        );
       }
       throw AuthException('Unable to register. Please try again later.');
     } catch (_) {

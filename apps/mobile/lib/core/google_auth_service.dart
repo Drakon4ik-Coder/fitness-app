@@ -4,7 +4,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'auth_service.dart';
 import 'environment.dart';
 
-
 class GoogleAuthService {
   bool _initialized = false;
 

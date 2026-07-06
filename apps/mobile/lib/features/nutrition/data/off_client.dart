@@ -15,10 +15,7 @@ class OffException implements Exception {
 }
 
 class OffProductResponse {
-  OffProductResponse({
-    required this.product,
-    required this.rawJson,
-  });
+  OffProductResponse({required this.product, required this.rawJson});
 
   final Map<String, dynamic> product;
   final String rawJson;
@@ -30,19 +27,20 @@ class OffClient {
     String? userAgent,
     String? country,
     OffRateLimiter? rateLimiter,
-  })  : _countryTag = _normalizeCountryTag(
-          country ?? EnvironmentConfig.offCountry,
-        ),
-        _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
-        _dio = dio ??
-            Dio(
-              BaseOptions(
-                baseUrl: _baseUrl,
-                headers: {
-                  'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
-                },
-              ),
-            );
+  }) : _countryTag = _normalizeCountryTag(
+         country ?? EnvironmentConfig.offCountry,
+       ),
+       _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
+       _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: _baseUrl,
+               headers: {
+                 'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
+               },
+             ),
+           );
 
   static const String _baseUrl = 'https://world.openfoodfacts.org';
   // Text search uses the Search-a-licious backend instead of the legacy
@@ -106,10 +104,7 @@ class OffClient {
       }
       final product = data['product'];
       if (product is Map<String, dynamic>) {
-        return OffProductResponse(
-          product: product,
-          rawJson: jsonEncode(data),
-        );
+        return OffProductResponse(product: product, rawJson: jsonEncode(data));
       }
       return null;
     } on OffRateLimitException {

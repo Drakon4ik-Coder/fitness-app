@@ -6,14 +6,10 @@ import 'package:fitness_app/features/barcode_lookup_page.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Shows legacy message on lookup',
-      (WidgetTester tester) async {
+  testWidgets('Shows legacy message on lookup', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: BarcodeLookupPage(
-          accessToken: 'token',
-          onLogout: () async {},
-        ),
+        home: BarcodeLookupPage(accessToken: 'token', onLogout: () async {}),
       ),
     );
 

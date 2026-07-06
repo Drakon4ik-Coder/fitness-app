@@ -7,7 +7,6 @@ import 'package:fitness_app/core/auth_service.dart';
 import 'package:fitness_app/core/auth_storage.dart';
 import 'package:fitness_app/features/login_page.dart';
 
-
 class FakeAuthService extends AuthService {
   FakeAuthService(this.tokens) : super(dio: Dio());
 
@@ -67,7 +66,10 @@ void main() {
       ),
     );
 
-    await tester.enterText(find.byType(TextFormField).at(0), 'alice@example.com');
+    await tester.enterText(
+      find.byType(TextFormField).at(0),
+      'alice@example.com',
+    );
     await tester.enterText(find.byType(TextFormField).at(1), 'Password123!');
     await tester.tap(find.widgetWithText(FilledButton, 'LOGIN'));
     await tester.pump();
@@ -78,8 +80,9 @@ void main() {
     expect(await authStorage.getRefreshToken(), 'refresh');
   });
 
-  testWidgets('Unverified login reveals resend button that resends',
-      (WidgetTester tester) async {
+  testWidgets('Unverified login reveals resend button that resends', (
+    WidgetTester tester,
+  ) async {
     FlutterSecureStorage.setMockInitialValues({});
     final authService = UnverifiedAuthService();
 

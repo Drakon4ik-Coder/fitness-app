@@ -12,51 +12,51 @@ import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
 FoodItem _offMince({DateTime? verifiedAt}) => FoodItem(
-      backendId: 42,
-      source: offSource,
-      externalId: '5054070875254',
-      barcode: '5054070875254',
-      name: 'Lean Beef Mince',
-      brands: 'Test Farms',
-      kcal100g: 124,
-      proteinG100g: 21,
-      servingSizeG: 250,
-      nutritionBasis: cookedNutritionBasis,
-      communityVerifiedAt: verifiedAt,
-      rawSourceJson: '{}',
-      nutrimentsJson: const {
-        'proteins_100g': 21,
-        'proteins_unit': 'g',
-        'fat_100g': 4.5,
-        'fat_unit': 'g',
-      },
-    );
+  backendId: 42,
+  source: offSource,
+  externalId: '5054070875254',
+  barcode: '5054070875254',
+  name: 'Lean Beef Mince',
+  brands: 'Test Farms',
+  kcal100g: 124,
+  proteinG100g: 21,
+  servingSizeG: 250,
+  nutritionBasis: cookedNutritionBasis,
+  communityVerifiedAt: verifiedAt,
+  rawSourceJson: '{}',
+  nutrimentsJson: const {
+    'proteins_100g': 21,
+    'proteins_unit': 'g',
+    'fat_100g': 4.5,
+    'fat_unit': 'g',
+  },
+);
 
 FoodItem _customFood({int? overridesBackendId}) => FoodItem(
-      localId: 1,
-      backendId: 7,
-      source: customSource,
-      externalId: 'cf-1',
-      name: 'My Protein Shake',
-      brands: '',
-      kcal100g: 380,
-      proteinG100g: 70,
-      overridesBackendId: overridesBackendId,
-      rawSourceJson: '{}',
-      nutrimentsJson: const {'proteins_100g': 70, 'proteins_unit': 'g'},
-    );
+  localId: 1,
+  backendId: 7,
+  source: customSource,
+  externalId: 'cf-1',
+  name: 'My Protein Shake',
+  brands: '',
+  kcal100g: 380,
+  proteinG100g: 70,
+  overridesBackendId: overridesBackendId,
+  rawSourceJson: '{}',
+  nutrimentsJson: const {'proteins_100g': 70, 'proteins_unit': 'g'},
+);
 
 Widget _page(FoodItem item) => MaterialApp(
-      theme: LuminaHealthTheme.dark(),
-      home: FoodDetailPage(
-        item: item,
-        // Never called in these tests: paths that hit the network or the
-        // local db (favorite, save, revert-confirm) are not exercised.
-        foodsApi: FoodsApiService(accessToken: 'token'),
-        localDb: FoodLocalDb(),
-        onLogout: () async {},
-      ),
-    );
+  theme: LuminaHealthTheme.dark(),
+  home: FoodDetailPage(
+    item: item,
+    // Never called in these tests: paths that hit the network or the
+    // local db (favorite, save, revert-confirm) are not exercised.
+    foodsApi: FoodsApiService(accessToken: 'token'),
+    localDb: FoodLocalDb(),
+    onLogout: () async {},
+  ),
+);
 
 /// Phone-shaped test surface — the page is a scrolling column, and the
 /// default 800x600 landscape surface leaves the chips/actions off-screen.
@@ -69,43 +69,46 @@ void _phoneView(WidgetTester tester) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('shows provenance, serving info, per-100g facts and edit action',
-      (WidgetTester tester) async {
-    _phoneView(tester);
-    await tester.pumpWidget(
-      _page(_offMince(verifiedAt: DateTime.utc(2026, 7, 1))),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'shows provenance, serving info, per-100g facts and edit action',
+    (WidgetTester tester) async {
+      _phoneView(tester);
+      await tester.pumpWidget(
+        _page(_offMince(verifiedAt: DateTime.utc(2026, 7, 1))),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Lean Beef Mince'), findsOneWidget);
-    expect(find.text('Test Farms'), findsOneWidget);
-    expect(find.text('124 kcal per 100 g cooked'), findsOneWidget);
-    // Provenance chips for all three lineages this item carries.
-    expect(find.text('OpenFoodFacts', skipOffstage: false), findsOneWidget);
-    expect(
-      find.text('Community verified', skipOffstage: false),
-      findsOneWidget,
-    );
-    expect(find.text('Per 100 g cooked', skipOffstage: false), findsOneWidget);
-    // Serving info and the per-100g breakdown.
-    expect(
-      find.text('Serving size', skipOffstage: false),
-      findsOneWidget,
-    );
-    expect(find.text('Protein', skipOffstage: false), findsOneWidget);
-    expect(
-      find.text('Edit nutrition facts', skipOffstage: false),
-      findsOneWidget,
-    );
-    // Not an override: no revert action.
-    expect(
-      find.text('Revert to original', skipOffstage: false),
-      findsNothing,
-    );
-  });
+      expect(find.text('Lean Beef Mince'), findsOneWidget);
+      expect(find.text('Test Farms'), findsOneWidget);
+      expect(find.text('124 kcal per 100 g cooked'), findsOneWidget);
+      // Provenance chips for all three lineages this item carries.
+      expect(find.text('OpenFoodFacts', skipOffstage: false), findsOneWidget);
+      expect(
+        find.text('Community verified', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Per 100 g cooked', skipOffstage: false),
+        findsOneWidget,
+      );
+      // Serving info and the per-100g breakdown.
+      expect(find.text('Serving size', skipOffstage: false), findsOneWidget);
+      expect(find.text('Protein', skipOffstage: false), findsOneWidget);
+      expect(
+        find.text('Edit nutrition facts', skipOffstage: false),
+        findsOneWidget,
+      );
+      // Not an override: no revert action.
+      expect(
+        find.text('Revert to original', skipOffstage: false),
+        findsNothing,
+      );
+    },
+  );
 
-  testWidgets('tapping a provenance chip explains it',
-      (WidgetTester tester) async {
+  testWidgets('tapping a provenance chip explains it', (
+    WidgetTester tester,
+  ) async {
     _phoneView(tester);
     await tester.pumpWidget(
       _page(_offMince(verifiedAt: DateTime.utc(2026, 7, 1))),
@@ -126,8 +129,9 @@ void main() {
     expect(find.textContaining('independently corrected'), findsNothing);
   });
 
-  testWidgets('override shows edited-by-you chip and asks before reverting',
-      (WidgetTester tester) async {
+  testWidgets('override shows edited-by-you chip and asks before reverting', (
+    WidgetTester tester,
+  ) async {
     _phoneView(tester);
     await tester.pumpWidget(_page(_customFood(overridesBackendId: 42)));
     await tester.pumpAndSettle();
@@ -148,8 +152,9 @@ void main() {
     expect(find.text('Revert to the original?'), findsNothing);
   });
 
-  testWidgets('edit opens the nutrition editor for a custom food',
-      (WidgetTester tester) async {
+  testWidgets('edit opens the nutrition editor for a custom food', (
+    WidgetTester tester,
+  ) async {
     _phoneView(tester);
     await tester.pumpWidget(_page(_customFood()));
     await tester.pumpAndSettle();
@@ -168,8 +173,9 @@ void main() {
     expect(find.text('Edit food'), findsOneWidget);
   });
 
-  testWidgets('amount sheet header opens details and refreshes the preview',
-      (WidgetTester tester) async {
+  testWidgets('amount sheet header opens details and refreshes the preview', (
+    WidgetTester tester,
+  ) async {
     _phoneView(tester);
     FoodItem? requested;
     await tester.pumpWidget(
@@ -201,8 +207,9 @@ void main() {
     expect(find.text('200 kcal per 100g cooked'), findsOneWidget);
   });
 
-  testWidgets('meal detail row expansion links to food details',
-      (WidgetTester tester) async {
+  testWidgets('meal detail row expansion links to food details', (
+    WidgetTester tester,
+  ) async {
     _phoneView(tester);
     FoodItem? requested;
     final entry = NutritionEntry(

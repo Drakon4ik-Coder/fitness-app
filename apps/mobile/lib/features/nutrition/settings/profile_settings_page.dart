@@ -154,9 +154,8 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
                 controller: _displayNameController,
                 label: 'Display name',
                 textInputAction: TextInputAction.next,
-                validator: (raw) => (raw ?? '').trim().isEmpty
-                    ? 'Enter a display name'
-                    : null,
+                validator: (raw) =>
+                    (raw ?? '').trim().isEmpty ? 'Enter a display name' : null,
                 bottomSpacing: AppSpacing.md,
               ),
               TextFormField(

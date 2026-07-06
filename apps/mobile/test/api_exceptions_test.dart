@@ -46,14 +46,16 @@ void main() {
     );
   });
 
-  test('ApiException from inside the request passes through untouched',
-      () async {
-    final original = ApiException('specific', statusCode: 418);
-    await expectLater(
-      mapApiErrors<void>('friendly', () async => throw original),
-      throwsA(same(original)),
-    );
-  });
+  test(
+    'ApiException from inside the request passes through untouched',
+    () async {
+      final original = ApiException('specific', statusCode: 418);
+      await expectLater(
+        mapApiErrors<void>('friendly', () async => throw original),
+        throwsA(same(original)),
+      );
+    },
+  );
 
   test('unexpected errors map to a plain ApiException', () async {
     await expectLater(

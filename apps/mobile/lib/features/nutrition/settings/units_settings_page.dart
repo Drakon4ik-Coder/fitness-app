@@ -160,10 +160,7 @@ class _UnitRow extends StatelessWidget {
           showSelectedIcon: false,
           segments: [
             for (final entry in options.entries)
-              ButtonSegment<String>(
-                value: entry.key,
-                label: Text(entry.value),
-              ),
+              ButtonSegment<String>(value: entry.key, label: Text(entry.value)),
           ],
           selected: {value},
           onSelectionChanged: (selection) => onChanged(selection.first),

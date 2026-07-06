@@ -14,8 +14,9 @@ import 'package:fitness_app/main.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Shows sign-in when no token is stored',
-      (WidgetTester tester) async {
+  testWidgets('Shows sign-in when no token is stored', (
+    WidgetTester tester,
+  ) async {
     FlutterSecureStorage.setMockInitialValues({});
 
     await tester.pumpWidget(const FitnessApp());
@@ -25,8 +26,9 @@ void main() {
     expect(find.text('Create account'), findsOneWidget);
   });
 
-  testWidgets('Shows nutrition today when token exists',
-      (WidgetTester tester) async {
+  testWidgets('Shows nutrition today when token exists', (
+    WidgetTester tester,
+  ) async {
     FlutterSecureStorage.setMockInitialValues({'access_token': 'token'});
 
     await tester.pumpWidget(const FitnessApp());
