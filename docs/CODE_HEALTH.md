@@ -261,9 +261,9 @@ which means regressions won't be caught.
 - The nutrient catalog is intentionally **mirrored** in
   `apps/backend/nutrients/catalog.py` and
   `apps/mobile/lib/features/nutrition/data/nutrient_catalog.dart`. There is
-  currently no automated drift check between them — if you change one, change
-  the other in the same PR. (A cheap improvement: a script/test comparing
-  key+unit sets, wired into CI.)
+  a drift check (`apps/backend/tests/test_nutrient_catalog_drift.py`, added
+  July 2026) that fails CI when they diverge — still change both in the same
+  PR.
 
 ---
 

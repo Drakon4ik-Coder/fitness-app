@@ -227,7 +227,7 @@ foods server-side.
   `food_local_db.dart` (v7) and `nutrition_local_store.dart` (v2). Neither is
   per-user; both are cleared on logout.
 - **Mirrored nutrient catalog** — `nutrients/catalog.py` (Python) and
-  `nutrient_catalog.dart` (Dart) must change together; no automated drift
-  check yet.
+  `nutrient_catalog.dart` (Dart) must change together; the backend test
+  `test_nutrient_catalog_drift.py` fails on divergence.
 - **No feature-level data layer except `nutrition/`** — as other features
   grow they should follow the same `data/` pattern.

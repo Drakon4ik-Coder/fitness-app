@@ -35,7 +35,8 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
    commit — CI fails on drift.
 7. **Mirrored nutrient catalog.** `apps/backend/nutrients/catalog.py` and
    `apps/mobile/lib/features/nutrition/data/nutrient_catalog.dart` must change
-   together in the same PR. There is no automated drift check yet.
+   together in the same PR. `tests/test_nutrient_catalog_drift.py` (backend)
+   fails when they diverge.
 8. **Offline sync invariants (KAN-28).** Before touching sync, read
    `nutrition_repository.dart` and `apps/backend/nutrition/views.py` in full.
    Non-negotiables: client-minted UUID is the entry's identity for life;
