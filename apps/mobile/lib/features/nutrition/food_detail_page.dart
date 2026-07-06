@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../ui_components/ui_components.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'custom_food_page.dart';
 import 'data/api_exceptions.dart';
@@ -14,6 +15,40 @@ import 'data/foods_api_service.dart';
 import 'data/nutrient_catalog.dart';
 import 'widgets/amount_sheet.dart' show FoodImage, formatAmount;
 import 'widgets/nutrient_breakdown_view.dart';
+
+/// Pushes the read-first food page (KAN-33) and resolves with the item as
+/// last edited inside it, or null when nothing changed — so amount sheets
+/// can refresh their preview. Live changes still stream through
+/// [onItemChanged] / [onItemReverted] for callers that patch lists in place.
+Future<FoodItem?> pushFoodDetailPage(
+  BuildContext context, {
+  required FoodItem item,
+  required FoodsApiService foodsApi,
+  required FoodLocalDb localDb,
+  required Future<void> Function() onLogout,
+  required List<NutrientSpec> catalog,
+  void Function(FoodItem updated)? onItemChanged,
+  void Function(FoodItem removed)? onItemReverted,
+}) async {
+  FoodItem? updated;
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => FoodDetailPage(
+        item: item,
+        foodsApi: foodsApi,
+        localDb: localDb,
+        onLogout: onLogout,
+        catalog: catalog,
+        onItemChanged: (next) {
+          updated = next;
+          onItemChanged?.call(next);
+        },
+        onItemReverted: onItemReverted,
+      ),
+    ),
+  );
+  return updated;
+}
 
 /// Read-first page for one food (KAN-33): full per-100g nutrition facts,
 /// provenance chips explaining where the values come from, and a visible
@@ -406,10 +441,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
                 children: [
                   for (var i = 0; i < _servingRows.length; i++) ...[
                     if (i > 0)
-                      Divider(
-                        height: 1,
-                        color: Colors.white.withValues(alpha: 0.05),
-                      ),
+                      Divider(height: 1, color: LuminaHealthColors.hairline),
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         vertical: AppSpacing.sm,

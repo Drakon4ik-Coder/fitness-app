@@ -161,9 +161,7 @@ class _ShellNavBar extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,
-        border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
-        ),
+        border: Border(top: BorderSide(color: LuminaHealthColors.hairline)),
       ),
       child: SafeArea(
         top: false,

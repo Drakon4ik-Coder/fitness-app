@@ -375,21 +375,15 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   /// Pushes the read-first food page (KAN-33) for a logged food. Resolves
   /// with the item as edited there (null = unchanged); the day itself is
   /// refreshed by the meal sheet's dismissal reload.
-  Future<FoodItem?> _openFoodDetail(FoodItem item) async {
-    FoodItem? updated;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => FoodDetailPage(
-          item: item,
-          foodsApi: _foodsApi,
-          localDb: _localDb,
-          onLogout: _handleLogout,
-          catalog: _catalog,
-          onItemChanged: (next) => updated = next,
-        ),
-      ),
+  Future<FoodItem?> _openFoodDetail(FoodItem item) {
+    return pushFoodDetailPage(
+      context,
+      item: item,
+      foodsApi: _foodsApi,
+      localDb: _localDb,
+      onLogout: _handleLogout,
+      catalog: _catalog,
     );
-    return updated;
   }
 
   void _openNutrientDetail(BuildContext context) {
@@ -915,11 +909,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           ),
                           borderRadius: BorderRadius.circular(AppRadius.lg),
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.05),
+                            color: LuminaHealthColors.hairline,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.05),
+                              color: LuminaHealthColors.hairline,
                               offset: const Offset(0, 2),
                               blurRadius: 4,
                               spreadRadius: 0,
@@ -1233,7 +1227,7 @@ class _MealCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow.withValues(alpha: 0.8),
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+            border: Border.all(color: LuminaHealthColors.hairline),
           ),
           clipBehavior: Clip.antiAlias,
           padding: const EdgeInsets.all(AppSpacing.md),

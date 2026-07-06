@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../ui_components/ui_components.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
@@ -118,7 +119,7 @@ class _EnergyHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: LuminaHealthColors.hairline),
       ),
       padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(

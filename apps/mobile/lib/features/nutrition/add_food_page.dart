@@ -355,25 +355,17 @@ class _AddFoodPageState extends State<AddFoodPage> {
   /// propagated into this page's lists as they happen; resolves with the
   /// updated item (or null if nothing changed) so the amount sheet can
   /// refresh its preview.
-  Future<FoodItem?> _openFoodDetail(FoodItem item) async {
-    FoodItem? updated;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => FoodDetailPage(
-          item: item,
-          foodsApi: widget.foodsApi,
-          localDb: widget.localDb,
-          onLogout: widget.onLogout,
-          catalog: widget.catalog ?? kNutrientCatalog,
-          onItemChanged: (next) {
-            updated = next;
-            _applyCustomFoodUpdate(next);
-          },
-          onItemReverted: _applyCustomFoodRemoval,
-        ),
-      ),
+  Future<FoodItem?> _openFoodDetail(FoodItem item) {
+    return pushFoodDetailPage(
+      context,
+      item: item,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onLogout: widget.onLogout,
+      catalog: widget.catalog ?? kNutrientCatalog,
+      onItemChanged: _applyCustomFoodUpdate,
+      onItemReverted: _applyCustomFoodRemoval,
     );
-    return updated;
   }
 
   /// Reflects a saved custom food everywhere it can appear: its own rows in

@@ -109,7 +109,7 @@ class NutrientGroupSection extends StatelessWidget {
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+            border: Border.all(color: LuminaHealthColors.hairline),
           ),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md,
@@ -119,10 +119,7 @@ class NutrientGroupSection extends StatelessWidget {
             children: [
               for (var i = 0; i < totals.length; i++) ...[
                 if (i > 0)
-                  Divider(
-                    height: 1,
-                    color: Colors.white.withValues(alpha: 0.05),
-                  ),
+                  Divider(height: 1, color: LuminaHealthColors.hairline),
                 NutrientRow(
                   total: totals[i],
                   onTap: onNutrientTap == null || !totals[i].hasData

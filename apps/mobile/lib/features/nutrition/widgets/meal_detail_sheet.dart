@@ -187,8 +187,9 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
         }
       }
     });
-    if (mealChanged && updated != null)
+    if (mealChanged && updated != null) {
       unawaited(HapticFeedback.selectionClick());
+    }
     if (_entries.isEmpty && mounted) {
       Navigator.of(context).pop();
     }
