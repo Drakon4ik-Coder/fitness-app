@@ -108,6 +108,14 @@ work.
 
 ### P3 — Error diagnostics are systematically discarded on mobile
 
+> **Status: MOSTLY RESOLVED (July 2026).** `mapApiErrors` +
+> `logApiError`/`apiErrorLogger` now live in `data/api_exceptions.dart` (with
+> unit tests covering the `isNetworkError` classification), and all methods
+> of the three API services route through them. Remaining: the `catch (_)`
+> blocks *outside* the services (auth_service, pages — intentional UX, lower
+> value) and wiring `apiErrorLogger` to a crash reporter when one lands
+> (PLAY_STORE_ROADMAP).
+
 **Problem.** There are **32 `catch (_)` blocks**. Most correctly convert
 failures into typed `ApiException`/`AuthException` with user-friendly
 messages — the UX is fine — but the *original* exception is dropped every
@@ -257,7 +265,7 @@ which means regressions won't be caught.
 | 1 | ~~Create `/CLAUDE.md`; fix stale ARCHITECTURE.md claims (P5)~~ **done** | ~1 h | Stops agents inheriting wrong assumptions |
 | 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
 | 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
-| 4 | Central `mapApiErrors` helper + logging seam (P3) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
+| 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (crash-reporter wiring pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
 | 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing | Long-term velocity |
 | 6 | Lint tightening + format CI step (P8) | ~1 h | Locks in current quality |
 | 7 | Tokens + small dedup (P7); catalog drift check (Notes) | opportunistic | Consistency |

@@ -29,8 +29,8 @@ class PreferencesApiService {
     _dio.options.headers['Authorization'] = 'Bearer $accessToken';
   }
 
-  Future<UserPreferences> fetch() async {
-    try {
+  Future<UserPreferences> fetch() {
+    return mapApiErrors('Unable to load preferences.', () async {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/preferences/',
       );
@@ -39,16 +39,7 @@ class PreferencesApiService {
         throw ApiException('Unexpected response from server.');
       }
       return UserPreferences.fromJson(data);
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to load preferences.',
-        statusCode: error.response?.statusCode,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to load preferences.');
-    }
+    });
   }
 
   /// Persists a partial update. Only the provided fields are sent, so untouched
@@ -69,7 +60,7 @@ class PreferencesApiService {
       if (nutrientGoals != null) 'nutrient_goals': nutrientGoals,
       if (focusNutrients != null) 'focus_nutrients': focusNutrients,
     };
-    try {
+    return mapApiErrors('Unable to save preferences.', () async {
       final response = await _dio.patch<Map<String, dynamic>>(
         '/api/v1/preferences/',
         data: body,
@@ -79,15 +70,6 @@ class PreferencesApiService {
         throw ApiException('Unexpected response from server.');
       }
       return UserPreferences.fromJson(data);
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to save preferences.',
-        statusCode: error.response?.statusCode,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to save preferences.');
-    }
+    });
   }
 }

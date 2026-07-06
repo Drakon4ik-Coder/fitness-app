@@ -131,8 +131,8 @@ class NutritionApiService {
   /// Fetches the raw `/day` payload without parsing. The page caches this map
   /// verbatim (stale-while-revalidate) and parses it via [parseDayLog], so the
   /// cached bytes are exactly what the server sent — no lossy round-trip.
-  Future<Map<String, dynamic>> fetchDayRaw(DateTime date) async {
-    try {
+  Future<Map<String, dynamic>> fetchDayRaw(DateTime date) {
+    return mapApiErrors('Unable to load nutrition data.', () async {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/nutrition/day',
         queryParameters: {'date': formatDate(date)},
@@ -142,22 +142,13 @@ class NutritionApiService {
         throw ApiException('Unexpected response from server.');
       }
       return data;
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to load nutrition data.',
-        statusCode: error.response?.statusCode,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to load nutrition data.');
-    }
+    });
   }
 
   /// Per-meal typical times learned from the user's history. Meals without
   /// enough history are simply absent from the map (caller uses its defaults).
-  Future<Map<String, MealTimeStat>> fetchMealTimes() async {
-    try {
+  Future<Map<String, MealTimeStat>> fetchMealTimes() {
+    return mapApiErrors('Unable to load meal times.', () async {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/nutrition/meal-times',
       );
@@ -179,16 +170,7 @@ class NutritionApiService {
         );
       }
       return result;
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to load meal times.',
-        statusCode: error.response?.statusCode,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to load meal times.');
-    }
+    });
   }
 
   Future<NutritionEntry> createEntry({
@@ -197,8 +179,8 @@ class NutritionApiService {
     required double quantityG,
     DateTime? consumedAt,
     String? clientUuid,
-  }) async {
-    try {
+  }) {
+    return mapApiErrors('Unable to add entry.', () async {
       final response = await _dio.post<Map<String, dynamic>>(
         '/api/v1/nutrition/entries',
         data: {
@@ -220,17 +202,7 @@ class NutritionApiService {
         throw ApiException('Unexpected response from server.');
       }
       return _parseEntry(data);
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to add entry.',
-        statusCode: error.response?.statusCode,
-        isNetworkError: error.response == null,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to add entry.');
-    }
+    });
   }
 
   /// Updates an entry, addressed by client uuid when known (works even before
@@ -244,12 +216,12 @@ class NutritionApiService {
     double? quantityG,
     String? mealType,
     DateTime? clientUpdatedAt,
-  }) async {
+  }) {
     assert(entryId != null || entryUuid != null);
     final path = entryUuid != null
         ? '/api/v1/nutrition/entries/by-uuid/$entryUuid'
         : '/api/v1/nutrition/entries/$entryId';
-    try {
+    return mapApiErrors('Unable to update entry.', () async {
       final response = await _dio.patch<Map<String, dynamic>>(
         path,
         data: {
@@ -264,29 +236,19 @@ class NutritionApiService {
         throw ApiException('Unexpected response from server.');
       }
       return _parseEntry(data);
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to update entry.',
-        statusCode: error.response?.statusCode,
-        isNetworkError: error.response == null,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to update entry.');
-    }
+    });
   }
 
   Future<void> deleteEntry({
     int? entryId,
     String? entryUuid,
     DateTime? clientUpdatedAt,
-  }) async {
+  }) {
     assert(entryId != null || entryUuid != null);
     final path = entryUuid != null
         ? '/api/v1/nutrition/entries/by-uuid/$entryUuid'
         : '/api/v1/nutrition/entries/$entryId';
-    try {
+    return mapApiErrors('Unable to delete entry.', () async {
       await _dio.delete<void>(
         path,
         queryParameters: {
@@ -294,19 +256,13 @@ class NutritionApiService {
             'client_updated_at': clientUpdatedAt.toUtc().toIso8601String(),
         },
       );
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to delete entry.',
-        statusCode: error.response?.statusCode,
-        isNetworkError: error.response == null,
-      );
-    }
+    });
   }
 
   /// Pulls one page of the delta feed (KAN-28 Phase 2). With [since] omitted
   /// the server returns no entries, just a fresh cursor — the bootstrap call.
-  Future<SyncPage> fetchSyncPage({String? since, int? limit}) async {
-    try {
+  Future<SyncPage> fetchSyncPage({String? since, int? limit}) {
+    return mapApiErrors('Unable to sync nutrition log.', () async {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/nutrition/entries/sync',
         queryParameters: {
@@ -331,17 +287,7 @@ class NutritionApiService {
         nextCursor: data['next_cursor'] as String? ?? '',
         hasMore: data['has_more'] == true,
       );
-    } on DioException catch (error) {
-      throw ApiException(
-        'Unable to sync nutrition log.',
-        statusCode: error.response?.statusCode,
-        isNetworkError: error.response == null,
-      );
-    } on ApiException {
-      rethrow;
-    } catch (_) {
-      throw ApiException('Unable to sync nutrition log.');
-    }
+    });
   }
 
   /// Parses a raw `/day` payload (from the network or the local cache) into a
