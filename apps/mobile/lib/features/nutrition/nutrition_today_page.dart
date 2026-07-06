@@ -16,7 +16,8 @@ import 'data/food_models.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
-import 'data/nutrition_day_cache.dart';
+import 'data/nutrition_local_store.dart';
+import 'data/nutrition_repository.dart';
 import 'data/off_client.dart';
 import 'data/user_preferences.dart';
 import 'widgets/meal_detail_sheet.dart';
@@ -31,7 +32,7 @@ class NutritionTodayPage extends StatefulWidget {
     this.localDb,
     this.foodsApi,
     this.nutritionApi,
-    this.dayCache,
+    this.localStore,
     this.offClient,
     this.preferences,
   });
@@ -42,7 +43,7 @@ class NutritionTodayPage extends StatefulWidget {
   final FoodLocalDb? localDb;
   final FoodsApiService? foodsApi;
   final NutritionApiService? nutritionApi;
-  final NutritionDayCache? dayCache;
+  final NutritionLocalStore? localStore;
   final OffClient? offClient;
 
   /// The user's saved goals/units, owned by the shell and passed down so the
@@ -61,8 +62,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final bool _ownsLocalDb;
   late final FoodsApiService _foodsApi;
   late final NutritionApiService _nutritionApi;
-  late final NutritionDayCache _dayCache;
-  late final bool _ownsDayCache;
+  late final NutritionLocalStore _localStore;
+  late final bool _ownsLocalStore;
+  late final NutritionRepository _repository;
   late final OffClient _offClient;
 
   NutritionDayLog? _dayLog;
@@ -91,8 +93,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
-    _ownsDayCache = widget.dayCache == null;
-    _dayCache = widget.dayCache ?? NutritionDayCache();
+    _ownsLocalStore = widget.localStore == null;
+    _localStore = widget.localStore ?? NutritionLocalStore();
+    _repository = NutritionRepository(api: _nutritionApi, store: _localStore);
     _offClient = widget.offClient ?? OffClient();
     _loadDay();
     _loadMealTimes();
@@ -111,11 +114,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   List<NutrientSpec> get _focusSpecs =>
       resolveFocusSpecs(widget.preferences?.focusNutrients, base: _catalog);
 
-  /// Logs out, first wiping the local day cache so the next user on this device
-  /// can't briefly see the previous user's log (the cache isn't per-user).
+  /// Logs out, first wiping the local nutrition store so the next user on this
+  /// device can't see the previous user's log and no leftover offline outbox
+  /// can replay into another account (the store isn't per-user).
   Future<void> _handleLogout() async {
     try {
-      await _dayCache.clear();
+      await _repository.clear();
     } catch (_) {
       // Best-effort — never block logout on a cache wipe.
     }
@@ -148,49 +152,49 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (_ownsLocalDb) {
       _localDb.close();
     }
-    if (_ownsDayCache) {
-      _dayCache.close();
+    if (_ownsLocalStore) {
+      _localStore.close();
     }
     super.dispose();
   }
 
   Future<void> _loadDay() async {
     _spinnerTimer?.cancel();
-    // Snapshot the date: the cache read and network fetch are async, so the user
+    // Snapshot the date: the local read and network sync are async, so the user
     // may switch days before they return. We discard results for a stale date.
     final date = _selectedDate;
-    final dateKey = NutritionApiService.formatDate(date);
     setState(() {
       _showSpinner = false;
       _errorMessage = null;
     });
 
-    // 1. Stale: render the cached day instantly so there's no blank screen and
-    //    offline opens still show data. Best-effort — a cache miss or failure
-    //    just falls through to the spinner + network path below.
-    final bool hadCache = await _showCachedDay(dateKey, date);
+    // 1. Stale: render the locally known day instantly so there's no blank
+    //    screen; offline opens (and offline-logged meals) show right away.
+    //    Best-effort — a store miss or failure just falls through to the
+    //    spinner + network path below.
+    final bool hadLocal = await _showLocalDay(date);
 
-    // Only show the loading bar if we have nothing on screen yet; with a cache
-    // hit the refresh happens silently underneath the already-rendered day.
-    if (!hadCache) {
+    // Only show the loading bar if we have nothing on screen yet; with a local
+    // hit the sync happens silently underneath the already-rendered day.
+    if (!hadLocal) {
       _spinnerTimer = Timer(const Duration(seconds: 1), () {
         if (!mounted || date != _selectedDate) return;
         setState(() => _showSpinner = true);
       });
     }
 
-    // 2. Revalidate against the server and refresh the cache.
+    // 2. Converge with the server: replay any queued offline writes, pull
+    //    deltas (or the day's first full fetch) and re-render.
     try {
-      final raw = await _nutritionApi.fetchDayRaw(date);
+      final fresh = await _repository.refreshDay(date);
       if (!mounted || date != _selectedDate) {
         return;
       }
       setState(() {
-        _dayLog = _nutritionApi.parseDayLog(raw);
+        _dayLog = fresh;
         _showSpinner = false;
         _errorMessage = null;
       });
-      await _writeCache(dateKey, raw);
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
         await _handleLogout();
@@ -203,10 +207,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       }
       setState(() {
         _showSpinner = false;
-        // Don't bury a usable cached view under an error banner — offline reads
+        // Don't bury a usable local view under an error banner — offline reads
         // should keep working. Only surface the error when there's nothing to
         // show for this day.
-        if (!hadCache) {
+        if (!hadLocal) {
           _errorMessage = error.message;
         }
       });
@@ -215,31 +219,22 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     }
   }
 
-  /// Renders the cached payload for [dateKey] if present and still the selected
-  /// day. Returns whether a usable cached day was shown. Best-effort: any cache
+  /// Renders the locally known state for [date] if any and still the selected
+  /// day. Returns whether a usable local day was shown. Best-effort: any store
   /// or parse failure is swallowed so the network path takes over.
-  Future<bool> _showCachedDay(String dateKey, DateTime date) async {
+  Future<bool> _showLocalDay(DateTime date) async {
     try {
-      final cached = await _dayCache.read(dateKey);
-      if (cached == null || !mounted || date != _selectedDate) {
+      final local = await _repository.readCachedDay(date);
+      if (local == null || !mounted || date != _selectedDate) {
         return false;
       }
-      final cachedLog = _nutritionApi.parseDayLog(cached);
       setState(() {
-        _dayLog = cachedLog;
+        _dayLog = local;
         _errorMessage = null;
       });
       return true;
     } catch (_) {
       return false;
-    }
-  }
-
-  Future<void> _writeCache(String dateKey, Map<String, dynamic> raw) async {
-    try {
-      await _dayCache.write(dateKey, raw);
-    } catch (_) {
-      // Best-effort cache; failing to persist never breaks the view.
     }
   }
 
@@ -321,7 +316,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         builder: (_) => AddFoodPage(
           localDb: _localDb,
           foodsApi: _foodsApi,
-          nutritionApi: _nutritionApi,
+          repository: _repository,
           offClient: _offClient,
           onLogout: _handleLogout,
           selectedDate: _selectedDate,
@@ -417,8 +412,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     String? mealType,
   }) async {
     try {
-      return await _nutritionApi.updateEntry(
-        entryId: entry.id,
+      // Applies locally right away and queues the server write when offline
+      // (KAN-28) — so the edit sticks even with no connectivity.
+      return await _repository.updateEntry(
+        entry,
         quantityG: quantityG,
         mealType: mealType,
       );
@@ -438,8 +435,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
 
   Future<bool> _deleteEntry(NutritionEntry entry) async {
     try {
-      await _nutritionApi.deleteEntry(entry.id);
-      return true;
+      return await _repository.deleteEntry(entry);
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
         await _handleLogout();

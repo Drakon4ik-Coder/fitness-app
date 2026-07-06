@@ -6,27 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fitness_app/core/auth_service.dart';
 import 'package:fitness_app/features/main_shell.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
-import 'package:fitness_app/features/nutrition/data/nutrition_day_cache.dart';
 import 'package:fitness_app/features/nutrition/data/preferences_api_service.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
-/// In-memory [NutritionDayCache] so the shell's today tab doesn't touch sqflite.
-class _InMemoryDayCache implements NutritionDayCache {
-  final Map<String, Map<String, dynamic>> _store = {};
-
-  @override
-  Future<Map<String, dynamic>?> read(String dateKey) async => _store[dateKey];
-
-  @override
-  Future<void> write(String dateKey, Map<String, dynamic> payload) async =>
-      _store[dateKey] = payload;
-
-  @override
-  Future<void> clear() async => _store.clear();
-
-  @override
-  Future<void> close() async {}
-}
+import 'in_memory_nutrition_store.dart';
 
 Dio _stub(Map<String, dynamic> data) {
   final dio = Dio();
@@ -66,7 +49,7 @@ MainShell _shell() {
     accessToken: 'token',
     onLogout: () async {},
     nutritionApi: nutritionApi,
-    dayCache: _InMemoryDayCache(),
+    localStore: InMemoryNutritionStore(),
     preferencesApi: preferencesApi,
     authService: authService,
   );

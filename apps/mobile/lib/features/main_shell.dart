@@ -10,7 +10,7 @@ import 'nutrition/data/api_exceptions.dart';
 import 'nutrition/data/food_local_db.dart';
 import 'nutrition/data/foods_api_service.dart';
 import 'nutrition/data/nutrition_api_service.dart';
-import 'nutrition/data/nutrition_day_cache.dart';
+import 'nutrition/data/nutrition_local_store.dart';
 import 'nutrition/data/off_client.dart';
 import 'nutrition/data/preferences_api_service.dart';
 import 'nutrition/data/user_preferences.dart';
@@ -30,7 +30,7 @@ class MainShell extends StatefulWidget {
     this.authService,
     this.nutritionApi,
     this.foodsApi,
-    this.dayCache,
+    this.localStore,
     this.offClient,
     this.localDb,
   });
@@ -42,7 +42,7 @@ class MainShell extends StatefulWidget {
   final AuthService? authService;
   final NutritionApiService? nutritionApi;
   final FoodsApiService? foodsApi;
-  final NutritionDayCache? dayCache;
+  final NutritionLocalStore? localStore;
   final OffClient? offClient;
   final FoodLocalDb? localDb;
 
@@ -53,8 +53,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
   late final PreferencesApiService _preferencesApi;
-  late final NutritionDayCache _dayCache;
-  late final bool _ownsDayCache;
+  late final NutritionLocalStore _localStore;
+  late final bool _ownsLocalStore;
 
   // Shared goals/units; null until loaded (or if the fetch fails), in which case
   // the today tab falls back to catalog defaults.
@@ -69,8 +69,8 @@ class _MainShellState extends State<MainShell> {
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
-    _ownsDayCache = widget.dayCache == null;
-    _dayCache = widget.dayCache ?? NutritionDayCache();
+    _ownsLocalStore = widget.localStore == null;
+    _localStore = widget.localStore ?? NutritionLocalStore();
     _loadPreferences();
   }
 
@@ -84,7 +84,7 @@ class _MainShellState extends State<MainShell> {
 
   @override
   void dispose() {
-    if (_ownsDayCache) _dayCache.close();
+    if (_ownsLocalStore) _localStore.close();
     super.dispose();
   }
 
@@ -99,12 +99,14 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  /// Logout from the account tab: wipe the local day cache first so the next
-  /// user on this device can't briefly see the previous user's log. (The today
-  /// tab wraps [widget.onLogout] with the same wipe on its own auth-gate path.)
+  /// Logout from the account tab: wipe the local nutrition store first so the
+  /// next user on this device can't see the previous user's log — and, since
+  /// KAN-28, so a leftover offline outbox can't replay into another account.
+  /// (The today tab wraps [widget.onLogout] with the same wipe on its own
+  /// auth-gate path.)
   Future<void> _handleLogout() async {
     try {
-      await _dayCache.clear();
+      await _localStore.clear();
     } catch (_) {
       // Best-effort — never block logout on a cache wipe.
     }
@@ -124,7 +126,7 @@ class _MainShellState extends State<MainShell> {
             preferences: _prefs,
             nutritionApi: widget.nutritionApi,
             foodsApi: widget.foodsApi,
-            dayCache: _dayCache,
+            localStore: _localStore,
             offClient: widget.offClient,
             localDb: widget.localDb,
           ),

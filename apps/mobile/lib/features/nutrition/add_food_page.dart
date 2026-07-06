@@ -12,7 +12,7 @@ import 'data/food_models.dart';
 import 'data/food_sync.dart';
 import 'data/foods_api_service.dart';
 import 'data/nutrient_catalog.dart';
-import 'data/nutrition_api_service.dart';
+import 'data/nutrition_repository.dart';
 import 'data/off_client.dart';
 import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
@@ -50,7 +50,7 @@ class AddFoodPage extends StatefulWidget {
     super.key,
     required this.localDb,
     required this.foodsApi,
-    required this.nutritionApi,
+    required this.repository,
     required this.offClient,
     required this.onLogout,
     required this.selectedDate,
@@ -61,7 +61,7 @@ class AddFoodPage extends StatefulWidget {
 
   final FoodLocalDb localDb;
   final FoodsApiService foodsApi;
-  final NutritionApiService nutritionApi;
+  final NutritionRepository repository;
   final OffClient offClient;
   final Future<void> Function() onLogout;
   final DateTime selectedDate;
@@ -342,8 +342,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
       } else if (result.grams != null) {
         // Re-read the staged item: viewing details from the sheet may have
         // replaced it (an edit or a fresh override) while the sheet was open.
-        _addedItems[index] =
-            _AddedFood(item: _addedItems[index].item, grams: result.grams!);
+        _addedItems[index] = _AddedFood(
+          item: _addedItems[index].item,
+          grams: result.grams!,
+        );
       }
     });
   }
@@ -392,14 +394,17 @@ class _AddFoodPageState extends State<AddFoodPage> {
     bool matches(FoodItem candidate) =>
         isSelf(candidate) || isShadowedGlobal(candidate);
 
-    List<FoodItem> swap(List<FoodItem> list) =>
-        [for (final it in list) matches(it) ? stored : it];
+    List<FoodItem> swap(List<FoodItem> list) => [
+      for (final it in list) matches(it) ? stored : it,
+    ];
 
     setState(() {
       for (var i = 0; i < _addedItems.length; i++) {
         if (matches(_addedItems[i].item)) {
-          _addedItems[i] =
-              _AddedFood(item: stored, grams: _addedItems[i].grams);
+          _addedItems[i] = _AddedFood(
+            item: stored,
+            grams: _addedItems[i].grams,
+          );
         }
       }
       _localResults = swap(_localResults);
@@ -487,8 +492,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
       // The override links to the global row by backend id, so resolve one
       // first (also what makes the OFF item exist server-side at all).
       try {
-        final (resolved, _) =
-            await ensureGlobalBackendId(target, foodsApi: widget.foodsApi);
+        final (resolved, _) = await ensureGlobalBackendId(
+          target,
+          foodsApi: widget.foodsApi,
+        );
         target = resolved;
       } on ApiException catch (error) {
         if (error.isUnauthorized) {
@@ -697,15 +704,23 @@ class _AddFoodPageState extends State<AddFoodPage> {
         }
 
         if (!imagesOk) {
-          final uploaded = await _tryUploadImages(selected);
-          if (uploaded != null) selected = uploaded;
+          // Nice-to-have; never block logging the meal on it (e.g. offline
+          // with an already-resolved food).
+          try {
+            final uploaded = await _tryUploadImages(selected);
+            if (uploaded != null) selected = uploaded;
+          } on ApiException {
+            // Retried the next time this food is logged.
+          }
         }
 
         final stored = await widget.localDb.upsertFood(selected);
         selected = stored;
 
-        await widget.nutritionApi.createEntry(
-          foodItemId: selected.backendId!,
+        // Optimistic + offline-tolerant (KAN-28): the entry lands in the local
+        // log immediately and replays to the server when connectivity returns.
+        await widget.repository.createEntry(
+          food: selected,
           mealType: _selectedMeal.name,
           quantityG: added.grams,
           consumedAt: consumedAt,
@@ -1064,8 +1079,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
                               focusTotals[i],
                               _focusSpecs[i].unit,
                             ),
-                            color: LuminaHealthColors.focusAccents[i %
-                                LuminaHealthColors.focusAccents.length],
+                            color:
+                                LuminaHealthColors.focusAccents[i %
+                                    LuminaHealthColors.focusAccents.length],
                             progress:
                                 (focusTotals[i] /
                                         (_focusSpecs[i].dailyTarget *
@@ -1300,7 +1316,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   return _FoodCard(
                     item: item,
                     isAdded: _isAdded(item.item),
-                    isEnriching: _enrichingKey != null &&
+                    isEnriching:
+                        _enrichingKey != null &&
                         _resultKey(item.item) == _enrichingKey,
                     onTap: () => _onResultTap(item),
                     // Long-press: edit your own food, or fork a catalog item

@@ -15,6 +15,9 @@ class MealEntryCreateSerializer(serializers.Serializer):
     meal_type = serializers.ChoiceField(choices=MealEntry.MEAL_TYPE_CHOICES)
     quantity_g = serializers.DecimalField(max_digits=8, decimal_places=2)
     consumed_at = serializers.DateTimeField(required=False)
+    # Client-generated stable id (KAN-28). When an offline create replays, the
+    # view dedupes on it instead of inserting a second row.
+    client_uuid = serializers.UUIDField(required=False)
 
     def create(self, validated_data: dict[str, Any]) -> MealEntry:
         request = self.context.get("request")
@@ -25,9 +28,14 @@ class MealEntryCreateSerializer(serializers.Serializer):
 
 
 class MealEntryUpdateSerializer(serializers.ModelSerializer):
+    # LWW mutation time (KAN-28): when a replayed offline edit carries this, the
+    # view drops the write if the entry already has a newer change. Write-only
+    # input; never rendered.
+    client_updated_at = serializers.DateTimeField(required=False, write_only=True)
+
     class Meta:
         model = MealEntry
-        fields = ("meal_type", "quantity_g")
+        fields = ("meal_type", "quantity_g", "client_updated_at")
         extra_kwargs = {
             "meal_type": {"required": False},
             "quantity_g": {"required": False},
@@ -45,18 +53,44 @@ class MealEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MealEntry
-        fields = (
+        # Variable-length so SyncEntrySerializer.Meta may extend it.
+        fields: tuple[str, ...] = (
             "id",
+            "client_uuid",
             "meal_type",
             "consumed_at",
             "quantity_g",
             "food_item",
             "kcal",
+            "updated_at",
         )
 
     def get_kcal(self, obj: MealEntry) -> float:
         macros = calculate_macros(obj.food_item, obj.quantity_g)
         return serialize_decimal(macros["kcal"])
+
+
+class SyncEntrySerializer(MealEntrySerializer):
+    """Delta-feed shape: a regular entry plus its tombstone flag.
+
+    Tombstones keep their full payload (the food_item join is already loaded);
+    clients only need `deleted` to drop the row locally.
+    """
+
+    deleted = serializers.SerializerMethodField()
+
+    class Meta(MealEntrySerializer.Meta):
+        fields = MealEntrySerializer.Meta.fields + ("deleted",)
+
+    def get_deleted(self, obj: MealEntry) -> bool:
+        return obj.deleted_at is not None
+
+
+class SyncPageSerializer(serializers.Serializer):
+    entries = SyncEntrySerializer(many=True)
+    # Opaque to clients: echo back as `since` on the next pull.
+    next_cursor = serializers.CharField()
+    has_more = serializers.BooleanField()
 
 
 class NutritionTotalsSerializer(serializers.Serializer):

@@ -396,6 +396,56 @@ paths:
           description: Invalid payload
         '401':
           description: Unauthorized
+  /api/v1/foods/custom:
+    post:
+      operationId: v1_foods_custom_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomFood'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CustomFood'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CustomFood'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoodItem'
+          description: ''
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+  /api/v1/foods/custom/{food_item_id}:
+    delete:
+      operationId: v1_foods_custom_destroy
+      parameters:
+      - in: path
+        name: food_item_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
   /api/v1/foods/ingest:
     post:
       operationId: v1_foods_ingest_create
@@ -500,6 +550,12 @@ paths:
       security:
       - jwtAuth: []
       responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntry'
+          description: ''
         '201':
           content:
             application/json:
@@ -513,6 +569,12 @@ paths:
   /api/v1/nutrition/entries/{id}:
     patch:
       operationId: v1_nutrition_entries_partial_update
+      description: |-
+        Edit/delete one entry, addressed by server pk or client uuid.
+
+        The uuid route exists for offline replays (KAN-28): an entry created
+        offline is edited before the server ever assigned it a pk, so queued ops
+        can only reference the client uuid.
       parameters:
       - in: path
         name: id
@@ -549,7 +611,20 @@ paths:
           description: Entry not found
     delete:
       operationId: v1_nutrition_entries_destroy
+      description: |-
+        Edit/delete one entry, addressed by server pk or client uuid.
+
+        The uuid route exists for offline replays (KAN-28): an entry created
+        offline is edited before the server ever assigned it a pk, so queued ops
+        can only reference the client uuid.
       parameters:
+      - in: query
+        name: client_updated_at
+        schema:
+          type: string
+          format: date-time
+        description: LWW mutation time of a replayed offline delete; the delete is
+          dropped when the entry changed more recently.
       - in: path
         name: id
         schema:
@@ -561,11 +636,134 @@ paths:
       - jwtAuth: []
       responses:
         '204':
-          description: Entry deleted
+          description: Entry deleted (or delete superseded)
+        '400':
+          description: Invalid client_updated_at
         '401':
           description: Unauthorized
         '404':
           description: Entry not found
+  /api/v1/nutrition/entries/by-uuid/{client_uuid}:
+    patch:
+      operationId: v1_nutrition_entries_by_uuid_partial_update
+      description: |-
+        Edit/delete one entry, addressed by server pk or client uuid.
+
+        The uuid route exists for offline replays (KAN-28): an entry created
+        offline is edited before the server ever assigned it a pk, so queued ops
+        can only reference the client uuid.
+      parameters:
+      - in: path
+        name: client_uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMealEntryUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMealEntryUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMealEntryUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MealEntry'
+          description: ''
+        '400':
+          description: Invalid payload
+        '401':
+          description: Unauthorized
+        '404':
+          description: Entry not found
+    delete:
+      operationId: v1_nutrition_entries_by_uuid_destroy
+      description: |-
+        Edit/delete one entry, addressed by server pk or client uuid.
+
+        The uuid route exists for offline replays (KAN-28): an entry created
+        offline is edited before the server ever assigned it a pk, so queued ops
+        can only reference the client uuid.
+      parameters:
+      - in: query
+        name: client_updated_at
+        schema:
+          type: string
+          format: date-time
+        description: LWW mutation time of a replayed offline delete; the delete is
+          dropped when the entry changed more recently.
+      - in: path
+        name: client_uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Entry deleted (or delete superseded)
+        '400':
+          description: Invalid client_updated_at
+        '401':
+          description: Unauthorized
+        '404':
+          description: Entry not found
+  /api/v1/nutrition/entries/sync:
+    get:
+      operationId: v1_nutrition_entries_sync_retrieve
+      description: |-
+        Delta feed for the client's entry-level cache (KAN-28 Phase 2).
+
+        Returns every entry created/updated/deleted since the given cursor,
+        tombstones included, so an already-cached day refreshes without a full
+        `/day` re-fetch and other devices' changes propagate.
+
+        The cursor is `synced_at|id` — synced_at is server-monotonic (unlike
+        updated_at, which replayed offline writes can set in the past) and the id
+        breaks ties when several rows share one timestamp (bulk writes). Without
+        `since`, no entries are returned, just a fresh cursor: the client
+        bootstraps its cursor *before* seeding days via full fetches, so anything
+        changing in between is re-delivered (merging is idempotent).
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Page size (default and max 200).
+      - in: query
+        name: since
+        schema:
+          type: string
+        description: Opaque cursor from a previous response; omit to bootstrap.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPage'
+          description: ''
+        '400':
+          description: Invalid cursor
+        '401':
+          description: Unauthorized
   /api/v1/nutrition/meal-times:
     get:
       operationId: v1_nutrition_meal_times_retrieve
@@ -639,6 +837,74 @@ paths:
           description: ''
 components:
   schemas:
+    CustomFood:
+      type: object
+      description: |-
+        A user's own food, written through an owner-scoped upsert.
+
+        `external_id` is a client-generated UUID: re-posting the same id updates
+        the caller's food in place, so the mobile sync path is one idempotent
+        POST for both create and edit. Custom foods carry no barcode in v1 —
+        barcode-shadowing of OFF items is the override story (KAN-31).
+      properties:
+        external_id:
+          type: string
+          maxLength: 128
+        name:
+          type: string
+          maxLength: 255
+        brands:
+          type: string
+          default: ''
+          maxLength: 255
+        kcal_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        protein_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        carbs_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fat_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        sugars_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fiber_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        salt_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        serving_size_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        nutriments_json:
+          nullable: true
+        overrides_food:
+          type: integer
+          nullable: true
+      required:
+      - external_id
+      - kcal_100g
+      - name
     EmailVerifiedTokenObtainPair:
       type: object
       properties:
@@ -667,13 +933,14 @@ components:
           readOnly: true
         source:
           allOf:
-          - $ref: '#/components/schemas/SourceEnum'
+          - $ref: '#/components/schemas/SourceAc2Enum'
           default: openfoodfacts
         external_id:
           type: string
           maxLength: 128
         barcode:
           type: string
+          nullable: true
           maxLength: 64
         name:
           type: string
@@ -739,20 +1006,30 @@ components:
         raw_source_json: {}
         nutriments_json:
           nullable: true
+        overrides_food:
+          type: integer
+          readOnly: true
+          nullable: true
+        community_verified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
       required:
-      - barcode
+      - community_verified_at
       - external_id
       - id
       - image_url
       - images_ok
       - name
+      - overrides_food
       - raw_source_json
     FoodItemCheck:
       type: object
       properties:
         source:
           allOf:
-          - $ref: '#/components/schemas/SourceEnum'
+          - $ref: '#/components/schemas/Source22dEnum'
           default: openfoodfacts
         external_id:
           type: string
@@ -788,6 +1065,13 @@ components:
         id:
           type: integer
           readOnly: true
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceAc2Enum'
+          default: openfoodfacts
+        external_id:
+          type: string
+          maxLength: 128
         name:
           type: string
           maxLength: 255
@@ -805,18 +1089,30 @@ components:
           readOnly: true
         barcode:
           type: string
+          nullable: true
           maxLength: 64
+        overrides_food:
+          type: integer
+          readOnly: true
+          nullable: true
+        community_verified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
       required:
-      - barcode
+      - community_verified_at
+      - external_id
       - id
       - image_url
       - name
+      - overrides_food
     FoodItemIngest:
       type: object
       properties:
         source:
           allOf:
-          - $ref: '#/components/schemas/SourceEnum'
+          - $ref: '#/components/schemas/Source22dEnum'
           default: openfoodfacts
         external_id:
           type: string
@@ -907,6 +1203,10 @@ components:
         id:
           type: integer
           readOnly: true
+        client_uuid:
+          type: string
+          format: uuid
+          readOnly: true
         meal_type:
           $ref: '#/components/schemas/MealTypeEnum'
         consumed_at:
@@ -922,7 +1222,11 @@ components:
           type: number
           format: double
           readOnly: true
+        updated_at:
+          type: string
+          format: date-time
       required:
+      - client_uuid
       - food_item
       - id
       - kcal
@@ -941,6 +1245,9 @@ components:
         consumed_at:
           type: string
           format: date-time
+        client_uuid:
+          type: string
+          format: uuid
       required:
       - food_item_id
       - meal_type
@@ -1081,6 +1388,10 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        client_updated_at:
+          type: string
+          format: date-time
+          writeOnly: true
     PatchedUserPreferences:
       type: object
       properties:
@@ -1123,11 +1434,77 @@ components:
           format: email
       required:
       - email
-    SourceEnum:
+    Source22dEnum:
       enum:
       - openfoodfacts
       type: string
       description: '* `openfoodfacts` - Open Food Facts'
+    SourceAc2Enum:
+      enum:
+      - openfoodfacts
+      - custom
+      type: string
+      description: |-
+        * `openfoodfacts` - Open Food Facts
+        * `custom` - Custom
+    SyncEntry:
+      type: object
+      description: |-
+        Delta-feed shape: a regular entry plus its tombstone flag.
+
+        Tombstones keep their full payload (the food_item join is already loaded);
+        clients only need `deleted` to drop the row locally.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        client_uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        meal_type:
+          $ref: '#/components/schemas/MealTypeEnum'
+        consumed_at:
+          type: string
+          format: date-time
+        quantity_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+        food_item:
+          $ref: '#/components/schemas/FoodItem'
+        kcal:
+          type: number
+          format: double
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+        deleted:
+          type: boolean
+          readOnly: true
+      required:
+      - client_uuid
+      - deleted
+      - food_item
+      - id
+      - kcal
+      - quantity_g
+    SyncPage:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncEntry'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+      required:
+      - entries
+      - has_more
+      - next_cursor
     TokenPair:
       type: object
       properties:

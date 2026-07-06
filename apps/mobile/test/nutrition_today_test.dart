@@ -3,39 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
-import 'package:fitness_app/features/nutrition/data/nutrition_day_cache.dart';
 import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 
-/// In-memory stand-in for [NutritionDayCache] so widget tests don't touch
-/// sqflite / path_provider platform channels.
-class _InMemoryDayCache implements NutritionDayCache {
-  _InMemoryDayCache([Map<String, Map<String, dynamic>>? seed])
-    : _store = {...?seed};
-
-  final Map<String, Map<String, dynamic>> _store;
-  final List<String> writes = [];
-  bool cleared = false;
-
-  @override
-  Future<Map<String, dynamic>?> read(String dateKey) async => _store[dateKey];
-
-  @override
-  Future<void> write(String dateKey, Map<String, dynamic> payload) async {
-    _store[dateKey] = payload;
-    writes.add(dateKey);
-  }
-
-  @override
-  Future<void> clear() async {
-    _store.clear();
-    cleared = true;
-  }
-
-  @override
-  Future<void> close() async {}
-}
+import 'in_memory_nutrition_store.dart';
 
 Map<String, dynamic> _dayPayload({required String date, required num kcal}) {
   return {
@@ -85,7 +57,7 @@ void main() {
           accessToken: 'token',
           onLogout: () async {},
           nutritionApi: nutritionApi,
-          dayCache: _InMemoryDayCache(),
+          localStore: InMemoryNutritionStore(),
         ),
       ),
     );
@@ -138,7 +110,7 @@ void main() {
             accessToken: 'token',
             onLogout: () async {},
             nutritionApi: nutritionApi,
-            dayCache: _InMemoryDayCache(),
+            localStore: InMemoryNutritionStore(),
           ),
         ),
       );
@@ -201,7 +173,7 @@ void main() {
             accessToken: 'token',
             onLogout: () async {},
             nutritionApi: nutritionApi,
-            dayCache: _InMemoryDayCache(),
+            localStore: InMemoryNutritionStore(),
             preferences: const UserPreferences(
               focusNutrients: ['fiber', 'sugars', 'sodium', 'vitamin_c'],
             ),
@@ -248,9 +220,15 @@ void main() {
         ),
       );
       final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
-      final cache = _InMemoryDayCache({
-        _todayKey(): _dayPayload(date: _todayKey(), kcal: 1500),
-      });
+      // A day synced in an earlier session: seeded marker + entry-level rows.
+      final store = InMemoryNutritionStore(
+        seedPayloads: {_todayKey(): _dayPayload(date: _todayKey(), kcal: 1500)},
+      );
+      store.entries['cached-uuid'] = makeStoredEntry(
+        uuid: 'cached-uuid',
+        quantityG: 1000,
+        kcal: 1500,
+      );
 
       await tester.pumpWidget(
         MaterialApp(
@@ -259,20 +237,20 @@ void main() {
             accessToken: 'token',
             onLogout: () async {},
             nutritionApi: nutritionApi,
-            dayCache: cache,
+            localStore: store,
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      // The cached day is rendered (1500 kcal eaten) and the failed refresh is
-      // swallowed rather than shown as an error.
+      // The locally known day is rendered (1500 kcal eaten) and the failed
+      // sync is swallowed rather than shown as an error.
       expect(find.text('1500'), findsOneWidget);
       expect(find.text('Unable to load nutrition data.'), findsNothing);
     },
   );
 
-  testWidgets('revalidates over the cached day and writes the fresh copy back', (
+  testWidgets('first open full-fetches the day and seeds the local store', (
     WidgetTester tester,
   ) async {
     final dio = Dio();
@@ -290,9 +268,7 @@ void main() {
       ),
     );
     final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
-    final cache = _InMemoryDayCache({
-      _todayKey(): _dayPayload(date: _todayKey(), kcal: 1000),
-    });
+    final store = InMemoryNutritionStore();
 
     await tester.pumpWidget(
       MaterialApp(
@@ -301,15 +277,15 @@ void main() {
           accessToken: 'token',
           onLogout: () async {},
           nutritionApi: nutritionApi,
-          dayCache: cache,
+          localStore: store,
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    // Network value wins over the stale cached one, and the cache is refreshed.
+    // The first open of a day full-fetches the server view and seeds the
+    // local store so later refreshes can be cheap delta pulls.
     expect(find.text('2000'), findsOneWidget);
-    expect(find.text('1000'), findsNothing);
-    expect(cache.writes, contains(_todayKey()));
+    expect(store.payloadWrites, contains(_todayKey()));
   });
 }

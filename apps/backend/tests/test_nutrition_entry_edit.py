@@ -128,7 +128,13 @@ def test_delete_entry_removes_it() -> None:
     response = client.delete(f"/api/v1/nutrition/entries/{entry.id}")
 
     assert response.status_code == 204
-    assert not MealEntry.objects.filter(id=entry.id).exists()
+    # Soft delete (KAN-28): the row stays as a tombstone so other devices learn
+    # about the delete via delta sync, but it's gone from the day log.
+    entry.refresh_from_db()
+    assert entry.deleted_at is not None
+    day = client.get("/api/v1/nutrition/day")
+    assert day.status_code == 200
+    assert all(len(meals) == 0 for meals in day.json()["meals"].values())
 
 
 @pytest.mark.django_db

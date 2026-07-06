@@ -11,11 +11,7 @@ void main() {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           handler.resolve(
-            Response(
-              requestOptions: options,
-              statusCode: 200,
-              data: null,
-            ),
+            Response(requestOptions: options, statusCode: 200, data: null),
           );
         },
       ),
@@ -152,15 +148,13 @@ void main() {
       InterceptorsWrapper(
         onRequest: (options, handler) {
           captured = options;
-          handler.resolve(
-            Response(requestOptions: options, statusCode: 204),
-          );
+          handler.resolve(Response(requestOptions: options, statusCode: 204));
         },
       ),
     );
 
     final service = NutritionApiService(accessToken: 'token', dio: dio);
-    await service.deleteEntry(42);
+    await service.deleteEntry(entryId: 42);
 
     expect(captured.method, 'DELETE');
     expect(captured.path, '/api/v1/nutrition/entries/42');
@@ -184,7 +178,7 @@ void main() {
     final service = NutritionApiService(accessToken: 'token', dio: dio);
 
     await expectLater(
-      () async => service.deleteEntry(42),
+      () async => service.deleteEntry(entryId: 42),
       throwsA(
         isA<ApiException>().having(
           (error) => error.statusCode,
