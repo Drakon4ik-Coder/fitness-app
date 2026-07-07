@@ -117,7 +117,6 @@ lib/
 ├── features/
 │   ├── login_page.dart / register_page.dart / forgot_password_page.dart
 │   ├── main_shell.dart          # Signed-in bottom-nav shell; owns shared UserPreferences
-│   ├── barcode_lookup_page.dart
 │   └── nutrition/
 │       ├── nutrition_today_page.dart    # Day view (track tab)
 │       ├── add_food_page.dart           # Search/scan/log flow (largest page)

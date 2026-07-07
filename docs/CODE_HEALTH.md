@@ -266,6 +266,12 @@ which means regressions won't be caught.
 
 ### Notes (no action required, just awareness)
 
+- **Dead UI code removed (July 2026, KAN-63):** `features/
+  barcode_lookup_page.dart` (superseded by the scanner flow inside
+  `add_food_page`; only its own test referenced it) and three unused pulse
+  components (`neon_pill_button.dart`, `glass_meal_card.dart`,
+  `macro_ring.dart`). If a design calls for them again, recover from git
+  history rather than keeping them compiled in.
 - **Two separate SQLite databases** exist by design: `food_local_db.dart`
   (food catalog cache, schema v7) and `nutrition_local_store.dart` (entries +
   outbox + day payloads, schema v2). They have independent migration

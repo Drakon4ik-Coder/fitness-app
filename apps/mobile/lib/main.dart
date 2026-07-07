@@ -22,7 +22,7 @@ class FitnessApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Fitness App',
+      title: 'Symbio',
       // Dark-only design system: `theme` (the light slot) is set to the dark
       // theme so the app always renders dark regardless of OS brightness.
       theme: LuminaHealthTheme.dark(),
