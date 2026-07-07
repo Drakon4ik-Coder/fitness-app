@@ -58,6 +58,7 @@ class AddFoodPage extends StatefulWidget {
     this.initialMeal,
     this.focusSpecs,
     this.catalog,
+    this.scanBarcode,
   });
 
   final FoodLocalDb localDb;
@@ -76,6 +77,11 @@ class AddFoodPage extends StatefulWidget {
   /// The full goal-resolved catalog, forwarded to the food detail page so its
   /// per-100g targets match the today page. Null falls back to the defaults.
   final List<NutrientSpec>? catalog;
+
+  /// Runs the barcode-scan flow and resolves with the scanned code (null =
+  /// dismissed). Defaults to pushing [NutritionScanPage]; tests inject a fake
+  /// since the camera scanner needs platform channels.
+  final Future<String?> Function(BuildContext context)? scanBarcode;
 
   @override
   State<AddFoodPage> createState() => _AddFoodPageState();
@@ -544,11 +550,25 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   Future<void> _openScanPage() async {
     FocusScope.of(context).unfocus();
-    final barcode = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const NutritionScanPage()),
-    );
+    final scan =
+        widget.scanBarcode ??
+        (context) => Navigator.of(context).push<String>(
+          MaterialPageRoute(builder: (_) => const NutritionScanPage()),
+        );
+    final barcode = await scan(context);
     if (barcode == null || barcode.trim().isEmpty) return;
     await _handleBarcodeScan(barcode.trim());
+  }
+
+  /// Puts [barcode] into the search field without triggering the live-search
+  /// listener — the scan flow supplies its own result below.
+  void _setSearchTextSilently(String barcode) {
+    _ignoreSearchChange = true;
+    _searchController.text = barcode;
+    _searchController.selection = TextSelection.collapsed(
+      offset: _searchController.text.length,
+    );
+    _ignoreSearchChange = false;
   }
 
   Future<void> _handleBarcodeScan(String barcode) async {
@@ -559,6 +579,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
       });
       return;
     }
+    // Debounce re-scans of the same package: the camera fires repeatedly
+    // while the barcode stays in frame.
     final now = DateTime.now();
     if (_lastScannedBarcode == barcode &&
         _lastScannedAt != null &&
@@ -572,12 +594,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final override = await widget.localDb.fetchOverrideForBarcode(barcode);
     if (!mounted) return;
     if (override != null) {
-      _ignoreSearchChange = true;
-      _searchController.text = barcode;
-      _searchController.selection = TextSelection.collapsed(
-        offset: _searchController.text.length,
-      );
-      _ignoreSearchChange = false;
+      _setSearchTextSilently(barcode);
       setState(() {
         _localResults = [override];
         _backendResults = [];
@@ -587,6 +604,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
       });
       return;
     }
+    await _fetchScannedProduct(barcode);
+  }
+
+  /// OFF lookup for a scanned barcode with no local override: shows the
+  /// product as the sole result (the user still taps to add), or an inline
+  /// banner on miss/throttle/error.
+  Future<void> _fetchScannedProduct(String barcode) async {
     setState(() {
       _isOffLoading = true;
       _message = null;
@@ -610,12 +634,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         localeLanguage: locale,
       );
       if (!mounted) return;
-      _ignoreSearchChange = true;
-      _searchController.text = barcode;
-      _searchController.selection = TextSelection.collapsed(
-        offset: _searchController.text.length,
-      );
-      _ignoreSearchChange = false;
+      _setSearchTextSilently(barcode);
       setState(() {
         _offResults = [item];
         _backendResults = [];

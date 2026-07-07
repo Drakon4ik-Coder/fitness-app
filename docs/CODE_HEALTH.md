@@ -68,8 +68,10 @@ Agents pattern-match. These are the patterns to match:
 > the `_submitItems` loop body became a named `_logOneItem` step.
 > `nutrition_today_page`: `build()` is down from ~510 to ~165 lines
 > (`_DateBar`, `_HeroSection`/`_KcalStat`, `_FocusCard`/`_FocusTile`,
-> `_ViewFullNutrientsLink`, `_DailyLogsHeader`). The extracted widgets are
-> private classes in their page files — move them to
+> `_ViewFullNutrientsLink`, `_DailyLogsHeader`). `_handleBarcodeScan` was
+> also split into named steps (`_setSearchTextSilently`,
+> `_fetchScannedProduct`) to meet the ~80-line rule. The extracted widgets
+> are private classes in their page files — move them to
 > `features/nutrition/widgets/` once a second page needs one. The pages are
 > still large overall (state logic remains); keep extracting when touching a
 > section.
@@ -158,13 +160,16 @@ account-existence details (the generic messages there are intentional —
 
 ### P4 — The biggest page has no page-level tests
 
-> **Progress (July 2026).** `add_food_page_test.dart` now covers the core
-> flows with hand-rolled fakes (no platform channels, no network): quick-add
-> from recents → submit → entry stored + outbox op queued via the offline
-> repository path, tap-added-item-opens-editor (no duplicate staging), and
-> the empty-results nudge. Search-merge, enrichment-on-tap, and
-> barcode-cooldown remain untested at the page level — add coverage when
-> touching those flows.
+> **Status: RESOLVED (July 2026).** `add_food_page_test.dart` covers all the
+> flows this finding named, with hand-rolled fakes (no platform channels, no
+> network): quick-add from recents → submit → entry stored + outbox op queued
+> via the offline repository path; tap-added-item-opens-editor (no duplicate
+> staging); the empty-results nudge; search-merge across local/backend/OFF
+> (barcode dedup + the OFF completeness floor); enrichment-on-tap (one
+> `fetchProduct`, quick-add default lands on the fetched serving); and the
+> barcode re-scan cooldown. The scan flow is injectable via the page's
+> `scanBarcode` constructor param (camera needs platform channels), following
+> the standard constructor-DI pattern.
 
 **Problem.** `nutrition_today_page` has a widget test; `add_food_page` has
 **none** — only its extracted helpers are tested (`category_tags`,
@@ -267,9 +272,10 @@ which means regressions won't be caught.
   histories. Don't merge them casually, and don't add a third store without
   documenting why. Neither is namespaced per user — `clear()` on logout is
   mandatory (already handled; keep it).
-- `assert isinstance(request.user, User)` in `nutrition/views.py` exists for
-  mypy narrowing. Asserts vanish under `python -O`; the current deployment
-  doesn't use `-O`, so this is fine — but prefer `typing.cast` in new code.
+- ~~`assert isinstance(request.user, User)` in `nutrition/views.py` exists
+  for mypy narrowing~~ — replaced with `typing.cast` (July 2026), so nothing
+  changes under `python -O`. Keep using `cast` (not `assert`) for
+  `request.user` narrowing in new views.
 - `NutritionEntry.id == 0` is the sentinel for "offline entry not yet
   assigned a server id" (`nutrition_repository.dart:436`,
   `food_models` mapping). It's documented at the definition; don't treat 0 as
@@ -296,7 +302,13 @@ which means regressions won't be caught.
 | 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
 | 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
 | 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (only crash-reporter wiring in main.dart pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
-| 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing — first pass done (both `build()`s split up, `_logOneItem`, add-food page tests) | Long-term velocity |
+| 5 | Incremental extraction of the two god pages + tests (P1/P4) | P4 **done**; P1 first pass done (both `build()`s split up, `_logOneItem`, barcode-scan steps) — keep extracting opportunistically | Long-term velocity |
+
+The only deferred item is wiring `appErrorLogger` to a crash reporter in
+`main.dart` (P3) — blocked on the Play Store work choosing one
+(`PLAY_STORE_ROADMAP.md`). Everything else in this report is resolved;
+P1's size rule (~80-line methods, ~500-line widget files) applies to new
+code and to sections as they are touched.
 | 6 | ~~Lint tightening + format CI step (P8)~~ **done** | ~1 h | Locks in current quality |
 | 7 | ~~Tokens + small dedup (P7); catalog drift check (Notes)~~ **done** | opportunistic | Consistency |
 

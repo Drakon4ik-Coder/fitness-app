@@ -57,14 +57,17 @@ class _FakeLocalDb extends FoodLocalDb {
   }
 }
 
-/// Backend foods API that never leaves the process: typeahead is empty, and
-/// anything that would mutate server state fails the test loudly.
+/// Backend foods API that never leaves the process: typeahead serves canned
+/// results, and anything that would mutate server state fails the test loudly.
 class _FakeFoodsApi extends FoodsApiService {
-  _FakeFoodsApi() : super(accessToken: 'test-token');
+  _FakeFoodsApi({this.typeaheadResults = const []})
+    : super(accessToken: 'test-token');
+
+  final List<FoodItem> typeaheadResults;
 
   @override
   Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
-      const [];
+      typeaheadResults;
 
   @override
   Future<FoodItem> upsertCustomFood(FoodItem item) async =>
@@ -76,7 +79,14 @@ class _FakeFoodsApi extends FoodsApiService {
 }
 
 class _FakeOffClient extends OffClient {
-  _FakeOffClient() : super(dio: Dio(), rateLimiter: OffRateLimiter());
+  _FakeOffClient({
+    this.searchResults = const [],
+    this.productsByBarcode = const {},
+  }) : super(dio: Dio(), rateLimiter: OffRateLimiter());
+
+  final List<OffProductResponse> searchResults;
+  final Map<String, OffProductResponse> productsByBarcode;
+  final List<String> fetchedBarcodes = [];
 
   @override
   Future<List<OffProductResponse>> searchProducts(
@@ -84,10 +94,39 @@ class _FakeOffClient extends OffClient {
     int pageSize = 10,
     String? categoryTag,
     CancelToken? cancelToken,
-  }) async => const [];
+  }) async => searchResults;
 
   @override
-  Future<OffProductResponse?> fetchProduct(String barcode) async => null;
+  Future<OffProductResponse?> fetchProduct(String barcode) async {
+    fetchedBarcodes.add(barcode);
+    return productsByBarcode[barcode];
+  }
+}
+
+/// An OFF search/product payload in the raw map shape [OffMapper] consumes.
+OffProductResponse makeOffResponse({
+  required String barcode,
+  required String name,
+  String? servingSize,
+  double completeness = 0.9,
+}) {
+  final product = {
+    'code': barcode,
+    'product_name': name,
+    'brands': 'Test Brand',
+    'completeness': completeness,
+    if (servingSize != null) 'serving_size': servingSize,
+    'nutriments': {
+      'energy-kcal_100g': 200,
+      'proteins_100g': 10,
+      'carbohydrates_100g': 20,
+      'fat_100g': 5,
+    },
+  };
+  return OffProductResponse(
+    product: product,
+    rawJson: '{"product": {"product_name": "$name"}}',
+  );
 }
 
 /// Repository over the in-memory store with a dead network, so createEntry
@@ -124,6 +163,9 @@ void main() {
     WidgetTester tester, {
     required _FakeLocalDb localDb,
     required NutritionRepository repository,
+    _FakeFoodsApi? foodsApi,
+    _FakeOffClient? offClient,
+    Future<String?> Function(BuildContext)? scanBarcode,
   }) async {
     late Future<bool?> result;
     await tester.pumpWidget(
@@ -136,11 +178,12 @@ void main() {
                 MaterialPageRoute(
                   builder: (_) => AddFoodPage(
                     localDb: localDb,
-                    foodsApi: _FakeFoodsApi(),
+                    foodsApi: foodsApi ?? _FakeFoodsApi(),
                     repository: repository,
-                    offClient: _FakeOffClient(),
+                    offClient: offClient ?? _FakeOffClient(),
                     onLogout: () async {},
                     selectedDate: DateUtils.dateOnly(DateTime.now()),
+                    scanBarcode: scanBarcode,
                   ),
                 ),
               );
@@ -153,6 +196,14 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     return result;
+  }
+
+  /// Types [query] and rides out the live-search debounce (300 ms) so the
+  /// backend + OFF results have landed.
+  Future<void> search(WidgetTester tester, String query) async {
+    await tester.enterText(find.byType(TextField), query);
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('quick-add from recents, then submit logs the entry and pops', (
@@ -240,5 +291,119 @@ void main() {
 
     expect(find.text('Search for a food or scan a barcode'), findsOneWidget);
     expect(find.text('Create custom food'), findsOneWidget);
+  });
+
+  testWidgets(
+    'search merges local, backend, and OFF results, deduping by barcode '
+    'and hiding low-completeness OFF hits',
+    (WidgetTester tester) async {
+      final localItem = makeTestFood(
+        name: 'Oatmeal Local',
+        backendId: null,
+      ).copyWith(barcode: '111');
+      // Backend re-serves the same barcode as the local hit (dedup) plus a
+      // distinct item of its own.
+      final backendDupe = makeTestFood(
+        name: 'Oatmeal Local Server Copy',
+        backendId: 41,
+      ).copyWith(barcode: '111');
+      final backendOnly = makeTestFood(name: 'Oatmeal Backend', backendId: 42);
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(recents: [localItem]),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        foodsApi: _FakeFoodsApi(typeaheadResults: [backendDupe, backendOnly]),
+        offClient: _FakeOffClient(
+          searchResults: [
+            makeOffResponse(barcode: '222', name: 'Oatmeal OFF'),
+            makeOffResponse(
+              barcode: '333',
+              name: 'Oatmeal Junk',
+              completeness: 0.2,
+            ),
+          ],
+        ),
+      );
+
+      await search(tester, 'oatmeal');
+
+      // Local wins the shared barcode; the backend copy is deduped away.
+      expect(find.text('Oatmeal Local', skipOffstage: false), findsOneWidget);
+      expect(find.text('Oatmeal Local Server Copy'), findsNothing);
+      expect(find.text('Oatmeal Backend', skipOffstage: false), findsOneWidget);
+      // OFF results pass the completeness floor; the sparse duplicate-prone
+      // hit is hidden while a good hit exists.
+      expect(find.text('Oatmeal OFF', skipOffstage: false), findsOneWidget);
+      expect(find.text('Oatmeal Junk', skipOffstage: false), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'tapping a serving-less OFF result enriches it first, so the quick-add '
+    'default lands on a whole serving',
+    (WidgetTester tester) async {
+      // OFF text search omits serving data; the full product carries it.
+      final off = _FakeOffClient(
+        searchResults: [makeOffResponse(barcode: '555', name: 'Choco Bar')],
+        productsByBarcode: {
+          '555': makeOffResponse(
+            barcode: '555',
+            name: 'Choco Bar',
+            servingSize: '30 g',
+          ),
+        },
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+      );
+
+      await search(tester, 'choco');
+      final card = find.text('Choco Bar', skipOffstage: false).first;
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      // The tap triggered exactly one enrichment fetch, and the staged
+      // amount is one 30 g serving (200 kcal/100g → 60 kcal), not 100 g.
+      expect(off.fetchedBarcodes, ['555']);
+      expect(find.text('1 serving (30 g) • 60 kcal'), findsOneWidget);
+    },
+  );
+
+  testWidgets('re-scanning the same barcode within the cooldown is ignored', (
+    WidgetTester tester,
+  ) async {
+    final off = _FakeOffClient(
+      productsByBarcode: {
+        '777': makeOffResponse(
+          barcode: '777',
+          name: 'Scanned Snack',
+          servingSize: '25 g',
+        ),
+      },
+    );
+    await pumpAddFoodPage(
+      tester,
+      localDb: _FakeLocalDb(),
+      repository: _offlineRepository(InMemoryNutritionStore()),
+      offClient: off,
+      scanBarcode: (_) async => '777',
+    );
+
+    await tester.tap(find.byTooltip('Scan barcode'));
+    await tester.pumpAndSettle();
+    expect(find.text('Scanned Snack', skipOffstage: false), findsOneWidget);
+    expect(off.fetchedBarcodes, ['777']);
+
+    // The camera fires repeatedly while the package stays in frame — a
+    // second hit inside the 3 s cooldown must not refetch.
+    await tester.tap(find.byTooltip('Scan barcode'));
+    await tester.pumpAndSettle();
+    expect(off.fetchedBarcodes, ['777']);
+    expect(find.text('Scanned Snack', skipOffstage: false), findsOneWidget);
   });
 }

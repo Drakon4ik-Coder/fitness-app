@@ -1,9 +1,9 @@
 from datetime import date, datetime, timedelta, tzinfo
 from decimal import Decimal
+from typing import cast
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.models import User
 from nutrients.catalog import NUTRIENT_CATALOG
 from nutrition.models import MealEntry
 from nutrition.serializers import (
@@ -34,8 +35,6 @@ from nutrition.utils import (
 )
 
 _NUTRIENT_SPEC_BY_KEY = {spec.key: spec for spec in NUTRIENT_CATALOG}
-
-User = get_user_model()
 
 _UTC = ZoneInfo("UTC")
 
@@ -91,9 +90,10 @@ class MealEntryCreateView(APIView):
         # sync) instead of duplicating the meal.
         client_uuid = serializer.validated_data.get("client_uuid")
         if client_uuid is not None:
-            assert isinstance(request.user, User)
+            # cast, not assert: asserts vanish under `python -O`.
+            user = cast(User, request.user)
             existing = MealEntry.objects.filter(
-                user=request.user, client_uuid=client_uuid
+                user=user, client_uuid=client_uuid
             ).first()
             if existing is not None:
                 output = MealEntrySerializer(existing, context={"request": request})
@@ -233,8 +233,7 @@ class NutritionDayView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
-        assert isinstance(request.user, User)
-        user = request.user
+        user = cast(User, request.user)
         zone = _user_zone(user)
 
         date_raw = request.query_params.get("date")
@@ -427,7 +426,7 @@ class MealEntrySyncView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
-        assert isinstance(request.user, User)
+        user = cast(User, request.user)
         raw_since = request.query_params.get("since")
         if not raw_since:
             payload = {
@@ -450,7 +449,7 @@ class MealEntrySyncView(APIView):
         limit = max(1, min(limit, SYNC_PAGE_LIMIT))
 
         rows = list(
-            MealEntry.objects.filter(user=request.user)
+            MealEntry.objects.filter(user=user)
             .filter(
                 Q(synced_at__gt=since_time) | Q(synced_at=since_time, id__gt=since_id)
             )
@@ -488,8 +487,7 @@ class MealTimesView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
-        assert isinstance(request.user, User)
-        user = request.user
+        user = cast(User, request.user)
         zone = _user_zone(user)
         key = meal_times_cache_key(user.pk, str(zone))
         meal_times = cache.get(key)
