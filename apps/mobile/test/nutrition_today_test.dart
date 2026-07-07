@@ -414,6 +414,100 @@ void main() {
     expect(find.byKey(const Key('pendingSyncChip')), findsNothing);
   });
 
+  testWidgets(
+    'failed first load shows Retry on the error banner and it recovers',
+    (WidgetTester tester) async {
+      var failRequests = true;
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (failRequests) {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.connectionError,
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _dayPayload(date: _todayKey(), kcal: 1200),
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Nothing cached for the day, so the failure surfaces with a way out.
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('1200'), findsNothing);
+
+      failRequests = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('1200'), findsOneWidget);
+    },
+  );
+
+  testWidgets('pull-to-refresh re-syncs the day', (WidgetTester tester) async {
+    var requestCount = 0;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requestCount++;
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 900),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+          localStore: InMemoryNutritionStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final before = requestCount;
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 400),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(requestCount, greaterThan(before));
+  });
+
   testWidgets('first open full-fetches the day and seeds the local store', (
     WidgetTester tester,
   ) async {

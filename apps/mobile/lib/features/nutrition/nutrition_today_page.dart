@@ -610,117 +610,126 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
               ),
             ),
             SafeArea(
-              child: CustomScrollView(
-                slivers: [
-                  // Wordmark scrolls away with the content; only the compact
-                  // date bar below stays pinned (KAN-34).
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: AppSpacing.xs),
-                      child: Center(
-                        child: Text(
-                          'SYMBIO',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: LuminaHealthColors.primary.withValues(
-                              alpha: 0.6,
+              // Manual re-sync after connectivity returns (KAN-55). The
+              // always-scrollable physics keep the gesture available even
+              // when the day's content fits on one screen.
+              child: RefreshIndicator(
+                onRefresh: _loadDay,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    // Wordmark scrolls away with the content; only the compact
+                    // date bar below stays pinned (KAN-34).
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xs),
+                        child: Center(
+                          child: Text(
+                            'SYMBIO',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: LuminaHealthColors.primary.withValues(
+                                alpha: 0.6,
+                              ),
+                              letterSpacing: 2.0,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
                             ),
-                            letterSpacing: 2.0,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  _DateBar(
-                    dateLabel: _dateLabel(),
-                    isToday: isToday,
-                    showSpinner: _showSpinner,
-                    onPreviousDay: () => _changeDate(-1),
-                    onNextDay: () => _changeDate(1),
-                    onPickDate: () => _pickDate(context),
-                    onSetToday: _setTodayDate,
-                  ),
-                  if (_pendingSyncCount > 0)
-                    SliverToBoxAdapter(
-                      child: _PendingSyncChip(count: _pendingSyncCount),
+                    _DateBar(
+                      dateLabel: _dateLabel(),
+                      isToday: isToday,
+                      showSpinner: _showSpinner,
+                      onPreviousDay: () => _changeDate(-1),
+                      onNextDay: () => _changeDate(1),
+                      onPickDate: () => _pickDate(context),
+                      onSetToday: _setTodayDate,
                     ),
-                  if (_errorMessage != null)
+                    if (_pendingSyncCount > 0)
+                      SliverToBoxAdapter(
+                        child: _PendingSyncChip(count: _pendingSyncCount),
+                      ),
+                    if (_errorMessage != null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                          ),
+                          child: InlineBanner(
+                            message: _errorMessage!,
+                            tone: InlineBannerTone.error,
+                            actionLabel: 'Retry',
+                            onAction: _loadDay,
+                          ),
+                        ),
+                      ),
+                    // Hero Biometric Section
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          AppSpacing.sm,
-                          AppSpacing.lg,
-                          AppSpacing.sm,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg,
+                          vertical: AppSpacing.md,
                         ),
-                        child: InlineBanner(
-                          message: _errorMessage!,
-                          tone: InlineBannerTone.error,
+                        child: _HeroSection(
+                          ringProgress: ringProgress,
+                          ringColor: ringColor,
+                          kcalOver: kcalOver,
+                          kcalCenterValue: kcalCenterValue,
+                          eatenKcal: eatenKcal,
+                          burnedKcal: burnedKcal,
+                          onAddFood: () => _openAddFoodSheet(context),
                         ),
                       ),
                     ),
-                  // Hero Biometric Section
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.lg,
-                        vertical: AppSpacing.md,
-                      ),
-                      child: _HeroSection(
-                        ringProgress: ringProgress,
-                        ringColor: ringColor,
-                        kcalOver: kcalOver,
-                        kcalCenterValue: kcalCenterValue,
-                        eatenKcal: eatenKcal,
-                        burnedKcal: burnedKcal,
-                        onAddFood: () => _openAddFoodSheet(context),
-                      ),
-                    ),
-                  ),
-                  // Macro Breakdown
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.lg,
-                        vertical: AppSpacing.md,
-                      ),
-                      child: _FocusCard(
-                        summaries: focusSummaries,
-                        warnNutrients: _warnNutrients,
-                      ),
-                    ),
-                  ),
-                  // Full nutrient breakdown entry point
-                  SliverToBoxAdapter(
-                    child: _ViewFullNutrientsLink(
-                      onTap: () => _openNutrientDetail(context),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _DailyLogsHeader(totalEntries: totalEntries),
-                  ),
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final meal = mealSummaries[index];
-                      return Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          index == 0 ? 0 : AppSpacing.md,
-                          AppSpacing.lg,
-                          0,
+                    // Macro Breakdown
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg,
+                          vertical: AppSpacing.md,
                         ),
-                        child: _MealCard(
-                          meal: meal,
-                          onTap: () => _openMealDetails(context, meal),
+                        child: _FocusCard(
+                          summaries: focusSummaries,
+                          warnNutrients: _warnNutrients,
                         ),
-                      );
-                    }, childCount: mealSummaries.length),
-                  ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.xxl),
-                  ),
-                ],
+                      ),
+                    ),
+                    // Full nutrient breakdown entry point
+                    SliverToBoxAdapter(
+                      child: _ViewFullNutrientsLink(
+                        onTap: () => _openNutrientDetail(context),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _DailyLogsHeader(totalEntries: totalEntries),
+                    ),
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final meal = mealSummaries[index];
+                        return Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            index == 0 ? 0 : AppSpacing.md,
+                            AppSpacing.lg,
+                            0,
+                          ),
+                          child: _MealCard(
+                            meal: meal,
+                            onTap: () => _openMealDetails(context, meal),
+                          ),
+                        );
+                      }, childCount: mealSummaries.length),
+                    ),
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: AppSpacing.xxl),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
