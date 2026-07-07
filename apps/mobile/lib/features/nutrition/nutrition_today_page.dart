@@ -744,10 +744,10 @@ class _DateBar extends StatelessWidget {
               children: [
                 Flexible(
                   child: InkWell(
+                    // No onDoubleTap here: a second recognizer forces every
+                    // tap to wait out the ~300ms disambiguation window
+                    // (KAN-57). The Today chip covers the jump-to-today case.
                     onTap: onPickDate,
-                    // Kept as a shortcut; the Today chip is the
-                    // discoverable affordance.
-                    onDoubleTap: onSetToday,
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
