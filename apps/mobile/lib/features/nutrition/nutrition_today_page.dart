@@ -600,118 +600,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                       ),
                     ),
                   ),
-                  // Pinned compact date bar so the viewed day is visible at
-                  // any scroll position. Transparent at rest (the hero
-                  // gradient shows through); opaque once meal cards scroll
-                  // under it so they don't visually collide.
-                  SliverAppBar(
-                    pinned: true,
-                    primary: false,
-                    automaticallyImplyLeading: false,
-                    toolbarHeight: 52,
-                    titleSpacing: AppSpacing.sm,
-                    backgroundColor: WidgetStateColor.resolveWith(
-                      (states) => states.contains(WidgetState.scrolledUnder)
-                          ? scheme.surface
-                          : Colors.transparent,
-                    ),
-                    title: Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Previous day',
-                          icon: const Icon(Icons.chevron_left),
-                          color: LuminaHealthColors.primary,
-                          onPressed: () => _changeDate(-1),
-                        ),
-                        Expanded(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Flexible(
-                                child: InkWell(
-                                  onTap: () => _pickDate(context),
-                                  // Kept as a shortcut; the Today chip is the
-                                  // discoverable affordance.
-                                  onDoubleTap: () => _setTodayDate(),
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: AppSpacing.sm,
-                                      vertical: AppSpacing.xs,
-                                    ),
-                                    child: Text(
-                                      _dateLabel(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.titleLarge
-                                          ?.copyWith(
-                                            color: LuminaHealthColors.primary,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (!isToday)
-                                Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: AppSpacing.sm,
-                                  ),
-                                  child: ActionChip(
-                                    key: const Key('todayChip'),
-                                    tooltip: 'Back to today',
-                                    onPressed: _setTodayDate,
-                                    visualDensity: VisualDensity.compact,
-                                    backgroundColor: scheme.primary.withValues(
-                                      alpha: 0.1,
-                                    ),
-                                    side: BorderSide(
-                                      color: scheme.primary.withValues(
-                                        alpha: 0.3,
-                                      ),
-                                    ),
-                                    label: Text(
-                                      'Today',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                            color: scheme.primary,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Next day',
-                          icon: const Icon(Icons.chevron_right),
-                          color: isToday ? null : LuminaHealthColors.primary,
-                          onPressed: isToday ? null : () => _changeDate(1),
-                        ),
-                      ],
-                    ),
-                    // Always-reserved slot for the loading bar so its
-                    // appearance doesn't shift content (KAN-25).
-                    bottom: PreferredSize(
-                      preferredSize: const Size.fromHeight(2),
-                      child: SizedBox(
-                        height: 2,
-                        child: _showSpinner
-                            ? Padding(
-                                key: const Key("nutritionLoadingSpinner"),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.lg,
-                                ),
-                                child: LinearProgressIndicator(
-                                  minHeight: 2,
-                                  color: scheme.primary,
-                                  backgroundColor: scheme.surfaceContainer,
-                                ),
-                              )
-                            : null,
-                      ),
-                    ),
+                  _DateBar(
+                    dateLabel: _dateLabel(),
+                    isToday: isToday,
+                    showSpinner: _showSpinner,
+                    onPreviousDay: () => _changeDate(-1),
+                    onNextDay: () => _changeDate(1),
+                    onPickDate: () => _pickDate(context),
+                    onSetToday: _setTodayDate,
                   ),
                   if (_errorMessage != null)
                     SliverToBoxAdapter(
@@ -735,163 +631,14 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         horizontal: AppSpacing.lg,
                         vertical: AppSpacing.md,
                       ),
-                      child: Column(
-                        children: [
-                          // Central ring
-                          SizedBox(
-                            height: 288,
-                            width: 288,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                GlowingProgressRing(
-                                  progress: ringProgress,
-                                  size: 288,
-                                  thickness: 12,
-                                  trackColor: scheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.5),
-                                  progressColor: ringColor,
-                                  glowColor: ringColor,
-                                  glowLevel: PulseGlowLevel.high,
-                                ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      kcalOver
-                                          ? '+$kcalCenterValue'
-                                          : '$kcalCenterValue',
-                                      style: theme.textTheme.displayLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                            height: 1,
-                                            color: kcalOver
-                                                ? LuminaHealthColors.warning
-                                                : null,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      kcalOver ? 'OVER' : 'LEFT',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 2.0,
-                                            color: kcalOver
-                                                ? LuminaHealthColors.warning
-                                                : scheme.onSurfaceVariant,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    IconButton(
-                                      onPressed: () =>
-                                          _openAddFoodSheet(context),
-                                      icon: const Icon(Icons.add),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: scheme.primary
-                                            .withValues(alpha: 0.1),
-                                        foregroundColor: scheme.primary,
-                                        side: BorderSide(
-                                          color: scheme.primary.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-                          // Kinetic Stats Grid
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'EATEN',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 2.0,
-                                            color: scheme.onSurfaceVariant,
-                                            fontSize: 10,
-                                          ),
-                                    ),
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.baseline,
-                                      textBaseline: TextBaseline.alphabetic,
-                                      children: [
-                                        Text(
-                                          '$eatenKcal',
-                                          style: theme.textTheme.headlineLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: scheme.primary,
-                                              ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'kcal',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color: scheme.onSurfaceVariant,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'BURNED',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 2.0,
-                                            color: scheme.onSurfaceVariant,
-                                            fontSize: 10,
-                                          ),
-                                    ),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.baseline,
-                                      textBaseline: TextBaseline.alphabetic,
-                                      children: [
-                                        Text(
-                                          '$burnedKcal',
-                                          style: theme.textTheme.headlineLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color:
-                                                    LuminaHealthColors.tertiary,
-                                              ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'kcal',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color: scheme.onSurfaceVariant,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      child: _HeroSection(
+                        ringProgress: ringProgress,
+                        ringColor: ringColor,
+                        kcalOver: kcalOver,
+                        kcalCenterValue: kcalCenterValue,
+                        eatenKcal: eatenKcal,
+                        burnedKcal: burnedKcal,
+                        onAddFood: () => _openAddFoodSheet(context),
                       ),
                     ),
                   ),
@@ -902,104 +649,17 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         horizontal: AppSpacing.lg,
                         vertical: AppSpacing.md,
                       ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerLow.withValues(
-                            alpha: 0.5,
-                          ),
-                          borderRadius: BorderRadius.circular(AppRadius.lg),
-                          border: Border.all(
-                            color: LuminaHealthColors.hairline,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: LuminaHealthColors.hairline,
-                              offset: const Offset(0, 2),
-                              blurRadius: 4,
-                              spreadRadius: 0,
-                              blurStyle: BlurStyle.inner,
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(AppSpacing.md),
-                        child: _buildFocusLayout(context, focusSummaries),
-                      ),
+                      child: _FocusCard(summaries: focusSummaries),
                     ),
                   ),
                   // Full nutrient breakdown entry point
                   SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.lg,
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => _openNutrientDetail(context),
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.sm,
-                              vertical: AppSpacing.md,
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.insights,
-                                  size: 18,
-                                  color: scheme.primary,
-                                ),
-                                const SizedBox(width: AppSpacing.sm),
-                                Expanded(
-                                  child: Text(
-                                    'View full nutrients',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: scheme.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.chevron_right,
-                                  color: scheme.primary,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+                    child: _ViewFullNutrientsLink(
+                      onTap: () => _openNutrientDetail(context),
                     ),
                   ),
-                  // Daily Logs Header
                   SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        AppSpacing.sm,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'Daily Logs',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: scheme.onSurface,
-                            ),
-                          ),
-                          Text(
-                            '$totalEntries entries',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    child: _DailyLogsHeader(totalEntries: totalEntries),
                   ),
                   SliverList(
                     delegate: SliverChildBuilderDelegate((context, index) {
@@ -1029,73 +689,401 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       ),
     );
   }
+}
 
-  /// The focus tiles laid out for the card: a single row for up to three, a
-  /// 2×2 grid for four (four labels + values in one row would be cramped).
-  /// Slot accents come from [LuminaHealthColors.focusAccents] so the card
-  /// matches the amount-sheet pills and add-meal summary.
-  Widget _buildFocusLayout(
-    BuildContext context,
-    List<_FocusSummary> summaries,
-  ) {
+/// Pinned compact date bar so the viewed day is visible at any scroll
+/// position. Transparent at rest (the hero gradient shows through); opaque
+/// once meal cards scroll under it so they don't visually collide. Reserves
+/// a fixed slot for the loading bar so its appearance doesn't shift content
+/// (KAN-25).
+class _DateBar extends StatelessWidget {
+  const _DateBar({
+    required this.dateLabel,
+    required this.isToday,
+    required this.showSpinner,
+    required this.onPreviousDay,
+    required this.onNextDay,
+    required this.onPickDate,
+    required this.onSetToday,
+  });
+
+  final String dateLabel;
+  final bool isToday;
+  final bool showSpinner;
+  final VoidCallback onPreviousDay;
+  final VoidCallback onNextDay;
+  final VoidCallback onPickDate;
+  final VoidCallback onSetToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return SliverAppBar(
+      pinned: true,
+      primary: false,
+      automaticallyImplyLeading: false,
+      toolbarHeight: 52,
+      titleSpacing: AppSpacing.sm,
+      backgroundColor: WidgetStateColor.resolveWith(
+        (states) => states.contains(WidgetState.scrolledUnder)
+            ? scheme.surface
+            : Colors.transparent,
+      ),
+      title: Row(
+        children: [
+          IconButton(
+            tooltip: 'Previous day',
+            icon: const Icon(Icons.chevron_left),
+            color: LuminaHealthColors.primary,
+            onPressed: onPreviousDay,
+          ),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: InkWell(
+                    onTap: onPickDate,
+                    // Kept as a shortcut; the Today chip is the
+                    // discoverable affordance.
+                    onDoubleTap: onSetToday,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Text(
+                        dateLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: LuminaHealthColors.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (!isToday)
+                  Padding(
+                    padding: const EdgeInsets.only(left: AppSpacing.sm),
+                    child: ActionChip(
+                      key: const Key('todayChip'),
+                      tooltip: 'Back to today',
+                      onPressed: onSetToday,
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: scheme.primary.withValues(alpha: 0.1),
+                      side: BorderSide(
+                        color: scheme.primary.withValues(alpha: 0.3),
+                      ),
+                      label: Text(
+                        'Today',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Next day',
+            icon: const Icon(Icons.chevron_right),
+            color: isToday ? null : LuminaHealthColors.primary,
+            onPressed: isToday ? null : onNextDay,
+          ),
+        ],
+      ),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(2),
+        child: SizedBox(
+          height: 2,
+          child: showSpinner
+              ? Padding(
+                  key: const Key("nutritionLoadingSpinner"),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                  ),
+                  child: LinearProgressIndicator(
+                    minHeight: 2,
+                    color: scheme.primary,
+                    backgroundColor: scheme.surfaceContainer,
+                  ),
+                )
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// The hero biometric block: calorie ring (remaining/over + add button) over
+/// the eaten/burned stats row.
+class _HeroSection extends StatelessWidget {
+  const _HeroSection({
+    required this.ringProgress,
+    required this.ringColor,
+    required this.kcalOver,
+    required this.kcalCenterValue,
+    required this.eatenKcal,
+    required this.burnedKcal,
+    required this.onAddFood,
+  });
+
+  final double ringProgress;
+  final Color ringColor;
+  final bool kcalOver;
+  final int kcalCenterValue;
+  final int eatenKcal;
+  final int burnedKcal;
+  final VoidCallback onAddFood;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        SizedBox(
+          height: 288,
+          width: 288,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              GlowingProgressRing(
+                progress: ringProgress,
+                size: 288,
+                thickness: 12,
+                trackColor: scheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
+                ),
+                progressColor: ringColor,
+                glowColor: ringColor,
+                glowLevel: PulseGlowLevel.high,
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    kcalOver ? '+$kcalCenterValue' : '$kcalCenterValue',
+                    style: theme.textTheme.displayLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                      color: kcalOver ? LuminaHealthColors.warning : null,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    kcalOver ? 'OVER' : 'LEFT',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2.0,
+                      color: kcalOver
+                          ? LuminaHealthColors.warning
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  IconButton(
+                    onPressed: onAddFood,
+                    icon: const Icon(Icons.add),
+                    style: IconButton.styleFrom(
+                      backgroundColor: scheme.primary.withValues(alpha: 0.1),
+                      foregroundColor: scheme.primary,
+                      side: BorderSide(
+                        color: scheme.primary.withValues(alpha: 0.2),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Row(
+          children: [
+            Expanded(
+              child: _KcalStat(
+                label: 'EATEN',
+                kcal: eatenKcal,
+                color: scheme.primary,
+                alignEnd: false,
+              ),
+            ),
+            Expanded(
+              child: _KcalStat(
+                label: 'BURNED',
+                kcal: burnedKcal,
+                color: LuminaHealthColors.tertiary,
+                alignEnd: true,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One labelled kcal figure of the eaten/burned pair under the ring.
+class _KcalStat extends StatelessWidget {
+  const _KcalStat({
+    required this.label,
+    required this.kcal,
+    required this.color,
+    required this.alignEnd,
+  });
+
+  final String label;
+  final int kcal;
+  final Color color;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2.0,
+            color: scheme.onSurfaceVariant,
+            fontSize: 10,
+          ),
+        ),
+        Row(
+          mainAxisAlignment: alignEnd
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              '$kcal',
+              style: theme.textTheme.headlineLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'kcal',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The bordered focus-nutrients card: a single row of tiles for up to three,
+/// a 2×2 grid for four (four labels + values in one row would be cramped).
+/// Slot accents come from [LuminaHealthColors.focusAccents] so the card
+/// matches the amount-sheet pills and add-meal summary.
+class _FocusCard extends StatelessWidget {
+  const _FocusCard({required this.summaries});
+
+  final List<_FocusSummary> summaries;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final tiles = [
       for (var i = 0; i < summaries.length; i++)
         Expanded(
-          child: _buildFocusTile(
-            context,
-            summaries[i],
-            LuminaHealthColors.focusAccents[i %
-                LuminaHealthColors.focusAccents.length],
+          child: _FocusTile(
+            summary: summaries[i],
+            accent: LuminaHealthColors
+                .focusAccents[i % LuminaHealthColors.focusAccents.length],
           ),
         ),
     ];
     const gap = SizedBox(width: AppSpacing.md);
-    if (tiles.length <= 3) {
-      return Row(
-        children: [
-          for (var i = 0; i < tiles.length; i++) ...[if (i > 0) gap, tiles[i]],
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: LuminaHealthColors.hairline),
+        boxShadow: [
+          BoxShadow(
+            color: LuminaHealthColors.hairline,
+            offset: const Offset(0, 2),
+            blurRadius: 4,
+            spreadRadius: 0,
+            blurStyle: BlurStyle.inner,
+          ),
         ],
-      );
-    }
-    return Column(
-      children: [
-        Row(children: [tiles[0], gap, tiles[1]]),
-        const SizedBox(height: AppSpacing.md),
-        Row(children: [tiles[2], gap, tiles[3]]),
-      ],
+      ),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: tiles.length <= 3
+          ? Row(
+              children: [
+                for (var i = 0; i < tiles.length; i++) ...[
+                  if (i > 0) gap,
+                  tiles[i],
+                ],
+              ],
+            )
+          : Column(
+              children: [
+                Row(children: [tiles[0], gap, tiles[1]]),
+                const SizedBox(height: AppSpacing.md),
+                Row(children: [tiles[2], gap, tiles[3]]),
+              ],
+            ),
     );
   }
+}
 
-  // How a nutrient reads once its goal is exceeded. Cautionary nutrients
-  // (sugars, sodium, ... and fat, historically) warn; carbs over is neutral
-  // information; everything else — protein, fiber, vitamins, minerals — hit
-  // their target, which is the goal, so they celebrate.
-  ({Color textColor, Color barColor, String suffix}) _overTreatment(
-    NutrientSpec spec,
-    Color accent,
-  ) {
-    if (spec.overIsBad || spec.key == 'fat') {
-      return (
-        textColor: LuminaHealthColors.warning,
-        barColor: LuminaHealthColors.warning,
-        suffix: 'over',
-      );
-    }
-    if (spec.key == 'carbs') {
-      return (
-        textColor: LuminaHealthColors.onSurfaceVariant,
-        barColor: accent,
-        suffix: 'over',
-      );
-    }
-    return (textColor: accent, barColor: accent, suffix: '✓');
+// How a nutrient reads once its goal is exceeded. Cautionary nutrients
+// (sugars, sodium, ... and fat, historically) warn; carbs over is neutral
+// information; everything else — protein, fiber, vitamins, minerals — hit
+// their target, which is the goal, so they celebrate.
+({Color textColor, Color barColor, String suffix}) _overTreatment(
+  NutrientSpec spec,
+  Color accent,
+) {
+  if (spec.overIsBad || spec.key == 'fat') {
+    return (
+      textColor: LuminaHealthColors.warning,
+      barColor: LuminaHealthColors.warning,
+      suffix: 'over',
+    );
   }
+  if (spec.key == 'carbs') {
+    return (
+      textColor: LuminaHealthColors.onSurfaceVariant,
+      barColor: accent,
+      suffix: 'over',
+    );
+  }
+  return (textColor: accent, barColor: accent, suffix: '✓');
+}
 
-  Widget _buildFocusTile(
-    BuildContext context,
-    _FocusSummary summary,
-    Color accent,
-  ) {
+/// One focus nutrient's tile: label + amount, progress toward the goal, and
+/// the left/over/incomplete/no-data status line.
+class _FocusTile extends StatelessWidget {
+  const _FocusTile({required this.summary, required this.accent});
+
+  final _FocusSummary summary;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final spec = summary.spec;
@@ -1185,6 +1173,92 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The tappable row leading to the full vitamins/minerals breakdown page.
+class _ViewFullNutrientsLink extends StatelessWidget {
+  const _ViewFullNutrientsLink({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.insights, size: 18, color: scheme.primary),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'View full nutrients',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: scheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Daily Logs" section heading with the day's entry count.
+class _DailyLogsHeader extends StatelessWidget {
+  const _DailyLogsHeader({required this.totalEntries});
+
+  final int totalEntries;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            'Daily Logs',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: scheme.onSurface,
+            ),
+          ),
+          Text(
+            '$totalEntries entries',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
