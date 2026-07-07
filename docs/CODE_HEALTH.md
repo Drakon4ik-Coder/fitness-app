@@ -62,6 +62,18 @@ Agents pattern-match. These are the patterns to match:
 
 ### P1 — Two god pages dominate the mobile codebase
 
+> **Progress (July 2026).** First extraction pass landed. `add_food_page`:
+> `build()` is down from ~435 to ~200 lines (`_MealTypeSelectorTile`,
+> `_SummaryBento`, `_AddedItemTile`, `_ResultsHeader`, `_EmptyResults`), and
+> the `_submitItems` loop body became a named `_logOneItem` step.
+> `nutrition_today_page`: `build()` is down from ~510 to ~165 lines
+> (`_DateBar`, `_HeroSection`/`_KcalStat`, `_FocusCard`/`_FocusTile`,
+> `_ViewFullNutrientsLink`, `_DailyLogsHeader`). The extracted widgets are
+> private classes in their page files — move them to
+> `features/nutrition/widgets/` once a second page needs one. The pages are
+> still large overall (state logic remains); keep extracting when touching a
+> section.
+
 **Problem.** `features/nutrition/add_food_page.dart` is **1,676 lines** and
 `nutrition_today_page.dart` is **1,365 lines**. Worst offenders inside them:
 
@@ -145,6 +157,14 @@ account-existence details (the generic messages there are intentional —
 `auth_service.dart` comments explain the enumeration defense).
 
 ### P4 — The biggest page has no page-level tests
+
+> **Progress (July 2026).** `add_food_page_test.dart` now covers the core
+> flows with hand-rolled fakes (no platform channels, no network): quick-add
+> from recents → submit → entry stored + outbox op queued via the offline
+> repository path, tap-added-item-opens-editor (no duplicate staging), and
+> the empty-results nudge. Search-merge, enrichment-on-tap, and
+> barcode-cooldown remain untested at the page level — add coverage when
+> touching those flows.
 
 **Problem.** `nutrition_today_page` has a widget test; `add_food_page` has
 **none** — only its extracted helpers are tested (`category_tags`,
@@ -276,7 +296,7 @@ which means regressions won't be caught.
 | 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
 | 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
 | 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (only crash-reporter wiring in main.dart pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
-| 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing | Long-term velocity |
+| 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing — first pass done (both `build()`s split up, `_logOneItem`, add-food page tests) | Long-term velocity |
 | 6 | ~~Lint tightening + format CI step (P8)~~ **done** | ~1 h | Locks in current quality |
 | 7 | ~~Tokens + small dedup (P7); catalog drift check (Notes)~~ **done** | opportunistic | Consistency |
 
