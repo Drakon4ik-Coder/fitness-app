@@ -354,11 +354,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         ),
       ),
     );
-    if (!mounted || didAdd != true) {
-      return;
-    }
-    await _loadDay();
+    // Reload even when the page reports no clean submit: a partially failed
+    // submit (KAN-53) has already logged some items, and backing out must not
+    // leave them off the day view. A no-op refetch when nothing changed.
     if (!mounted) return;
+    await _loadDay();
+    if (!mounted || didAdd != true) return;
     messenger.showSnackBar(
       const SnackBar(
         content: Text('Meal logged'),

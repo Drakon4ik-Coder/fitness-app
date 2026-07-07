@@ -740,37 +740,42 @@ class _AddFoodPageState extends State<AddFoodPage> {
       _messageTone = null;
     });
 
-    try {
-      final now = DateTime.now();
-      final consumedAt = DateTime(
-        widget.selectedDate.year,
-        widget.selectedDate.month,
-        widget.selectedDate.day,
-        now.hour,
-        now.minute,
-      );
+    final now = DateTime.now();
+    final consumedAt = DateTime(
+      widget.selectedDate.year,
+      widget.selectedDate.month,
+      widget.selectedDate.day,
+      now.hour,
+      now.minute,
+    );
 
-      for (final added in _addedItems) {
+    // Each success leaves _addedItems immediately: createEntry mints a fresh
+    // client uuid per call, so a retry after a mid-list failure would
+    // re-log everything still staged — dedup has to happen here (KAN-53).
+    for (final added in List.of(_addedItems)) {
+      try {
         await _logOneItem(added, consumedAt);
-      }
-
-      if (!mounted) return;
-      unawaited(HapticFeedback.mediumImpact());
-      Navigator.of(context).pop(true);
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+          if (!mounted) return;
+          setState(() => _isSubmitting = false);
+          return;
+        }
         if (!mounted) return;
-        setState(() => _isSubmitting = false);
+        setState(() {
+          _isSubmitting = false;
+          _message = 'Could not log ${added.item.name}: ${error.message}';
+          _messageTone = InlineBannerTone.error;
+        });
         return;
       }
-      if (!mounted) return;
-      setState(() {
-        _isSubmitting = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.error;
-      });
+      _addedItems.remove(added);
     }
+
+    if (!mounted) return;
+    unawaited(HapticFeedback.mediumImpact());
+    Navigator.of(context).pop(true);
   }
 
   String _resultsHeading(String query) {

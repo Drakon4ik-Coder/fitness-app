@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:fitness_app/core/app_log.dart';
 import 'package:fitness_app/features/nutrition/add_food_page.dart';
+import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
 import 'package:fitness_app/features/nutrition/data/food_local_db.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/foods_api_service.dart';
@@ -129,9 +130,7 @@ OffProductResponse makeOffResponse({
   );
 }
 
-/// Repository over the in-memory store with a dead network, so createEntry
-/// takes the offline path (KAN-28): entry stored locally, op queued.
-NutritionRepository _offlineRepository(NutritionLocalStore store) {
+Dio _deadNetworkDio() {
   final dio = Dio();
   dio.interceptors.add(
     InterceptorsWrapper(
@@ -145,10 +144,45 @@ NutritionRepository _offlineRepository(NutritionLocalStore store) {
       },
     ),
   );
+  return dio;
+}
+
+/// Repository over the in-memory store with a dead network, so createEntry
+/// takes the offline path (KAN-28): entry stored locally, op queued.
+NutritionRepository _offlineRepository(NutritionLocalStore store) {
   return NutritionRepository(
-    api: NutritionApiService(accessToken: 'test-token', dio: dio),
+    api: NutritionApiService(accessToken: 'test-token', dio: _deadNetworkDio()),
     store: store,
   );
+}
+
+/// Offline repository whose createEntry can be told to reject specific foods
+/// once — the shape of a mid-list submit failure (KAN-53).
+class _FlakyCreateRepository extends NutritionRepository {
+  _FlakyCreateRepository({required super.api, required super.store});
+
+  /// Food names whose next createEntry call throws; each fails only once.
+  final Set<String> failNextFor = {};
+  final List<String> createdFoods = [];
+
+  @override
+  Future<NutritionEntry> createEntry({
+    required FoodItem food,
+    required String mealType,
+    required double quantityG,
+    required DateTime consumedAt,
+  }) async {
+    if (failNextFor.remove(food.name)) {
+      throw ApiException('Server rejected the entry.');
+    }
+    createdFoods.add(food.name);
+    return super.createEntry(
+      food: food,
+      mealType: mealType,
+      quantityG: quantityG,
+      consumedAt: consumedAt,
+    );
+  }
 }
 
 void main() {
@@ -371,6 +405,58 @@ void main() {
       // amount is one 30 g serving (200 kcal/100g → 60 kcal), not 100 g.
       expect(off.fetchedBarcodes, ['555']);
       expect(find.text('1 serving (30 g) • 60 kcal'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'retry after a mid-list submit failure only re-attempts the failed items',
+    (WidgetTester tester) async {
+      final localDb = _FakeLocalDb(
+        recents: [
+          makeTestFood(name: 'Apple', backendId: 1),
+          makeTestFood(name: 'Banana', backendId: 2),
+          makeTestFood(name: 'Cherry', backendId: 3),
+        ],
+      );
+      final store = InMemoryNutritionStore();
+      final repository = _FlakyCreateRepository(
+        api: NutritionApiService(
+          accessToken: 'test-token',
+          dio: _deadNetworkDio(),
+        ),
+        store: store,
+      )..failNextFor.add('Banana');
+      final result = await pumpAddFoodPage(
+        tester,
+        localDb: localDb,
+        repository: repository,
+      );
+
+      for (final name in ['Apple', 'Banana', 'Cherry']) {
+        await tester.ensureVisible(find.text(name));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(name));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('3 items'), findsOneWidget);
+
+      await tester.tap(find.text('Log to Breakfast'));
+      await tester.pumpAndSettle();
+
+      // Apple was logged before Banana failed; the loop stopped there. Only
+      // the failure and what follows it stay staged, and the banner names
+      // the item that failed.
+      expect(store.entries, hasLength(1));
+      expect(find.text('2 items'), findsOneWidget);
+      expect(find.textContaining('Could not log Banana'), findsOneWidget);
+
+      // Retry re-attempts only Banana and Cherry — Apple is not duplicated.
+      await tester.tap(find.text('Log to Breakfast'));
+      await tester.pumpAndSettle();
+
+      expect(store.entries, hasLength(3));
+      expect(repository.createdFoods, ['Apple', 'Banana', 'Cherry']);
+      expect(await result, isTrue);
     },
   );
 
