@@ -655,6 +655,57 @@ class _AddFoodPageState extends State<AddFoodPage> {
     );
   }
 
+  /// Logs one staged item, in named steps: resolve a backend id (custom
+  /// upsert vs global ingest/check), best-effort image upload, persist the
+  /// food locally, create the entry (optimistic + offline-tolerant, KAN-28),
+  /// and touch the recents ordering.
+  Future<void> _logOneItem(_AddedFood added, DateTime consumedAt) async {
+    FoodItem selected = added.item;
+    bool imagesOk = false;
+    if (selected.backendId == null) {
+      if (selected.isCustom) {
+        // Custom foods sync through their owner-scoped upsert, never the
+        // OFF ingest/check flow (which rejects the custom source).
+        final synced = await widget.foodsApi.upsertCustomFood(selected);
+        selected = selected.copyWith(backendId: synced.backendId);
+      } else {
+        final (resolved, resolvedImagesOk) = await ensureGlobalBackendId(
+          selected,
+          foodsApi: widget.foodsApi,
+        );
+        selected = resolved;
+        imagesOk = resolvedImagesOk;
+      }
+    }
+    if (selected.backendId == null) {
+      throw ApiException('Unable to resolve food item id.');
+    }
+
+    if (!imagesOk) {
+      // Nice-to-have; never block logging the meal on it (e.g. offline
+      // with an already-resolved food).
+      try {
+        final uploaded = await _tryUploadImages(selected);
+        if (uploaded != null) selected = uploaded;
+      } on ApiException {
+        // Retried the next time this food is logged.
+      }
+    }
+
+    selected = await widget.localDb.upsertFood(selected);
+
+    await widget.repository.createEntry(
+      food: selected,
+      mealType: _selectedMeal.wireName,
+      quantityG: added.grams,
+      consumedAt: consumedAt,
+    );
+
+    if (selected.localId != null) {
+      await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
+    }
+  }
+
   Future<void> _submitItems() async {
     if (_addedItems.isEmpty) return;
 
@@ -675,53 +726,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       );
 
       for (final added in _addedItems) {
-        FoodItem selected = added.item;
-        bool imagesOk = false;
-        if (selected.backendId == null) {
-          if (selected.isCustom) {
-            // Custom foods sync through their owner-scoped upsert, never the
-            // OFF ingest/check flow (which rejects the custom source).
-            final synced = await widget.foodsApi.upsertCustomFood(selected);
-            selected = selected.copyWith(backendId: synced.backendId);
-          } else {
-            final (resolved, resolvedImagesOk) = await ensureGlobalBackendId(
-              selected,
-              foodsApi: widget.foodsApi,
-            );
-            selected = resolved;
-            imagesOk = resolvedImagesOk;
-          }
-        }
-        if (selected.backendId == null) {
-          throw ApiException('Unable to resolve food item id.');
-        }
-
-        if (!imagesOk) {
-          // Nice-to-have; never block logging the meal on it (e.g. offline
-          // with an already-resolved food).
-          try {
-            final uploaded = await _tryUploadImages(selected);
-            if (uploaded != null) selected = uploaded;
-          } on ApiException {
-            // Retried the next time this food is logged.
-          }
-        }
-
-        final stored = await widget.localDb.upsertFood(selected);
-        selected = stored;
-
-        // Optimistic + offline-tolerant (KAN-28): the entry lands in the local
-        // log immediately and replays to the server when connectivity returns.
-        await widget.repository.createEntry(
-          food: selected,
-          mealType: _selectedMeal.wireName,
-          quantityG: added.grams,
-          consumedAt: consumedAt,
-        );
-
-        if (selected.localId != null) {
-          await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
-        }
+        await _logOneItem(added, consumedAt);
       }
 
       if (!mounted) return;
@@ -966,124 +971,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Meal Type Selector
-            InkWell(
+            _MealTypeSelectorTile(
+              mealLabel: mealLabel,
               onTap: _showMealSelector,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.md,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.restaurant, color: scheme.secondary),
-                        const SizedBox(width: AppSpacing.md),
-                        Text(
-                          mealLabel,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
-                  ],
-                ),
-              ),
             ),
             const SizedBox(height: AppSpacing.lg),
 
-            // Summary Bar (Bento Style)
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 140,
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'TOTAL ENERGY',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            letterSpacing: 2.0,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
-                        ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              totalEnergy.round().toString(),
-                              style: theme.textTheme.displayMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: scheme.primary,
-                                height: 1,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'kcal',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    height: 140,
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        for (var i = 0; i < _focusSpecs.length; i++)
-                          _MacroSummaryRow(
-                            label: _focusSpecs[i].label,
-                            value: _focusValueText(
-                              focusTotals[i],
-                              _focusSpecs[i].unit,
-                            ),
-                            color:
-                                LuminaHealthColors.focusAccents[i %
-                                    LuminaHealthColors.focusAccents.length],
-                            progress:
-                                (focusTotals[i] /
-                                        (_focusSpecs[i].dailyTarget *
-                                            _mealShareOfDailyTarget))
-                                    .clamp(0.0, 1.0),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            _SummaryBento(
+              totalEnergy: totalEnergy,
+              focusSpecs: _focusSpecs,
+              focusTotals: focusTotals,
             ),
 
             // Added Items List
@@ -1105,76 +1002,15 @@ class _AddFoodPageState extends State<AddFoodPage> {
               ..._addedItems.asMap().entries.map((entry) {
                 final index = entry.key;
                 final added = entry.value;
-                final grams = added.grams;
-                final kcal = ((added.item.kcal100g ?? 0) * grams / 100).round();
-                final amountLabel = describeAmount(grams, added.item);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                  child: Material(
-                    color: scheme.surfaceContainerHighest.withValues(
-                      alpha: 0.4,
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                      onTap: () => _editAddedItem(index),
-                      // Long-press edits the food itself (custom foods only);
-                      // tap keeps editing the logged amount.
-                      onLongPress: added.item.isCustom
-                          ? () => _editCustomFood(added.item)
-                          : null,
-                      child: Padding(
-                        padding: const EdgeInsets.all(AppSpacing.md),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            FoodThumb(
-                              url:
-                                  added.item.imageUrl?.trim().isNotEmpty == true
-                                  ? added.item.imageUrl!.trim()
-                                  : null,
-                            ),
-                            const SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    added.item.name,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    '$amountLabel • $kcal kcal',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Icon(
-                              Icons.edit_outlined,
-                              size: 18,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: AppSpacing.xs),
-                            IconButton(
-                              icon: Icon(
-                                Icons.remove_circle,
-                                color: scheme.error,
-                              ),
-                              tooltip: 'Remove ${added.item.name}',
-                              onPressed: () =>
-                                  setState(() => _addedItems.removeAt(index)),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                return _AddedItemTile(
+                  added: added,
+                  onTap: () => _editAddedItem(index),
+                  // Long-press edits the food itself (custom foods only);
+                  // tap keeps editing the logged amount.
+                  onLongPress: added.item.isCustom
+                      ? () => _editCustomFood(added.item)
+                      : null,
+                  onRemove: () => setState(() => _addedItems.removeAt(index)),
                 );
               }),
             ],
@@ -1205,91 +1041,26 @@ class _AddFoodPageState extends State<AddFoodPage> {
             const SizedBox(height: AppSpacing.lg),
 
             // Food Grid (Quick Add / Search Results)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _resultsHeading(query).toUpperCase(),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      letterSpacing: 2.0,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 10,
-                    ),
-                  ),
-                  if (!hasQuery)
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                      ),
-                      onPressed: () {
-                        _selectFilter(
-                          _selectedFilter == _filterFavorites
-                              ? _filterRecent
-                              : _filterFavorites,
-                        );
-                      },
-                      child: Text(
-                        _selectedFilter == _filterFavorites
-                            ? 'View Recent'
-                            : 'View Favorites',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                ],
+            _ResultsHeader(
+              heading: _resultsHeading(query),
+              // The Recent/Favorites toggle only applies to the no-query list.
+              toggleLabel: hasQuery
+                  ? null
+                  : _selectedFilter == _filterFavorites
+                  ? 'View Recent'
+                  : 'View Favorites',
+              onToggleFilter: () => _selectFilter(
+                _selectedFilter == _filterFavorites
+                    ? _filterRecent
+                    : _filterFavorites,
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
 
             if (results.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Icon(
-                        hasQuery ? Icons.search_off : Icons.restaurant_menu,
-                        size: 40,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        hasQuery
-                            ? 'No foods found for "${query.trim()}"'
-                            : 'Search for a food or scan a barcode',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      if (hasQuery) ...[
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          'Try a different spelling or scan the package.',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant.withValues(
-                              alpha: 0.7,
-                            ),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: AppSpacing.md),
-                      OutlinedButton.icon(
-                        onPressed: _openCustomFoodPage,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Create custom food'),
-                      ),
-                    ],
-                  ),
-                ),
+              _EmptyResults(
+                query: query.trim(),
+                onCreateCustomFood: _openCustomFoodPage,
               )
             else
               GridView.builder(
@@ -1374,6 +1145,343 @@ class _MacroSummaryRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
         ),
       ],
+    );
+  }
+}
+
+/// The tappable row showing which meal the staged items will be logged to.
+class _MealTypeSelectorTile extends StatelessWidget {
+  const _MealTypeSelectorTile({required this.mealLabel, required this.onTap});
+
+  final String mealLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.restaurant, color: scheme.secondary),
+                const SizedBox(width: AppSpacing.md),
+                Text(
+                  mealLabel,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The bento summary pair: total energy of the staged items next to their
+/// focus-nutrient totals (same nutrients the today page tracks).
+class _SummaryBento extends StatelessWidget {
+  const _SummaryBento({
+    required this.totalEnergy,
+    required this.focusSpecs,
+    required this.focusTotals,
+  });
+
+  final double totalEnergy;
+  final List<NutrientSpec> focusSpecs;
+  final List<double> focusTotals;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            height: 140,
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'TOTAL ENERGY',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    letterSpacing: 2.0,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      totalEnergy.round().toString(),
+                      style: theme.textTheme.displayMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: scheme.primary,
+                        height: 1,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'kcal',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            height: 140,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                for (var i = 0; i < focusSpecs.length; i++)
+                  _MacroSummaryRow(
+                    label: focusSpecs[i].label,
+                    value: _focusValueText(focusTotals[i], focusSpecs[i].unit),
+                    color:
+                        LuminaHealthColors.focusAccents[i %
+                            LuminaHealthColors.focusAccents.length],
+                    progress:
+                        (focusTotals[i] /
+                                (focusSpecs[i].dailyTarget *
+                                    _mealShareOfDailyTarget))
+                            .clamp(0.0, 1.0),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One staged item in the Added list: thumb, amount + kcal line, and the
+/// edit/remove affordances.
+class _AddedItemTile extends StatelessWidget {
+  const _AddedItemTile({
+    required this.added,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onRemove,
+  });
+
+  final _AddedFood added;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final grams = added.grams;
+    final kcal = ((added.item.kcal100g ?? 0) * grams / 100).round();
+    final amountLabel = describeAmount(grams, added.item);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                FoodThumb(
+                  url: added.item.imageUrl?.trim().isNotEmpty == true
+                      ? added.item.imageUrl!.trim()
+                      : null,
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        added.item.name,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '$amountLabel • $kcal kcal',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.edit_outlined,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                IconButton(
+                  icon: Icon(Icons.remove_circle, color: scheme.error),
+                  tooltip: 'Remove ${added.item.name}',
+                  onPressed: onRemove,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The results-section heading plus the Recent/Favorites toggle (shown only
+/// when browsing without a query — pass a null [toggleLabel] to hide it).
+class _ResultsHeader extends StatelessWidget {
+  const _ResultsHeader({
+    required this.heading,
+    required this.toggleLabel,
+    required this.onToggleFilter,
+  });
+
+  final String heading;
+  final String? toggleLabel;
+  final VoidCallback onToggleFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            heading.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              letterSpacing: 2.0,
+              fontWeight: FontWeight.bold,
+              fontSize: 10,
+            ),
+          ),
+          if (toggleLabel != null)
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+              ),
+              onPressed: onToggleFilter,
+              child: Text(
+                toggleLabel!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Empty results state: nudges toward search/scan when browsing, or toward a
+/// respelling/scan/custom food when a query found nothing.
+class _EmptyResults extends StatelessWidget {
+  const _EmptyResults({required this.query, required this.onCreateCustomFood});
+
+  final String query;
+  final VoidCallback onCreateCustomFood;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final hasQuery = query.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              hasQuery ? Icons.search_off : Icons.restaurant_menu,
+              size: 40,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              hasQuery
+                  ? 'No foods found for "$query"'
+                  : 'Search for a food or scan a barcode',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            if (hasQuery) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Try a different spelling or scan the package.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              onPressed: onCreateCustomFood,
+              icon: const Icon(Icons.add),
+              label: const Text('Create custom food'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
