@@ -371,6 +371,80 @@ void main() {
     expect(find.text('Protein · Fat · Fiber · Sugars'), findsOneWidget);
   });
 
+  testWidgets('warnings page saves opted-in nutrients (KAN-38)', (
+    tester,
+  ) async {
+    enlargeView(tester);
+
+    Map<String, dynamic>? patchedPrefsBody;
+
+    final prefsDio = _stubDio((options, handler) {
+      if (options.method == 'PATCH') {
+        patchedPrefsBody = Map<String, dynamic>.from(options.data as Map);
+      }
+      handler.resolve(
+        Response(
+          requestOptions: options,
+          statusCode: 200,
+          data: {
+            'weight_unit': 'kg',
+            'height_unit': 'cm',
+            'energy_unit': 'kcal',
+            'warn_nutrients': ['sugars', 'sodium'],
+          },
+        ),
+      );
+    });
+
+    UserPreferences? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: AccountPage(
+          accessToken: 'token',
+          preferencesApi: PreferencesApiService(
+            accessToken: 'token',
+            dio: prefsDio,
+          ),
+          authService: AuthService(dio: authStub()),
+          onLogout: () async {},
+          initialPreferences: const UserPreferences(),
+          onSaved: (prefs) => saved = prefs,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Fresh account: only calories warn.
+    expect(find.text('Over-goal warnings'), findsOneWidget);
+    expect(find.text('Calories only'), findsOneWidget);
+
+    await tester.tap(find.text('Over-goal warnings'));
+    await tester.pumpAndSettle();
+
+    // Nothing is pre-enabled; opting in is an explicit act.
+    final sugarsChip = tester.widget<FilterChip>(
+      find.byKey(const Key('warnChoice_sugars')),
+    );
+    expect(sugarsChip.selected, isFalse);
+
+    await tester.tap(find.byKey(const Key('warnChoice_sugars')));
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('warnChoice_sodium')));
+    await tester.tap(find.byKey(const Key('warnChoice_sodium')));
+    await tester.pump();
+
+    await tester.ensureVisible(find.text('Save changes'));
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+
+    // Stored in catalog order; the hub summary refreshes from the snapshot.
+    expect(patchedPrefsBody, isNotNull);
+    expect(patchedPrefsBody!['warn_nutrients'], ['sugars', 'sodium']);
+    expect(saved?.warnNutrients, ['sugars', 'sodium']);
+    expect(find.text('Calories + 2 nutrients'), findsOneWidget);
+  });
+
   testWidgets('backing out of a dirty goals page asks before discarding', (
     tester,
   ) async {

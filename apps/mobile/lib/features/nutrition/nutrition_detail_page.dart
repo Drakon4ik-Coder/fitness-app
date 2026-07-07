@@ -22,6 +22,7 @@ class NutritionDetailPage extends StatelessWidget {
     required this.entries,
     this.serverNutrients,
     this.nutrientGoals,
+    this.warnNutrients = const {},
   });
 
   final String dateLabel;
@@ -36,6 +37,9 @@ class NutritionDetailPage extends StatelessWidget {
   /// The user's per-nutrient goal overrides (catalog key → target). Layered over
   /// the catalog defaults so this page's targets match the today page's.
   final Map<String, double>? nutrientGoals;
+
+  /// Catalog keys the user opted into over-goal warnings for (KAN-38).
+  final Set<String> warnNutrients;
 
   @override
   Widget build(BuildContext context) {
@@ -93,6 +97,7 @@ class NutritionDetailPage extends StatelessWidget {
             ),
             NutrientBreakdownView(
               totals: totals,
+              warnNutrients: warnNutrients,
               onNutrientTap: (total) => showNutrientContributorSheet(
                 context,
                 spec: total.spec,

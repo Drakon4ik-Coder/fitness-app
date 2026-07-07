@@ -25,8 +25,10 @@ extension NutrientGroupLabel on NutrientGroup {
 /// stores the value under `<offKey>_100g` and its unit under `<offKey>_unit`.
 ///
 /// [unit] is the canonical unit we display and in which [dailyTarget] is
-/// expressed. [overIsBad] flags nutrients where exceeding the target is a
-/// cautionary state (sodium, sugars, saturated fat) rather than a goal to hit.
+/// expressed. [overIsBad] flags restrict-type nutrients (sodium, sugars,
+/// saturated fat): exceeding their target never celebrates, and they're the
+/// suggested defaults for the opt-in over-goal warnings (KAN-38) — it does not
+/// force a warning by itself.
 class NutrientSpec {
   const NutrientSpec({
     required this.key,
@@ -95,6 +97,36 @@ List<NutrientSpec> resolveCatalog(
       }(),
   ];
 }
+
+/// How an exceeded goal reads on any surface (KAN-38): amber warning only when
+/// the user opted the nutrient in; hitting a target-type goal (protein, fiber,
+/// vitamins, minerals) is a win; overshooting a restrict-type nutrient the user
+/// hasn't opted into warning for is neutral information, not a nag.
+enum OverGoalTreatment { warn, celebrate, neutral }
+
+/// Resolves the over-goal treatment for [spec] against the user's opt-in
+/// [warnNutrients] set (from `UserPreferences.warnNutrients`). Which nutrients
+/// deserve a warning is a personal-goal question, so nothing warns by default —
+/// [kSuggestedWarnNutrients] is only the settings page's suggestion.
+OverGoalTreatment overGoalTreatment(
+  NutrientSpec spec,
+  Set<String> warnNutrients,
+) {
+  if (warnNutrients.contains(spec.key)) return OverGoalTreatment.warn;
+  // Restrict-type nutrients plus the energy macros: exceeding these is not a
+  // goal met, but it only warns when the user asked it to.
+  if (spec.overIsBad || spec.key == 'carbs' || spec.key == 'fat') {
+    return OverGoalTreatment.neutral;
+  }
+  return OverGoalTreatment.celebrate;
+}
+
+/// The catalog's cautionary nutrients, offered as pre-suggested (but unchecked
+/// by default) warning toggles in settings.
+List<String> get kSuggestedWarnNutrients => [
+  for (final spec in kNutrientCatalog)
+    if (spec.overIsBad) spec.key,
+];
 
 /// Default daily energy budget used until the user sets [UserPreferences.calorieGoal].
 const int kDefaultCalorieGoal = 2200;
@@ -431,10 +463,9 @@ class NutrientTotal {
     return ratio.clamp(0.0, 1.0).toDouble();
   }
 
-  /// Whether the amount exceeds the target for a nutrient where that's a
-  /// cautionary state (sodium, sugars, etc.).
-  bool get isOverLimit =>
-      spec.overIsBad && amount != null && amount! > spec.dailyTarget;
+  /// Whether the amount exceeds the daily target. How that reads (warn /
+  /// celebrate / neutral) is the user's call — see [overGoalTreatment].
+  bool get isOverTarget => amount != null && amount! > spec.dailyTarget;
 }
 
 /// Builds the catalog-aligned totals from the server's per-day `nutrients` map

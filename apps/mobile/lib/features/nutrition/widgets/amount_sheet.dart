@@ -186,6 +186,7 @@ Future<AmountResult?> showAmountSheet({
   required bool isEditing,
   String? initialMealType,
   List<NutrientSpec>? focusSpecs,
+  Set<String> warnNutrients = const {},
   Future<FoodItem?> Function(FoodItem item)? onViewDetails,
 }) {
   return showModalBottomSheet<AmountResult>(
@@ -199,6 +200,7 @@ Future<AmountResult?> showAmountSheet({
       isEditing: isEditing,
       initialMealType: initialMealType,
       focusSpecs: focusSpecs,
+      warnNutrients: warnNutrients,
       onViewDetails: onViewDetails,
     ),
   );
@@ -212,6 +214,7 @@ class AmountSheet extends StatefulWidget {
     required this.isEditing,
     this.initialMealType,
     this.focusSpecs,
+    this.warnNutrients = const {},
     this.onViewDetails,
   });
 
@@ -225,6 +228,10 @@ class AmountSheet extends StatefulWidget {
   /// The user's focus nutrients (goal-resolved, in display order), shown as the
   /// live-preview pills. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
+
+  /// Catalog keys the user opted into over-goal warnings for (KAN-38),
+  /// forwarded to the expandable nutrition-facts breakdown.
+  final Set<String> warnNutrients;
 
   /// Opens the food detail page for the sheet's food (KAN-33), resolving with
   /// the updated item when it was edited there (null = unchanged). When set,
@@ -777,6 +784,7 @@ class _AmountSheetState extends State<AmountSheet> {
                       ? NutrientBreakdownView(
                           totals: nutrientTotals,
                           showEmptyRows: false,
+                          warnNutrients: widget.warnNutrients,
                         )
                       : const SizedBox(width: double.infinity),
                 ),

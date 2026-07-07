@@ -18,11 +18,17 @@ class NutrientBreakdownView extends StatelessWidget {
     this.showEmptyRows = true,
     this.emptyDataMessage = 'No detailed nutrient data for this food.',
     this.onNutrientTap,
+    this.warnNutrients = const {},
   });
 
   final List<NutrientTotal> totals;
   final bool showEmptyRows;
   final String emptyDataMessage;
+
+  /// Catalog keys the user opted into over-goal warnings for (KAN-38). Only
+  /// these rows go amber when over target; everything else stays neutral or
+  /// celebrates per [overGoalTreatment].
+  final Set<String> warnNutrients;
 
   /// When set, rows that have data become tappable (e.g. to reveal which foods
   /// contribute the nutrient). Rows with no data stay inert. Left null by the
@@ -47,6 +53,7 @@ class NutrientBreakdownView extends StatelessWidget {
             title: group.label,
             totals: byGroup[group]!,
             onNutrientTap: onNutrientTap,
+            warnNutrients: warnNutrients,
           ),
     ];
 
@@ -75,11 +82,13 @@ class NutrientGroupSection extends StatelessWidget {
     required this.title,
     required this.totals,
     this.onNutrientTap,
+    this.warnNutrients = const {},
   });
 
   final String title;
   final List<NutrientTotal> totals;
   final ValueChanged<NutrientTotal>? onNutrientTap;
+  final Set<String> warnNutrients;
 
   @override
   Widget build(BuildContext context) {
@@ -125,6 +134,7 @@ class NutrientGroupSection extends StatelessWidget {
                   onTap: onNutrientTap == null || !totals[i].hasData
                       ? null
                       : () => onNutrientTap!(totals[i]),
+                  warnNutrients: warnNutrients,
                 ),
               ],
             ],
@@ -136,13 +146,21 @@ class NutrientGroupSection extends StatelessWidget {
 }
 
 class NutrientRow extends StatelessWidget {
-  const NutrientRow({super.key, required this.total, this.onTap});
+  const NutrientRow({
+    super.key,
+    required this.total,
+    this.onTap,
+    this.warnNutrients = const {},
+  });
 
   final NutrientTotal total;
 
   /// Tapped to drill into the nutrient (e.g. its top food sources). Null makes
   /// the row inert — no ripple, no affordance.
   final VoidCallback? onTap;
+
+  /// The user's opted-in warning keys — see [overGoalTreatment].
+  final Set<String> warnNutrients;
 
   @override
   Widget build(BuildContext context) {
@@ -153,7 +171,10 @@ class NutrientRow extends StatelessWidget {
     final incomplete = total.isIncomplete;
     // An incomplete total is a floor, so its over-limit / % are unreliable —
     // the incomplete treatment takes precedence.
-    final over = !incomplete && total.isOverLimit;
+    final treatment = overGoalTreatment(spec, warnNutrients);
+    final overTarget = !incomplete && total.isOverTarget;
+    final over = overTarget && treatment == OverGoalTreatment.warn;
+    final celebrate = overTarget && treatment == OverGoalTreatment.celebrate;
 
     final Color barColor = incomplete
         ? scheme.primary.withValues(alpha: 0.35)
@@ -175,8 +196,12 @@ class NutrientRow extends StatelessWidget {
         : incomplete
         ? 'partial'
         : '${(total.amount! / spec.dailyTarget * 100).round()}%';
+    // A met target-type goal reads as a win: the % tips into the accent color
+    // rather than staying flat (or, worse, nagging amber).
     final Color trailingColor = incomplete
         ? scheme.onSurfaceVariant
+        : celebrate
+        ? scheme.primary
         : valueColor;
 
     final content = Padding(

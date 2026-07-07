@@ -58,6 +58,7 @@ class AddFoodPage extends StatefulWidget {
     this.initialMeal,
     this.focusSpecs,
     this.catalog,
+    this.warnNutrients = const {},
     this.scanBarcode,
   });
 
@@ -77,6 +78,10 @@ class AddFoodPage extends StatefulWidget {
   /// The full goal-resolved catalog, forwarded to the food detail page so its
   /// per-100g targets match the today page. Null falls back to the defaults.
   final List<NutrientSpec>? catalog;
+
+  /// Catalog keys the user opted into over-goal warnings for (KAN-38),
+  /// forwarded to the amount sheet's nutrition-facts breakdown.
+  final Set<String> warnNutrients;
 
   /// Runs the barcode-scan flow and resolves with the scanned code (null =
   /// dismissed). Defaults to pushing [NutritionScanPage]; tests inject a fake
@@ -340,6 +345,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       initialGrams: entry.grams,
       isEditing: true,
       focusSpecs: _focusSpecs,
+      warnNutrients: widget.warnNutrients,
       onViewDetails: _openFoodDetail,
     );
     if (result == null || !mounted) return;

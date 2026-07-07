@@ -87,7 +87,7 @@ void main() {
                     'kcal': 2520, // over by 320
                     'protein_g': 170, // over by 20  -> green "✓"
                     'carbs_g': 275, // over by 15  -> neutral "over"
-                    'fat_g': 82, // over by 12  -> amber "over"
+                    'fat_g': 82, // over by 12  -> neutral "over" (KAN-38)
                   },
                   'meals': {
                     'breakfast': [],
@@ -125,6 +125,84 @@ void main() {
       expect(find.text('+20g ✓'), findsOneWidget);
       expect(find.text('+15g over'), findsOneWidget);
       expect(find.text('+12g over'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'over-goal warning is opt-in: fat only goes amber once enabled (KAN-38)',
+    (WidgetTester tester) async {
+      Dio overFatDio() {
+        final dio = Dio();
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: {
+                    'date': '2024-01-01',
+                    'totals': {
+                      'kcal': 1500,
+                      'protein_g': 50,
+                      'carbs_g': 100,
+                      'fat_g': 82, // over the 70 g default by 12
+                    },
+                    'meals': {
+                      'breakfast': [],
+                      'lunch': [],
+                      'dinner': [],
+                      'snacks': [],
+                    },
+                  },
+                ),
+              );
+            },
+          ),
+        );
+        return dio;
+      }
+
+      Color? fatOverColor() =>
+          tester.widget<Text>(find.text('+12g over')).style?.color;
+
+      // Fresh account: no warn opt-ins -> neutral over treatment.
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(
+              accessToken: 'token',
+              dio: overFatDio(),
+            ),
+            localStore: InMemoryNutritionStore(),
+            preferences: const UserPreferences(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(fatOverColor(), LuminaHealthColors.onSurfaceVariant);
+
+      // Same day with "warn on fat" enabled -> amber.
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(
+              accessToken: 'token',
+              dio: overFatDio(),
+            ),
+            localStore: InMemoryNutritionStore(),
+            preferences: const UserPreferences(warnNutrients: ['fat']),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(fatOverColor(), LuminaHealthColors.warning);
     },
   );
 
@@ -192,7 +270,8 @@ void main() {
       // Fiber: 12 of 30 g.
       expect(find.text('12g'), findsOneWidget);
       expect(find.text('18g left'), findsOneWidget);
-      // Sugars is over its 90 g target, a cautionary nutrient -> "over".
+      // Sugars is over its 90 g target -> neutral "over" (warnings are
+      // opt-in per KAN-38).
       expect(find.text('+5g over'), findsOneWidget);
       // Sodium has no server data on an empty day -> plain zero, mg unit.
       expect(find.text('0 mg'), findsOneWidget);

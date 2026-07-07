@@ -26,6 +26,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.onDeleteEntry,
     required this.onAddMore,
     this.focusSpecs,
+    this.warnNutrients = const {},
     this.onViewFoodDetails,
   });
 
@@ -55,6 +56,10 @@ class MealDetailSheet extends StatefulWidget {
   /// The user's focus nutrients, forwarded to the amount sheet so its preview
   /// pills match the today page. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
+
+  /// Catalog keys the user opted into over-goal warnings for (KAN-38),
+  /// forwarded into every nutrient breakdown this sheet shows.
+  final Set<String> warnNutrients;
 
   /// Opens the food detail page (KAN-33) for a logged food, resolving with
   /// the updated item when it was edited there (null = unchanged). Enables
@@ -153,6 +158,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
       isEditing: true,
       initialMealType: entry.mealType,
       focusSpecs: widget.focusSpecs,
+      warnNutrients: widget.warnNutrients,
       onViewDetails: widget.onViewFoodDetails,
     );
     if (result == null || !mounted) return;
@@ -300,6 +306,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                           return _EntryRow(
                             entry: entry,
                             busy: _busyEntryId == entry.id || _movingAll,
+                            warnNutrients: widget.warnNutrients,
                             onEdit: () => _editAmount(entry),
                             onDelete: () => _delete(entry),
                             onViewDetails: widget.onViewFoodDetails == null
@@ -459,6 +466,7 @@ class _EntryRow extends StatefulWidget {
     required this.busy,
     required this.onEdit,
     required this.onDelete,
+    this.warnNutrients = const {},
     this.onViewDetails,
   });
 
@@ -466,6 +474,7 @@ class _EntryRow extends StatefulWidget {
   final bool busy;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final Set<String> warnNutrients;
 
   /// Opens the food detail page for this entry's food. Shown as a "Food
   /// details" link inside the expanded breakdown; null hides the link.
@@ -592,6 +601,7 @@ class _EntryRowState extends State<_EntryRow> {
                       NutrientBreakdownView(
                         totals: totals,
                         showEmptyRows: false,
+                        warnNutrients: widget.warnNutrients,
                       ),
                       // Entry point to the read-first food page (KAN-33):
                       // full per-100g facts, provenance, and the visible

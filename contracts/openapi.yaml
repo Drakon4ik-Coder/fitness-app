@@ -1413,6 +1413,7 @@ components:
           nullable: true
         nutrient_goals: {}
         focus_nutrients: {}
+        warn_nutrients: {}
     PatchedUserUpdate:
       type: object
       properties:
@@ -1572,6 +1573,7 @@ components:
           nullable: true
         nutrient_goals: {}
         focus_nutrients: {}
+        warn_nutrients: {}
     UserRegistration:
       type: object
       properties:

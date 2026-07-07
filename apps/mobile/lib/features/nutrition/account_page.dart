@@ -12,6 +12,7 @@ import 'settings/focus_nutrients_settings_page.dart';
 import 'settings/goals_settings_page.dart';
 import 'settings/profile_settings_page.dart';
 import 'settings/units_settings_page.dart';
+import 'settings/warnings_settings_page.dart';
 
 /// The settings hub: a nested navigation structure where each row pushes a
 /// focused sub-page (Profile, Units, Daily goals) instead of one long form.
@@ -154,6 +155,18 @@ class _AccountPageState extends State<AccountPage> {
     if (updated != null && mounted) _applyUpdatedPrefs(updated);
   }
 
+  Future<void> _openWarnings() async {
+    final updated = await Navigator.of(context).push<UserPreferences>(
+      MaterialPageRoute(
+        builder: (_) => WarningsSettingsPage(
+          preferencesApi: widget.preferencesApi,
+          initialPreferences: _prefs,
+        ),
+      ),
+    );
+    if (updated != null && mounted) _applyUpdatedPrefs(updated);
+  }
+
   String get _profileSummary {
     if (_displayName.isEmpty && _email.isEmpty) return 'Name and email';
     if (_displayName.isEmpty) return _email;
@@ -180,6 +193,12 @@ class _AccountPageState extends State<AccountPage> {
   String get _focusSummary {
     final specs = resolveFocusSpecs(_prefs.focusNutrients);
     return specs.map((spec) => spec.label).join(' · ');
+  }
+
+  String get _warningsSummary {
+    final count = _prefs.warnNutrients.length;
+    if (count == 0) return 'Calories only';
+    return 'Calories + $count nutrient${count == 1 ? '' : 's'}';
   }
 
   Future<void> _confirmLogout() async {
@@ -259,6 +278,12 @@ class _AccountPageState extends State<AccountPage> {
                   title: 'Focus nutrients',
                   subtitle: _focusSummary,
                   onTap: _openFocusNutrients,
+                ),
+                _SettingsTile(
+                  icon: Icons.notification_important_outlined,
+                  title: 'Over-goal warnings',
+                  subtitle: _warningsSummary,
+                  onTap: _openWarnings,
                 ),
               ],
             ),

@@ -51,6 +51,7 @@ class PreferencesApiService {
     int? calorieGoal,
     Map<String, double>? nutrientGoals,
     List<String>? focusNutrients,
+    List<String>? warnNutrients,
   }) async {
     final body = <String, dynamic>{
       if (weightUnit != null) 'weight_unit': weightUnit,
@@ -59,6 +60,7 @@ class PreferencesApiService {
       if (calorieGoal != null) 'daily_calorie_goal': calorieGoal,
       if (nutrientGoals != null) 'nutrient_goals': nutrientGoals,
       if (focusNutrients != null) 'focus_nutrients': focusNutrients,
+      if (warnNutrients != null) 'warn_nutrients': warnNutrients,
     };
     return mapApiErrors('Unable to save preferences.', () async {
       final response = await _dio.patch<Map<String, dynamic>>(

@@ -93,15 +93,66 @@ void main() {
       expect(iron.amount, isNull);
     });
 
-    test('flags over-limit only for cautionary nutrients', () {
+    test('flags any amount past the daily target as over-target', () {
       final totals = aggregateNutrients([
-        // 300 g of salt-heavy food: 3 g salt total, target is 6 g -> under.
         _entry(quantityG: 100, nutriments: {'salt_100g': 8, 'salt_unit': 'g'}),
       ]);
       final salt = _find(totals, 'salt');
       expect(salt.amount, closeTo(8, 1e-9));
-      expect(salt.isOverLimit, isTrue); // 8 g > 6 g target
+      expect(salt.isOverTarget, isTrue); // 8 g > 6 g target
       expect(salt.progress, 1.0); // clamped
+    });
+
+    test('over-goal treatment: warn only when opted in (KAN-38)', () {
+      NutrientSpec spec(String key) =>
+          kNutrientCatalog.firstWhere((s) => s.key == key);
+
+      // Fresh account (empty warn set): nothing warns — restrict-type and the
+      // energy macros are neutral, target-type nutrients celebrate.
+      expect(
+        overGoalTreatment(spec('sodium'), const {}),
+        OverGoalTreatment.neutral,
+      );
+      expect(
+        overGoalTreatment(spec('fat'), const {}),
+        OverGoalTreatment.neutral,
+      );
+      expect(
+        overGoalTreatment(spec('carbs'), const {}),
+        OverGoalTreatment.neutral,
+      );
+      expect(
+        overGoalTreatment(spec('protein'), const {}),
+        OverGoalTreatment.celebrate,
+      );
+      expect(
+        overGoalTreatment(spec('vitamin_c'), const {}),
+        OverGoalTreatment.celebrate,
+      );
+
+      // Opting in flips exactly that nutrient to warn — even a target-type one.
+      expect(
+        overGoalTreatment(spec('sodium'), const {'sodium'}),
+        OverGoalTreatment.warn,
+      );
+      expect(
+        overGoalTreatment(spec('protein'), const {'protein'}),
+        OverGoalTreatment.warn,
+      );
+      expect(
+        overGoalTreatment(spec('sugars'), const {'sodium'}),
+        OverGoalTreatment.neutral,
+      );
+    });
+
+    test('suggested warn nutrients are exactly the cautionary set', () {
+      expect(kSuggestedWarnNutrients, [
+        'sugars',
+        'saturated_fat',
+        'sodium',
+        'salt',
+        'cholesterol',
+      ]);
     });
 
     test('handles entries with no nutriments blob', () {

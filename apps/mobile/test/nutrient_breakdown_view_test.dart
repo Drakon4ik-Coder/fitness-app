@@ -104,6 +104,43 @@ void main() {
     expect(find.textContaining('~'), findsWidgets);
   });
 
+  testWidgets('over-target row goes amber only for opted-in nutrients', (
+    tester,
+  ) async {
+    // 200 g at 5 g salt / 100 g = 10 g, over the 6 g daily target.
+    final totals = aggregateNutrients([
+      _entry({'salt_100g': 5, 'salt_unit': 'g'}),
+    ]);
+
+    Future<void> pump(Set<String> warnNutrients) => tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: NutrientBreakdownView(
+              totals: totals,
+              showEmptyRows: false,
+              warnNutrients: warnNutrients,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Color? saltValueColor() =>
+        tester.widget<Text>(find.textContaining('10 / 6 g')).style?.color;
+
+    // Default (no opt-ins): over is neutral information, not amber.
+    await pump(const {});
+    await tester.pumpAndSettle();
+    expect(saltValueColor(), isNot(LuminaHealthColors.warning));
+
+    // Opted in: the same row warns.
+    await pump(const {'salt'});
+    await tester.pumpAndSettle();
+    expect(saltValueColor(), LuminaHealthColors.warning);
+  });
+
   testWidgets('meal-detail row expands to reveal the food breakdown', (
     tester,
   ) async {

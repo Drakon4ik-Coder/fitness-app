@@ -12,6 +12,7 @@ class UserPreferences {
     this.calorieGoal,
     this.nutrientGoals = const {},
     this.focusNutrients = const [],
+    this.warnNutrients = const [],
   });
 
   final String weightUnit;
@@ -30,6 +31,10 @@ class UserPreferences {
   /// trio via `resolveFocusSpecs`.
   final List<String> focusNutrients;
 
+  /// Catalog keys the user wants an over-goal warning for (KAN-38). Empty by
+  /// default: only calories warn until the user opts nutrients in.
+  final List<String> warnNutrients;
+
   factory UserPreferences.fromJson(Map<String, dynamic> json) {
     final rawGoals = json['nutrient_goals'];
     final goals = <String, double>{};
@@ -39,21 +44,23 @@ class UserPreferences {
         if (value != null) goals[entry.key.toString()] = value;
       }
     }
-    final rawFocus = json['focus_nutrients'];
     return UserPreferences(
       weightUnit: (json['weight_unit'] as String?) ?? 'kg',
       heightUnit: (json['height_unit'] as String?) ?? 'cm',
       energyUnit: (json['energy_unit'] as String?) ?? 'kcal',
       calorieGoal: (json['daily_calorie_goal'] as num?)?.toInt(),
       nutrientGoals: goals,
-      focusNutrients: rawFocus is List
-          ? [
-              for (final key in rawFocus)
-                if (key is String) key,
-            ]
-          : const [],
+      focusNutrients: _stringList(json['focus_nutrients']),
+      warnNutrients: _stringList(json['warn_nutrients']),
     );
   }
+
+  static List<String> _stringList(dynamic raw) => raw is List
+      ? [
+          for (final key in raw)
+            if (key is String) key,
+        ]
+      : const [];
 
   UserPreferences copyWith({
     String? weightUnit,
@@ -63,6 +70,7 @@ class UserPreferences {
     bool clearCalorieGoal = false,
     Map<String, double>? nutrientGoals,
     List<String>? focusNutrients,
+    List<String>? warnNutrients,
   }) {
     return UserPreferences(
       weightUnit: weightUnit ?? this.weightUnit,
@@ -71,6 +79,7 @@ class UserPreferences {
       calorieGoal: clearCalorieGoal ? null : (calorieGoal ?? this.calorieGoal),
       nutrientGoals: nutrientGoals ?? this.nutrientGoals,
       focusNutrients: focusNutrients ?? this.focusNutrients,
+      warnNutrients: warnNutrients ?? this.warnNutrients,
     );
   }
 }

@@ -127,7 +127,7 @@ lib/
 │       ├── account_page.dart            # Account tab + settings hub
 │       ├── live_search_controller.dart  # Debounce + cancel for the search flow
 │       ├── meal_suggestion.dart         # Meal-type guess from learned meal times
-│       ├── settings/                    # Profile / Units / Goals / Focus-nutrients sub-pages
+│       ├── settings/                    # Profile / Units / Goals / Focus-nutrients / Warnings sub-pages
 │       ├── widgets/                     # amount_sheet, meal_detail_sheet, nutrient views
 │       └── data/
 │           ├── nutrition_repository.dart    # Offline-first read/write + outbox + delta sync

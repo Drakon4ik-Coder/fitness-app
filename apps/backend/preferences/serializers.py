@@ -22,6 +22,7 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             "weekly_workouts_goal",
             "nutrient_goals",
             "focus_nutrients",
+            "warn_nutrients",
         )
 
     def validate_nutrient_goals(self, value: object) -> dict:
@@ -41,6 +42,16 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
         return cleaned
 
     def validate_focus_nutrients(self, value: object) -> list:
+        cleaned = self._validate_key_list(value)
+        if len(cleaned) > 4:
+            raise serializers.ValidationError("At most 4 focus nutrients are allowed.")
+        return cleaned
+
+    def validate_warn_nutrients(self, value: object) -> list:
+        return self._validate_key_list(value)
+
+    @staticmethod
+    def _validate_key_list(value: object) -> list:
         if not isinstance(value, list):
             raise serializers.ValidationError("Expected a list of nutrient keys.")
         cleaned: list[str] = []
@@ -50,6 +61,4 @@ class UserPreferencesSerializer(serializers.ModelSerializer):
             if key in cleaned:
                 raise serializers.ValidationError(f"Duplicate nutrient '{key}'.")
             cleaned.append(key)
-        if len(cleaned) > 4:
-            raise serializers.ValidationError("At most 4 focus nutrients are allowed.")
         return cleaned

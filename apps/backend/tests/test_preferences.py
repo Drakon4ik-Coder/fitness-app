@@ -176,6 +176,60 @@ def test_patch_rejects_bad_focus_nutrients() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_warn_nutrients_default_is_empty() -> None:
+    client, _ = _auth_client()
+
+    response = client.get("/api/v1/preferences/")
+
+    assert response.status_code == 200
+    assert response.data["warn_nutrients"] == []
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_persists_warn_nutrients() -> None:
+    client, user = _auth_client()
+
+    response = client.patch(
+        "/api/v1/preferences/",
+        {"warn_nutrients": ["sodium", "sugars", "saturated_fat"]},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["warn_nutrients"] == ["sodium", "sugars", "saturated_fat"]
+    prefs = UserPreferences.objects.get(user=user)
+    assert prefs.warn_nutrients == ["sodium", "sugars", "saturated_fat"]
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_patch_rejects_bad_warn_nutrients() -> None:
+    client, _ = _auth_client()
+
+    unknown = client.patch(
+        "/api/v1/preferences/",
+        {"warn_nutrients": ["unobtanium"]},
+        format="json",
+    )
+    duplicate = client.patch(
+        "/api/v1/preferences/",
+        {"warn_nutrients": ["sodium", "sodium"]},
+        format="json",
+    )
+    not_a_list = client.patch(
+        "/api/v1/preferences/",
+        {"warn_nutrients": {"sodium": True}},
+        format="json",
+    )
+
+    assert unknown.status_code == 400
+    assert duplicate.status_code == 400
+    assert not_a_list.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_requires_authentication() -> None:
     response = APIClient().get("/api/v1/preferences/")
 

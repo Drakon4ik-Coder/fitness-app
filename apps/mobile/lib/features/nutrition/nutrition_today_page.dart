@@ -115,6 +115,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   List<NutrientSpec> get _focusSpecs =>
       resolveFocusSpecs(widget.preferences?.focusNutrients, base: _catalog);
 
+  /// The nutrients the user opted into over-goal warnings for (KAN-38). Empty
+  /// by default — only the calorie ring warns until the user picks more.
+  Set<String> get _warnNutrients => {
+    ...widget.preferences?.warnNutrients ?? const <String>[],
+  };
+
   /// Logs out, first wiping the local nutrition store so the next user on this
   /// device can't see the previous user's log and no leftover offline outbox
   /// can replay into another account (the store isn't per-user).
@@ -326,6 +332,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           initialMeal: meal,
           focusSpecs: _focusSpecs,
           catalog: _catalog,
+          warnNutrients: _warnNutrients,
         ),
       ),
     );
@@ -356,6 +363,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         mealIcon: meal.icon,
         entries: meal.entries,
         focusSpecs: _focusSpecs,
+        warnNutrients: _warnNutrients,
         onUpdateEntry: (entry, {quantityG, mealType}) =>
             _updateEntry(entry, quantityG: quantityG, mealType: mealType),
         onDeleteEntry: (entry) => _deleteEntry(entry),
@@ -398,6 +406,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           entries: entries,
           serverNutrients: _dayLog?.nutrients,
           nutrientGoals: widget.preferences?.nutrientGoals,
+          warnNutrients: _warnNutrients,
         ),
       ),
     );
@@ -649,7 +658,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         horizontal: AppSpacing.lg,
                         vertical: AppSpacing.md,
                       ),
-                      child: _FocusCard(summaries: focusSummaries),
+                      child: _FocusCard(
+                        summaries: focusSummaries,
+                        warnNutrients: _warnNutrients,
+                      ),
                     ),
                   ),
                   // Full nutrient breakdown entry point
@@ -995,9 +1007,10 @@ class _KcalStat extends StatelessWidget {
 /// Slot accents come from [LuminaHealthColors.focusAccents] so the card
 /// matches the amount-sheet pills and add-meal summary.
 class _FocusCard extends StatelessWidget {
-  const _FocusCard({required this.summaries});
+  const _FocusCard({required this.summaries, required this.warnNutrients});
 
   final List<_FocusSummary> summaries;
+  final Set<String> warnNutrients;
 
   @override
   Widget build(BuildContext context) {
@@ -1009,6 +1022,7 @@ class _FocusCard extends StatelessWidget {
             summary: summaries[i],
             accent: LuminaHealthColors
                 .focusAccents[i % LuminaHealthColors.focusAccents.length],
+            warnNutrients: warnNutrients,
           ),
         ),
     ];
@@ -1049,38 +1063,45 @@ class _FocusCard extends StatelessWidget {
   }
 }
 
-// How a nutrient reads once its goal is exceeded. Cautionary nutrients
-// (sugars, sodium, ... and fat, historically) warn; carbs over is neutral
-// information; everything else — protein, fiber, vitamins, minerals — hit
-// their target, which is the goal, so they celebrate.
-({Color textColor, Color barColor, String suffix}) _overTreatment(
+// How a nutrient reads once its goal is exceeded (KAN-38): amber only when the
+// user opted the nutrient into warnings; restrict-type nutrients over are
+// neutral information; target-type nutrients — protein, fiber, vitamins,
+// minerals — hit their target, which is the goal, so they celebrate.
+({Color textColor, Color barColor, String suffix}) _overTreatmentColors(
   NutrientSpec spec,
   Color accent,
+  Set<String> warnNutrients,
 ) {
-  if (spec.overIsBad || spec.key == 'fat') {
-    return (
-      textColor: LuminaHealthColors.warning,
-      barColor: LuminaHealthColors.warning,
-      suffix: 'over',
-    );
+  switch (overGoalTreatment(spec, warnNutrients)) {
+    case OverGoalTreatment.warn:
+      return (
+        textColor: LuminaHealthColors.warning,
+        barColor: LuminaHealthColors.warning,
+        suffix: 'over',
+      );
+    case OverGoalTreatment.neutral:
+      return (
+        textColor: LuminaHealthColors.onSurfaceVariant,
+        barColor: accent,
+        suffix: 'over',
+      );
+    case OverGoalTreatment.celebrate:
+      return (textColor: accent, barColor: accent, suffix: '✓');
   }
-  if (spec.key == 'carbs') {
-    return (
-      textColor: LuminaHealthColors.onSurfaceVariant,
-      barColor: accent,
-      suffix: 'over',
-    );
-  }
-  return (textColor: accent, barColor: accent, suffix: '✓');
 }
 
 /// One focus nutrient's tile: label + amount, progress toward the goal, and
 /// the left/over/incomplete/no-data status line.
 class _FocusTile extends StatelessWidget {
-  const _FocusTile({required this.summary, required this.accent});
+  const _FocusTile({
+    required this.summary,
+    required this.accent,
+    required this.warnNutrients,
+  });
 
   final _FocusSummary summary;
   final Color accent;
+  final Set<String> warnNutrients;
 
   @override
   Widget build(BuildContext context) {
@@ -1101,7 +1122,9 @@ class _FocusTile extends StatelessWidget {
     final progress = noData || goal <= 0
         ? 0.0
         : (amount / goal).clamp(0.0, 1.0).toDouble();
-    final treatment = isOver ? _overTreatment(spec, accent) : null;
+    final treatment = isOver
+        ? _overTreatmentColors(spec, accent, warnNutrients)
+        : null;
     final barColor = incomplete
         ? accent.withValues(alpha: 0.35)
         : treatment?.barColor ?? accent;
