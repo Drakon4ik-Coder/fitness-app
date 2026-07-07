@@ -290,6 +290,17 @@ class NutritionLocalStore {
     await db.delete('outbox', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Entries with at least one queued op — i.e. writes the server hasn't
+  /// acknowledged yet. Read-only surfacing for the UI (KAN-56); counts
+  /// entries, not ops, so three edits to one entry read as "1 waiting".
+  Future<int> countPendingEntries() async {
+    final db = await _db;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(DISTINCT entry_uuid) AS c FROM outbox',
+    );
+    return Sqflite.firstIntValue(rows) ?? 0;
+  }
+
   Future<bool> hasOpsFor(String entryUuid) async {
     final db = await _db;
     final rows = await db.query(

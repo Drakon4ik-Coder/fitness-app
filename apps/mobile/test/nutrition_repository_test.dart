@@ -241,6 +241,40 @@ void main() {
       expect(stored.pending, isFalse);
     });
 
+    test(
+      'pendingSyncCount tracks queued entries and drains on replay (KAN-56)',
+      () async {
+        expect(await repo.pendingSyncCount(), 0);
+
+        api.offline = true;
+        final first = await repo.createEntry(
+          food: makeTestFood(backendId: 7),
+          mealType: 'lunch',
+          quantityG: 200,
+          consumedAt: DateTime(today.year, today.month, today.day, 13),
+        );
+        await repo.createEntry(
+          food: makeTestFood(backendId: 8, name: 'Second'),
+          mealType: 'dinner',
+          quantityG: 100,
+          consumedAt: DateTime(today.year, today.month, today.day, 19),
+        );
+        // A second queued op for the same entry doesn't inflate the count —
+        // it counts entries waiting, not raw ops.
+        final entry = await repo.readCachedDay(today);
+        await repo.updateEntry(entry!.meals['lunch']!.single, quantityG: 250);
+        expect(store.outbox, hasLength(3));
+        expect(await repo.pendingSyncCount(), 2);
+
+        api.offline = false;
+        await seedToday();
+        await repo.refreshDay(today);
+
+        expect(await repo.pendingSyncCount(), 0);
+        expect(api.createUuids, contains(first.uuid));
+      },
+    );
+
     test('requires a backend-resolved food', () async {
       expect(
         () => repo.createEntry(

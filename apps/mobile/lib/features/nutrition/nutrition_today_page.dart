@@ -76,6 +76,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   bool _showSpinner = false;
   String? _errorMessage;
 
+  // Entries with offline writes still queued in the outbox (KAN-56). Non-zero
+  // shows the "waiting to sync" chip; refreshed after every load and write
+  // since those are the only moments the outbox changes shape.
+  int _pendingSyncCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -223,6 +228,19 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       });
     } finally {
       _spinnerTimer?.cancel();
+      await _refreshPendingSync();
+    }
+  }
+
+  /// Re-reads the outbox-pending count and updates the chip. Best-effort:
+  /// a store failure just leaves the last known value.
+  Future<void> _refreshPendingSync() async {
+    try {
+      final count = await _repository.pendingSyncCount();
+      if (!mounted || count == _pendingSyncCount) return;
+      setState(() => _pendingSyncCount = count);
+    } catch (_) {
+      // Non-critical indicator — never let it break the page.
     }
   }
 
@@ -420,11 +438,13 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     try {
       // Applies locally right away and queues the server write when offline
       // (KAN-28) — so the edit sticks even with no connectivity.
-      return await _repository.updateEntry(
+      final updated = await _repository.updateEntry(
         entry,
         quantityG: quantityG,
         mealType: mealType,
       );
+      unawaited(_refreshPendingSync());
+      return updated;
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
         await _handleLogout();
@@ -441,7 +461,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
 
   Future<bool> _deleteEntry(NutritionEntry entry) async {
     try {
-      return await _repository.deleteEntry(entry);
+      final deleted = await _repository.deleteEntry(entry);
+      unawaited(_refreshPendingSync());
+      return deleted;
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
         await _handleLogout();
@@ -618,6 +640,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                     onPickDate: () => _pickDate(context),
                     onSetToday: _setTodayDate,
                   ),
+                  if (_pendingSyncCount > 0)
+                    SliverToBoxAdapter(
+                      child: _PendingSyncChip(count: _pendingSyncCount),
+                    ),
                   if (_errorMessage != null)
                     SliverToBoxAdapter(
                       child: Padding(
@@ -827,6 +853,57 @@ class _DateBar extends StatelessWidget {
                   ),
                 )
               : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// Subtle "waiting to sync" indicator under the date bar (KAN-56): offline
+/// writes land in the outbox and the day still says "Meal logged", so this is
+/// the only signal that other devices won't see the change until this one
+/// reconnects. Disappears once the outbox drains.
+class _PendingSyncChip extends StatelessWidget {
+  const _PendingSyncChip({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final label = count == 1
+        ? '1 change waiting to sync'
+        : '$count changes waiting to sync';
+    return Center(
+      child: Container(
+        key: const Key('pendingSyncChip'),
+        margin: const EdgeInsets.only(top: AppSpacing.xs),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: LuminaHealthColors.hairline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_upload_outlined,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );

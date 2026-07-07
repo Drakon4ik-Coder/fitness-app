@@ -95,6 +95,10 @@ class InMemoryNutritionStore implements NutritionLocalStore {
       outbox.any((op) => op.entryUuid == entryUuid);
 
   @override
+  Future<int> countPendingEntries() async =>
+      outbox.map((op) => op.entryUuid).toSet().length;
+
+  @override
   Future<void> removeOpsFor(String entryUuid) async {
     outbox.removeWhere((op) => op.entryUuid == entryUuid);
   }

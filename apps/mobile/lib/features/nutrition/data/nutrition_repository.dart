@@ -224,6 +224,11 @@ class NutritionRepository {
     return true;
   }
 
+  /// How many entries have queued offline writes awaiting replay. Read-only
+  /// surfacing of the outbox for the UI (KAN-56) — it never changes sync
+  /// behavior. Zero means everything this device wrote reached the server.
+  Future<int> pendingSyncCount() => _store.countPendingEntries();
+
   /// Wipes all local state (day payloads, entries, queued writes, cursor).
   /// Call on logout: the store isn't namespaced per user, and a leftover
   /// outbox must never replay into another account.

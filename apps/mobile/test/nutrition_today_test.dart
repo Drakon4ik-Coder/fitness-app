@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
+import 'package:fitness_app/features/nutrition/data/nutrition_local_store.dart';
 import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
@@ -327,6 +328,91 @@ void main() {
       expect(find.text('Unable to load nutrition data.'), findsNothing);
     },
   );
+
+  testWidgets(
+    'shows the waiting-to-sync chip while offline writes are queued (KAN-56)',
+    (WidgetTester tester) async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+              ),
+            );
+          },
+        ),
+      );
+      final nutritionApi = NutritionApiService(accessToken: 'token', dio: dio);
+      // A previously seeded day plus an entry logged offline: its create op
+      // is still queued in the outbox.
+      final store = InMemoryNutritionStore(
+        seedPayloads: {_todayKey(): _dayPayload(date: _todayKey(), kcal: 150)},
+      );
+      store.entries['offline-uuid'] = makeStoredEntry(
+        uuid: 'offline-uuid',
+        serverId: null,
+        pending: true,
+      );
+      await store.enqueueOp(
+        kind: OutboxOp.create,
+        entryUuid: 'offline-uuid',
+        payload: const {'food_item_id': 7},
+        queuedAt: DateTime.now().toUtc(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: nutritionApi,
+            localStore: store,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('pendingSyncChip')), findsOneWidget);
+      expect(find.text('1 change waiting to sync'), findsOneWidget);
+    },
+  );
+
+  testWidgets('the sync chip is absent when the outbox is empty', (
+    WidgetTester tester,
+  ) async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 500),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+          localStore: InMemoryNutritionStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('pendingSyncChip')), findsNothing);
+  });
 
   testWidgets('first open full-fetches the day and seeds the local store', (
     WidgetTester tester,
