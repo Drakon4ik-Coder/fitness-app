@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../../../core/app_log.dart';
 import '../../../core/environment.dart';
 import 'off_rate_limiter.dart';
 
@@ -111,7 +112,8 @@ class OffClient {
       rethrow;
     } on DioException catch (error) {
       throw OffException(error.message ?? 'Unable to fetch from OFF.');
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('off.fetchProduct', error, stackTrace);
       throw OffException('Unable to fetch from OFF.');
     }
   }
@@ -146,7 +148,8 @@ class OffClient {
       // string for routine supersede-cancellation (RESEARCH Pitfall 4).
       if (CancelToken.isCancel(error)) rethrow;
       throw OffException(_formatDioMessage(error, 'Unable to search OFF.'));
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('off.searchProducts', error, stackTrace);
       throw OffException('Unable to search OFF.');
     }
   }

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:fitness_app/core/app_log.dart';
 import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -70,11 +71,11 @@ void main() {
   test('original error reaches the configured logger', () async {
     Object? logged;
     String? loggedContext;
-    apiErrorLogger = (context, error, stackTrace) {
+    appErrorLogger = (context, error, stackTrace) {
       loggedContext = context;
       logged = error;
     };
-    addTearDown(() => apiErrorLogger = null);
+    addTearDown(() => appErrorLogger = null);
 
     await expectLater(
       mapApiErrors<void>('friendly', () async => throw StateError('boom')),

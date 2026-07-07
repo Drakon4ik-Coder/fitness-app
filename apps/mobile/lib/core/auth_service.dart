@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import 'app_log.dart';
 import 'auth_interceptor.dart';
 import 'environment.dart';
 
@@ -95,7 +96,8 @@ class AuthService {
         );
       }
       throw AuthException('Unable to sign in. Please try again later.');
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('login', error, stackTrace);
       throw AuthException('Unable to sign in. Please try again later.');
     }
   }
@@ -113,7 +115,8 @@ class AuthService {
       throw AuthException(
         'Could not resend the email. Please try again later.',
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('resendVerification', error, stackTrace);
       throw AuthException(
         'Could not resend the email. Please try again later.',
       );
@@ -129,7 +132,8 @@ class AuthService {
       await _dio.post('/api/v1/auth/password-reset', data: {'email': email});
     } on DioException {
       throw AuthException('Could not send the email. Please try again later.');
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('requestPasswordReset', error, stackTrace);
       throw AuthException('Could not send the email. Please try again later.');
     }
   }
@@ -157,7 +161,8 @@ class AuthService {
       throw AuthException(
         'Unable to sign in with Google. Please try again later.',
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('googleLogin', error, stackTrace);
       throw AuthException(
         'Unable to sign in with Google. Please try again later.',
       );
@@ -177,7 +182,8 @@ class AuthService {
       throw AuthException('Unexpected response from server.');
     } on DioException {
       throw AuthException('Session expired. Please sign in again.');
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('refresh', error, stackTrace);
       throw AuthException('Session expired. Please sign in again.');
     }
   }
@@ -200,7 +206,8 @@ class AuthService {
         );
       }
       throw AuthException('Unable to register. Please try again later.');
-    } catch (_) {
+    } catch (error, stackTrace) {
+      logError('register', error, stackTrace);
       throw AuthException('Unable to register. Please try again later.');
     }
   }

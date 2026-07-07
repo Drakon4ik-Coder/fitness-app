@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../../../core/app_log.dart';
 import '../../../core/environment.dart';
 import 'off_rate_limiter.dart';
 
@@ -40,7 +41,10 @@ class OffImageDownloader {
         bytes: Uint8List.fromList(data),
         contentType: contentType,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // Best-effort by design: a failed download only means the food keeps
+      // its remote image URL. Still worth a trace.
+      logError('off.downloadImage', error, stackTrace);
       return null;
     }
   }

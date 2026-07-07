@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'app_log.dart';
 import 'auth_service.dart';
 import 'environment.dart';
 
@@ -37,9 +37,8 @@ class GoogleAuthService {
         return null;
       }
       rethrow;
-    } catch (e, st) {
-      debugPrint('GOOGLE SIGN-IN ERROR: $e');
-      debugPrint('$st');
+    } catch (error, stackTrace) {
+      logError('googleSignIn', error, stackTrace);
       rethrow;
     }
   }

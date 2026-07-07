@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../../../core/app_log.dart';
 import '../../../core/auth_interceptor.dart';
 import '../../../core/environment.dart';
 import 'api_exceptions.dart';
@@ -171,7 +172,7 @@ class FoodsApiService {
     } catch (error, stackTrace) {
       // Best-effort by design: images are re-uploadable, so a failure only
       // means the food keeps its previous image state. Still worth a trace.
-      logApiError('uploadFoodImages', error, stackTrace);
+      logError('uploadFoodImages', error, stackTrace);
       return null;
     }
   }

@@ -108,12 +108,15 @@ work.
 
 ### P3 — Error diagnostics are systematically discarded on mobile
 
-> **Status: MOSTLY RESOLVED (July 2026).** `mapApiErrors` +
-> `logApiError`/`apiErrorLogger` now live in `data/api_exceptions.dart` (with
-> unit tests covering the `isNetworkError` classification), and all methods
-> of the three API services route through them. Remaining: the `catch (_)`
-> blocks *outside* the services (auth_service, pages — intentional UX, lower
-> value) and wiring `apiErrorLogger` to a crash reporter when one lands
+> **Status: RESOLVED (July 2026).** The logging seam is
+> `core/app_log.dart` (`logError` + assignable `appErrorLogger`);
+> `mapApiErrors` in `data/api_exceptions.dart` routes all three API services
+> through it (unit-tested, including the `isNetworkError` classification).
+> The service-layer catch-alls in `auth_service`, `google_auth_service`,
+> `off_client`, and `off_image_downloader` also log through the seam now.
+> Page-level `catch (_)` blocks that consume already-typed
+> `ApiException`s remain silent by design (deliberate UX). The one loose
+> end: assign `appErrorLogger` in `main.dart` when a crash reporter lands
 > (PLAY_STORE_ROADMAP).
 
 **Problem.** There are **32 `catch (_)` blocks**. Most correctly convert
@@ -204,15 +207,13 @@ CLAUDE.md instead — but removal is the recommendation.
 
 ### P7 — Small duplications and token gaps
 
-- `_openFoodDetail` is duplicated in `add_food_page.dart:357` and
-  `nutrition_today_page.dart:377`. Extract into `food_sync.dart` or a shared
-  navigation helper next time either changes.
-- The hairline-border literal `Colors.white.withValues(alpha: 0.05)` appears
-  7× across feature files, and similar `Colors.white.withValues(...)` usages
-  remain despite the July 2026 decision to move to semantic tokens.
-  `ui_system/tokens.dart` currently holds only spacing/radius. Add
-  `AppColors.hairline` (and any other repeated semantics) to the token file
-  and migrate literals when touching those widgets.
+> **Status: RESOLVED (July 2026).** `pushFoodDetailPage` in
+> `food_detail_page.dart` now owns the push-and-collect-result flow (both
+> pages delegate); the hairline literal became
+> `LuminaHealthColors.hairline` and all 8 uses migrated.
+
+- ~~`_openFoodDetail` duplicated~~ — extracted to `pushFoodDetailPage`.
+- ~~Hairline-border literal repeated~~ — now `LuminaHealthColors.hairline`.
 
 ### P8 — Lint configuration is looser than the codebase deserves
 
@@ -274,9 +275,9 @@ which means regressions won't be caught.
 | 1 | ~~Create `/CLAUDE.md`; fix stale ARCHITECTURE.md claims (P5)~~ **done** | ~1 h | Stops agents inheriting wrong assumptions |
 | 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
 | 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
-| 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (crash-reporter wiring pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
+| 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (only crash-reporter wiring in main.dart pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
 | 5 | Incremental extraction of the two god pages + tests (P1/P4) | ongoing | Long-term velocity |
 | 6 | ~~Lint tightening + format CI step (P8)~~ **done** | ~1 h | Locks in current quality |
-| 7 | Tokens + small dedup (P7); catalog drift check (Notes) | opportunistic | Consistency |
+| 7 | ~~Tokens + small dedup (P7); catalog drift check (Notes)~~ **done** | opportunistic | Consistency |
 
 Items 1–3 are safe, mechanical, and can be done in a single short session.
