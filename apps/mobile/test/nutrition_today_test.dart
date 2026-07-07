@@ -508,6 +508,48 @@ void main() {
     expect(requestCount, greaterThan(before));
   });
 
+  testWidgets(
+    'hero labels the add-food CTA and merges the kcal stat for a11y',
+    (WidgetTester tester) async {
+      final handle = tester.ensureSemantics();
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _dayPayload(date: _todayKey(), kcal: 700),
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The primary CTA announces itself instead of a bare "button".
+      expect(find.byTooltip('Add food'), findsOneWidget);
+      // The ring center reads as one stat, not "1500" / "LEFT" fragments.
+      expect(
+        find.bySemanticsLabel(RegExp(r'^\d+ kilocalories left$')),
+        findsOneWidget,
+      );
+      handle.dispose();
+    },
+  );
+
   testWidgets('first open full-fetches the day and seeds the local store', (
     WidgetTester tester,
   ) async {

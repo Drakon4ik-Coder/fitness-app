@@ -953,49 +953,70 @@ class _HeroSection extends StatelessWidget {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              GlowingProgressRing(
-                progress: ringProgress,
-                size: 288,
-                thickness: 12,
-                trackColor: scheme.surfaceContainerHighest.withValues(
-                  alpha: 0.5,
+              // Decorative: the merged center stat below carries the same
+              // information for screen readers (KAN-54).
+              ExcludeSemantics(
+                child: GlowingProgressRing(
+                  progress: ringProgress,
+                  size: 288,
+                  thickness: 12,
+                  trackColor: scheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
+                  progressColor: ringColor,
+                  glowColor: ringColor,
+                  glowLevel: PulseGlowLevel.high,
                 ),
-                progressColor: ringColor,
-                glowColor: ringColor,
-                glowLevel: PulseGlowLevel.high,
               ),
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    kcalOver ? '+$kcalCenterValue' : '$kcalCenterValue',
-                    style: theme.textTheme.displayLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      height: 1,
-                      color: kcalOver ? LuminaHealthColors.warning : null,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    kcalOver ? 'OVER' : 'LEFT',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2.0,
-                      color: kcalOver
-                          ? LuminaHealthColors.warning
-                          : scheme.onSurfaceVariant,
+                  // One announcement ("1479 kilocalories left"), not the
+                  // disjoint "1479" / "LEFT" fragments the visuals use.
+                  Semantics(
+                    label:
+                        '$kcalCenterValue kilocalories '
+                        '${kcalOver ? 'over goal' : 'left'}',
+                    value:
+                        '${(ringProgress.clamp(0.0, 1.0) * 100).round()} '
+                        'percent of calorie goal used',
+                    excludeSemantics: true,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          kcalOver ? '+$kcalCenterValue' : '$kcalCenterValue',
+                          style: theme.textTheme.displayLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            height: 1,
+                            color: kcalOver ? LuminaHealthColors.warning : null,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          kcalOver ? 'OVER' : 'LEFT',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2.0,
+                            color: kcalOver
+                                ? LuminaHealthColors.warning
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),
+                  // The app's primary CTA: filled, 48dp target, labelled.
                   IconButton(
                     onPressed: onAddFood,
+                    tooltip: 'Add food',
                     icon: const Icon(Icons.add),
+                    iconSize: 28,
                     style: IconButton.styleFrom(
-                      backgroundColor: scheme.primary.withValues(alpha: 0.1),
-                      foregroundColor: scheme.primary,
-                      side: BorderSide(
-                        color: scheme.primary.withValues(alpha: 0.2),
-                      ),
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
+                      minimumSize: const Size(48, 48),
                     ),
                   ),
                 ],
