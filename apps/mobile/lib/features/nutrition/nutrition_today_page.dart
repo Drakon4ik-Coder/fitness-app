@@ -721,6 +721,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           child: _MealCard(
                             meal: meal,
                             onTap: () => _openMealDetails(context, meal),
+                            onAddFood: () => _openAddFoodSheet(
+                              context,
+                              initialMeal: meal.mealType,
+                            ),
                           ),
                         );
                       }, childCount: mealSummaries.length),
@@ -1395,10 +1399,19 @@ class _DailyLogsHeader extends StatelessWidget {
 }
 
 class _MealCard extends StatelessWidget {
-  const _MealCard({required this.meal, required this.onTap});
+  const _MealCard({
+    required this.meal,
+    required this.onTap,
+    required this.onAddFood,
+  });
 
   final _MealSummary meal;
   final VoidCallback onTap;
+
+  /// An empty meal has no detail sheet to open, so its tap becomes a logging
+  /// shortcut instead: straight to add-food with this meal preselected
+  /// (KAN-36). The trailing affordance flips to a "+" to match.
+  final VoidCallback onAddFood;
 
   @override
   Widget build(BuildContext context) {
@@ -1426,7 +1439,7 @@ class _MealCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: hasItems ? onTap : null,
+        onTap: hasItems ? onTap : onAddFood,
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: Container(
           decoration: BoxDecoration(
@@ -1497,7 +1510,10 @@ class _MealCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              Icon(
+                hasItems ? Icons.chevron_right : Icons.add_circle_outline,
+                color: hasItems ? scheme.onSurfaceVariant : scheme.primary,
+              ),
             ],
           ),
         ),

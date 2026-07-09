@@ -1,13 +1,53 @@
 import 'package:dio/dio.dart';
+import 'package:fitness_app/features/nutrition/add_food_page.dart';
+import 'package:fitness_app/features/nutrition/data/food_local_db.dart';
+import 'package:fitness_app/features/nutrition/data/food_models.dart';
+import 'package:fitness_app/features/nutrition/data/foods_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_local_store.dart';
+import 'package:fitness_app/features/nutrition/data/off_client.dart';
+import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
+import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'in_memory_nutrition_store.dart';
+
+/// Minimal in-memory catalog cache so the add-food page pushed from a meal
+/// card doesn't reach sqflite's missing platform channel (KAN-36 tests).
+class _FakeLocalDb extends FoodLocalDb {
+  @override
+  Future<List<FoodItem>> fetchRecentFoods({int limit = 20}) async => const [];
+
+  @override
+  Future<List<FoodItem>> fetchFavorites({int limit = 20}) async => const [];
+}
+
+class _FakeFoodsApi extends FoodsApiService {
+  _FakeFoodsApi() : super(accessToken: 'test-token');
+
+  @override
+  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
+      const [];
+}
+
+class _FakeOffClient extends OffClient {
+  _FakeOffClient() : super(dio: Dio(), rateLimiter: OffRateLimiter());
+
+  @override
+  Future<List<OffProductResponse>> searchProducts(
+    String query, {
+    int pageSize = 10,
+    String? categoryTag,
+    CancelToken? cancelToken,
+  }) async => const [];
+
+  @override
+  Future<OffProductResponse?> fetchProduct(String barcode) async => null;
+}
 
 Map<String, dynamic> _dayPayload({required String date, required num kcal}) {
   return {
@@ -647,6 +687,143 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Today'), findsOneWidget);
       expect(find.byKey(const Key('todayChip')), findsNothing);
+    },
+  );
+
+  testWidgets('empty meal card shows a "+" and opens add-food with that meal '
+      'preselected (KAN-36)', (WidgetTester tester) async {
+    // Tall viewport so all four meal cards are onstage and tappable.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 0),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+          localStore: InMemoryNutritionStore(),
+          localDb: _FakeLocalDb(),
+          foodsApi: _FakeFoodsApi(),
+          offClient: _FakeOffClient(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Every empty card advertises "add", not "navigate".
+    expect(find.byIcon(Icons.add_circle_outline), findsNWidgets(4));
+
+    await tester.tap(find.text('Lunch'));
+    await tester.pumpAndSettle();
+
+    // Landed on add-food with Lunch already selected (the meal selector
+    // tile is the only 'Lunch' text on that page).
+    expect(find.byType(AddFoodPage), findsOneWidget);
+    expect(find.text('Lunch'), findsOneWidget);
+  });
+
+  testWidgets(
+    'non-empty meal card keeps the chevron and opens the meal detail sheet',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': _todayKey(),
+                  'totals': {
+                    'kcal': 150,
+                    'protein_g': 5,
+                    'carbs_g': 27,
+                    'fat_g': 3,
+                  },
+                  'meals': {
+                    'breakfast': [],
+                    'lunch': [
+                      {
+                        'id': 1,
+                        'client_uuid': 'uuid-1',
+                        'meal_type': 'lunch',
+                        'consumed_at': '${_todayKey()}T12:00:00Z',
+                        'quantity_g': 100,
+                        'kcal': 150,
+                        'updated_at': '${_todayKey()}T12:00:00Z',
+                        'food_item': {
+                          'id': 7,
+                          'name': 'Oatmeal',
+                          'kcal_100g': 150,
+                        },
+                      },
+                    ],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+            localDb: _FakeLocalDb(),
+            foodsApi: _FakeFoodsApi(),
+            offClient: _FakeOffClient(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Only the three empty meals flip to "+"; the logged one keeps its
+      // chevron.
+      expect(find.byIcon(Icons.add_circle_outline), findsNWidgets(3));
+      final lunchCard = find
+          .ancestor(of: find.text('Oatmeal'), matching: find.byType(InkWell))
+          .first;
+      expect(
+        find.descendant(
+          of: lunchCard,
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Lunch'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MealDetailSheet), findsOneWidget);
+      expect(find.byType(AddFoodPage), findsNothing);
     },
   );
 }
