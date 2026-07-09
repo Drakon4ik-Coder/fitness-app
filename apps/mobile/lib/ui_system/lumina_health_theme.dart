@@ -40,6 +40,11 @@ class LuminaHealthColors {
   /// sheets, and the nav bar. One token so every hairline reads the same.
   static final Color hairline = Colors.white.withValues(alpha: 0.05);
 
+  /// Stronger sibling of [hairline]: the edge that lifts an inset element
+  /// (image thumbnails, wells) off its parent card. A future light theme
+  /// remaps both tokens instead of hunting per-screen literals (KAN-41).
+  static final Color innerHighlight = Colors.white.withValues(alpha: 0.1);
+
   static const Color surface = Color(0xFF0E0E0E);
   static const Color surfaceBright = Color(0xFF2C2C2C);
   static const Color surfaceContainer = Color(0xFF1A1A1A);

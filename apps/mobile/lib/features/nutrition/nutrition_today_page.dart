@@ -1480,9 +1480,7 @@ class _MealCard extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.1),
-                  ),
+                  border: Border.all(color: LuminaHealthColors.innerHighlight),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: imageUrl != null

@@ -239,6 +239,11 @@ CLAUDE.md instead — but removal is the recommendation.
 
 - ~~`_openFoodDetail` duplicated~~ — extracted to `pushFoodDetailPage`.
 - ~~Hairline-border literal repeated~~ — now `LuminaHealthColors.hairline`.
+- ~~Inset-edge literal (`Colors.white @ 0.1`) hardcoded~~ — now
+  `LuminaHealthColors.innerHighlight` (KAN-41). The only raw white/black
+  left in nutrition feature code is the image stack in `add_food_page.dart`
+  (legibility gradient, enrich scrim, name text over photos) — those are
+  theme-independent by design.
 
 ### P8 — Lint configuration is looser than the codebase deserves
 
