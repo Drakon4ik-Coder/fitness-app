@@ -538,7 +538,6 @@ class _AmountSheetState extends State<AmountSheet> {
                       fontWeight: FontWeight.bold,
                       color: scheme.onSurfaceVariant,
                       letterSpacing: 1.5,
-                      fontSize: 10,
                     ),
                   ),
                 ),
@@ -697,10 +696,17 @@ class _AmountSheetState extends State<AmountSheet> {
                   color: scheme.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                // Wrap instead of a spaceBetween Row so large system text
+                // scales flow the pills under the kcal figure rather than
+                // overflowing the sheet (KAN-40). One run renders identically.
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.sm,
                   children: [
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
                       children: [
@@ -721,10 +727,11 @@ class _AmountSheetState extends State<AmountSheet> {
                         ),
                       ],
                     ),
-                    Row(
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
                       children: [
-                        for (var i = 0; i < focusSpecs.length; i++) ...[
-                          if (i > 0) const SizedBox(width: AppSpacing.sm),
+                        for (var i = 0; i < focusSpecs.length; i++)
                           MacroPill(
                             label: focusSpecs[i].pillLabel,
                             value: focusAmounts[i],
@@ -733,7 +740,6 @@ class _AmountSheetState extends State<AmountSheet> {
                                 LuminaHealthColors.focusAccents[i %
                                     LuminaHealthColors.focusAccents.length],
                           ),
-                        ],
                       ],
                     ),
                   ],

@@ -998,37 +998,49 @@ class _HeroSection extends StatelessWidget {
                 children: [
                   // One announcement ("1479 kilocalories left"), not the
                   // disjoint "1479" / "LEFT" fragments the visuals use.
-                  Semantics(
-                    label:
-                        '$kcalCenterValue kilocalories '
-                        '${kcalOver ? 'over goal' : 'left'}',
-                    value:
-                        '${(ringProgress.clamp(0.0, 1.0) * 100).round()} '
-                        'percent of calorie goal used',
-                    excludeSemantics: true,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          kcalOver ? '+$kcalCenterValue' : '$kcalCenterValue',
-                          style: theme.textTheme.displayLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            height: 1,
-                            color: kcalOver ? LuminaHealthColors.warning : null,
-                          ),
+                  // Flexible + FittedBox: at large text scales the figure
+                  // shrinks to stay inside the fixed-size ring instead of
+                  // overflowing it; the 48dp CTA below never shrinks (KAN-40).
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Semantics(
+                        label:
+                            '$kcalCenterValue kilocalories '
+                            '${kcalOver ? 'over goal' : 'left'}',
+                        value:
+                            '${(ringProgress.clamp(0.0, 1.0) * 100).round()} '
+                            'percent of calorie goal used',
+                        excludeSemantics: true,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              kcalOver
+                                  ? '+$kcalCenterValue'
+                                  : '$kcalCenterValue',
+                              style: theme.textTheme.displayLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                                color: kcalOver
+                                    ? LuminaHealthColors.warning
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              kcalOver ? 'OVER' : 'LEFT',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 2.0,
+                                color: kcalOver
+                                    ? LuminaHealthColors.warning
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          kcalOver ? 'OVER' : 'LEFT',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2.0,
-                            color: kcalOver
-                                ? LuminaHealthColors.warning
-                                : scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -1105,7 +1117,6 @@ class _KcalStat extends StatelessWidget {
             fontWeight: FontWeight.bold,
             letterSpacing: 2.0,
             color: scheme.onSurfaceVariant,
-            fontSize: 10,
           ),
         ),
         Row(
@@ -1296,7 +1307,6 @@ class _FocusTile extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                   color: scheme.onSurfaceVariant,
                   letterSpacing: -0.5,
-                  fontSize: 10,
                 ),
               ),
             ),
@@ -1305,7 +1315,6 @@ class _FocusTile extends StatelessWidget {
               style: theme.textTheme.labelSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: valueColor,
-                fontSize: 10,
               ),
             ),
           ],
@@ -1323,11 +1332,11 @@ class _FocusTile extends StatelessWidget {
           alignment: Alignment.centerRight,
           child: Text(
             statusText,
+            // Muted color + the value's "~" prefix already mark estimates;
+            // italic at this size only hurt legibility (KAN-40).
             style: theme.textTheme.labelSmall?.copyWith(
               color: statusColor,
-              fontSize: 10,
               fontWeight: isOver ? FontWeight.bold : null,
-              fontStyle: incomplete || noData ? FontStyle.italic : null,
             ),
           ),
         ),
@@ -1402,11 +1411,15 @@ class _DailyLogsHeader extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(
-            'Daily Logs',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: scheme.onSurface,
+          Expanded(
+            child: Text(
+              'Daily Logs',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: scheme.onSurface,
+              ),
             ),
           ),
           Text(
@@ -1500,18 +1513,30 @@ class _MealCard extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          meal.name,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: scheme.onSurface,
+                        Flexible(
+                          child: Text(
+                            meal.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: scheme.onSurface,
+                            ),
                           ),
                         ),
-                        Text(
-                          '${meal.totalKcal} kcal',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: scheme.primary,
+                        const SizedBox(width: AppSpacing.sm),
+                        // scaleDown keeps the full figure visible at large
+                        // text scales; an ellipsized kcal would be useless.
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              '${meal.totalKcal} kcal',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: scheme.primary,
+                              ),
+                            ),
                           ),
                         ),
                       ],

@@ -648,4 +648,41 @@ void main() {
     expect(off.fetchedBarcodes, ['777']);
     expect(find.text('Scanned Snack', skipOffstage: false), findsOneWidget);
   });
+
+  testWidgets(
+    'add-food page and amount sheet survive max system text scale (KAN-40)',
+    (WidgetTester tester) async {
+      // Phone-sized viewport at the largest Android text scale; any RenderFlex
+      // overflow fails the test via the reported FlutterError.
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
+      await pumpAddFoodPage(
+        tester,
+        localDb: localDb,
+        repository: _offlineRepository(InMemoryNutritionStore()),
+      );
+
+      // Stage a food: the summary bento (min-height cards) and the added
+      // list now render with real values.
+      await tester.ensureVisible(find.text('Oatmeal'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Oatmeal'));
+      await tester.pumpAndSettle();
+      expect(find.text('ADDED ITEMS'), findsOneWidget);
+
+      // The staged tile is first in the column; tapping it opens the amount
+      // sheet, whose kcal figure + macro pills must wrap rather than overflow.
+      final stagedTile = find.text('Oatmeal').first;
+      await tester.ensureVisible(stagedTile);
+      await tester.pumpAndSettle();
+      await tester.tap(stagedTile);
+      await tester.pumpAndSettle();
+      expect(find.text('Save changes'), findsOneWidget);
+    },
+  );
 }

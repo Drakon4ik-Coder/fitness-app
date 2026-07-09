@@ -139,7 +139,6 @@ class _Header extends StatelessWidget {
                     color: scheme.onSurfaceVariant,
                     letterSpacing: 1.5,
                     fontWeight: FontWeight.bold,
-                    fontSize: 10,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),

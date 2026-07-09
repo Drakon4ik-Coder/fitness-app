@@ -1101,19 +1101,29 @@ class _MacroSummaryRow extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label.toUpperCase(),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontSize: 10,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                letterSpacing: 0,
+            Expanded(
+              child: Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  letterSpacing: 0,
+                ),
               ),
             ),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
+            // scaleDown keeps the full amount visible at large text scales;
+            // an ellipsized figure would be useless.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
               ),
             ),
           ],
@@ -1157,17 +1167,23 @@ class _MealTypeSelectorTile extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Icon(Icons.restaurant, color: scheme.secondary),
-                const SizedBox(width: AppSpacing.md),
-                Text(
-                  mealLabel,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: Row(
+                children: [
+                  Icon(Icons.restaurant, color: scheme.secondary),
+                  const SizedBox(width: AppSpacing.md),
+                  Flexible(
+                    child: Text(
+                      mealLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
           ],
@@ -1194,85 +1210,98 @@ class _SummaryBento extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            height: 140,
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'TOTAL ENERGY',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    letterSpacing: 2.0,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 10,
+    // A min-height instead of a fixed height so large system text scales
+    // grow the cards rather than clipping them; IntrinsicHeight keeps the
+    // two cards equal (KAN-40).
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 140),
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'TOTAL ENERGY',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      letterSpacing: 2.0,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      totalEnergy.round().toString(),
-                      style: theme.textTheme.displayMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: scheme.primary,
-                        height: 1,
-                      ),
+                  // The hero figure shrinks to fit rather than overflowing the
+                  // half-width card at large system text scales (KAN-40).
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          totalEnergy.round().toString(),
+                          style: theme.textTheme.displayMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: scheme.primary,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'kcal',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'kcal',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            height: 140,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                for (var i = 0; i < focusSpecs.length; i++)
-                  _MacroSummaryRow(
-                    label: focusSpecs[i].label,
-                    value: _focusValueText(focusTotals[i], focusSpecs[i].unit),
-                    color:
-                        LuminaHealthColors.focusAccents[i %
-                            LuminaHealthColors.focusAccents.length],
-                    progress:
-                        (focusTotals[i] /
-                                (focusSpecs[i].dailyTarget *
-                                    _mealShareOfDailyTarget))
-                            .clamp(0.0, 1.0),
-                  ),
-              ],
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              constraints: const BoxConstraints(minHeight: 140),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (var i = 0; i < focusSpecs.length; i++)
+                    _MacroSummaryRow(
+                      label: focusSpecs[i].label,
+                      value: _focusValueText(
+                        focusTotals[i],
+                        focusSpecs[i].unit,
+                      ),
+                      color:
+                          LuminaHealthColors.focusAccents[i %
+                              LuminaHealthColors.focusAccents.length],
+                      progress:
+                          (focusTotals[i] /
+                                  (focusSpecs[i].dailyTarget *
+                                      _mealShareOfDailyTarget))
+                              .clamp(0.0, 1.0),
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1387,13 +1416,16 @@ class _ResultsHeader extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            heading.toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              letterSpacing: 2.0,
-              fontWeight: FontWeight.bold,
-              fontSize: 10,
+          Expanded(
+            child: Text(
+              heading.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                letterSpacing: 2.0,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           if (toggleLabel != null)

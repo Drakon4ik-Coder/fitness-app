@@ -826,4 +826,138 @@ void main() {
       expect(find.byType(AddFoodPage), findsNothing);
     },
   );
+
+  testWidgets(
+    'informational text sits on labelSmall (11px) and estimate status is not '
+    'italic (KAN-40)',
+    (WidgetTester tester) async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': _todayKey(),
+                  // Under-goal totals so every focus tile renders the
+                  // "…g left" status line.
+                  'totals': {
+                    'kcal': 1200,
+                    'protein_g': 100,
+                    'carbs_g': 130,
+                    'fat_g': 35,
+                  },
+                  'meals': {
+                    'breakfast': [],
+                    'lunch': [],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      TextStyle styleOf(Finder finder) => tester.widget<Text>(finder).style!;
+
+      // Stat labels and focus-tile value/status text are informational and
+      // must not drop below labelSmall's 11px; only decorative micro-labels
+      // (the SYMBIO wordmark, section headers) may.
+      expect(styleOf(find.text('EATEN')).fontSize, greaterThanOrEqualTo(11));
+      final status = styleOf(find.textContaining('g left').first);
+      expect(status.fontSize, greaterThanOrEqualTo(11));
+      expect(status.fontStyle, isNot(FontStyle.italic));
+    },
+  );
+
+  testWidgets(
+    'today page survives max system text scale without overflow (KAN-40)',
+    (WidgetTester tester) async {
+      // Phone-sized viewport at the largest Android text scale; any RenderFlex
+      // overflow fails the test via the reported FlutterError.
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': _todayKey(),
+                  // Over-goal totals produce the longest status strings
+                  // ("+320 kcal over" beats "50g left").
+                  'totals': {
+                    'kcal': 2520,
+                    'protein_g': 170,
+                    'carbs_g': 275,
+                    'fat_g': 82,
+                  },
+                  'meals': {
+                    'breakfast': [],
+                    'lunch': [
+                      {
+                        'id': 1,
+                        'client_uuid': 'uuid-1',
+                        'meal_type': 'lunch',
+                        'consumed_at': '${_todayKey()}T12:00:00Z',
+                        'quantity_g': 100,
+                        'kcal': 150,
+                        'updated_at': '${_todayKey()}T12:00:00Z',
+                        'food_item': {
+                          'id': 7,
+                          'name': 'Oatmeal',
+                          'kcal_100g': 150,
+                        },
+                      },
+                    ],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Scroll to the bottom so the meal cards lay out too.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1600));
+      await tester.pumpAndSettle();
+    },
+  );
 }

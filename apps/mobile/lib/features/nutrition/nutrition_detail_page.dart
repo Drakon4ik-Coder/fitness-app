@@ -68,7 +68,6 @@ class NutritionDetailPage extends StatelessWidget {
               color: scheme.onSurfaceVariant,
               letterSpacing: 2.0,
               fontWeight: FontWeight.bold,
-              fontSize: 10,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
