@@ -59,16 +59,21 @@ The 14-day closed test is the longest fixed delay; everything here starts it soo
 - [ ] **Privacy policy**: write and host at `symbio.drakon4ik.uk/privacy`
   (static Django template is fine). Must cover: email/account data, health &
   nutrition data, device timezone, Google Sign-In, camera/barcode usage
-  (on-device only), retention, deletion, contact address. Link it in-app
+  (on-device only), crash logs/diagnostics (Sentry), retention, deletion,
+  contact address. Link it in-app
   (Settings → About) and later in the store listing.
 - [ ] **About/Licenses screen** in Settings: app version, "Powered by Open
   Food Facts" (ODbL) attribution, link to privacy policy, Flutter
   `showLicensePage`, Apache-2.0/NOTICE.
 - [ ] Add `<uses-permission android:name="android.permission.INTERNET"/>` to
   the main manifest explicitly.
-- [ ] **Crash reporting**: add `sentry_flutter` (backend already speaks
-  Sentry; one org, two projects). Set the backend `SENTRY_DSN` while at it.
-  Mention crash collection in the privacy policy + Data safety form.
+- [x] **Crash reporting** (KAN-44): `sentry_flutter` wired to
+  `appErrorLogger`; one org, two projects (backend + mobile), staging/prod
+  split by the Sentry `environment` tag, `local` never reports. Code-side
+  done; still manual: create the Sentry projects and set `SENTRY_DSN` (+
+  `SENTRY_ENVIRONMENT=prod`) on the prod server `.env`, the DSN on Render,
+  and the `SENTRY_MOBILE_DSN` GitHub secret. Mention crash collection in the
+  privacy policy + Data safety form (folded into those items below/Phase 3).
 
 ### Phase 2 — Release engineering (~2–3 days)
 - [ ] Switch `mobile-release.yml` to also build `flutter build appbundle

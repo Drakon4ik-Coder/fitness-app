@@ -2,18 +2,54 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
+import 'core/app_log.dart';
 import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
+import 'core/environment.dart';
 import 'features/login_page.dart';
 import 'features/main_shell.dart';
 import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const FitnessApp());
+Future<void> main() async {
+  // Crash reporting is opt-in per build (--dart-define=SENTRY_DSN=...) and
+  // never enabled for local runs: dev sessions against localhost would only
+  // add noise to the shared Sentry projects. Staging and prod builds report
+  // to the same project, separated by the `environment` tag (= APP_ENV).
+  final sentryDsn = EnvironmentConfig.sentryDsn;
+  if (sentryDsn.isEmpty || EnvironmentConfig.environmentName == 'local') {
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const FitnessApp());
+    return;
+  }
+
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = sentryDsn;
+      options.environment = EnvironmentConfig.environmentName;
+      options.tracesSampleRate = 0.1;
+    },
+    appRunner: () {
+      // Swallowed service-layer errors (typed ApiExceptions the UI degrades
+      // gracefully) become breadcrumbs, not events: they are context for the
+      // next real crash, not incidents on their own.
+      appErrorLogger = (context, error, stackTrace) {
+        unawaited(
+          Sentry.addBreadcrumb(
+            Breadcrumb(
+              category: context,
+              message: error.toString(),
+              level: SentryLevel.warning,
+            ),
+          ),
+        );
+      };
+      runApp(const FitnessApp());
+    },
+  );
 }
 
 class FitnessApp extends StatelessWidget {

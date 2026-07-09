@@ -129,9 +129,10 @@ work.
 > The service-layer catch-alls in `auth_service`, `google_auth_service`,
 > `off_client`, and `off_image_downloader` also log through the seam now.
 > Page-level `catch (_)` blocks that consume already-typed
-> `ApiException`s remain silent by design (deliberate UX). The one loose
-> end: assign `appErrorLogger` in `main.dart` when a crash reporter lands
-> (PLAY_STORE_ROADMAP).
+> `ApiException`s remain silent by design (deliberate UX). The last loose
+> end closed in July 2026 (KAN-44): `main.dart` assigns `appErrorLogger` to
+> a Sentry breadcrumb sink when crash reporting is enabled (non-local build
+> with a DSN).
 
 **Problem.** There are **32 `catch (_)` blocks**. Most correctly convert
 failures into typed `ApiException`/`AuthException` with user-friendly
@@ -312,14 +313,13 @@ which means regressions won't be caught.
 | 1 | ~~Create `/CLAUDE.md`; fix stale ARCHITECTURE.md claims (P5)~~ **done** | ~1 h | Stops agents inheriting wrong assumptions |
 | 2 | ~~Remove `hooks_riverpod` + `go_router` (P6)~~ **done** | 10 min | Removes a framework trap |
 | 3 | ~~Move `MealType` to `food_models.dart` (P2)~~ **done** | ~1 h | Untangles page imports |
-| 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (only crash-reporter wiring in main.dart pending) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
+| 4 | ~~Central `mapApiErrors` helper + logging seam (P3)~~ **done** (incl. Sentry wiring in main.dart, KAN-44) | ~2 h | Field debuggability; kills ~30 boilerplate blocks over time |
 | 5 | Incremental extraction of the two god pages + tests (P1/P4) | P4 **done**; P1 first pass done (both `build()`s split up, `_logOneItem`, barcode-scan steps) — keep extracting opportunistically | Long-term velocity |
 
-The only deferred item is wiring `appErrorLogger` to a crash reporter in
-`main.dart` (P3) — blocked on the Play Store work choosing one
-(`PLAY_STORE_ROADMAP.md`). Everything else in this report is resolved;
-P1's size rule (~80-line methods, ~500-line widget files) applies to new
-code and to sections as they are touched.
+Everything in this report is resolved (the last item, `appErrorLogger` →
+Sentry in `main.dart`, landed with KAN-44 in July 2026); P1's size rule
+(~80-line methods, ~500-line widget files) applies to new code and to
+sections as they are touched.
 | 6 | ~~Lint tightening + format CI step (P8)~~ **done** | ~1 h | Locks in current quality |
 | 7 | ~~Tokens + small dedup (P7); catalog drift check (Notes)~~ **done** | opportunistic | Consistency |
 

@@ -172,10 +172,15 @@ SPECTACULAR_SETTINGS = {
 }
 
 SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
+# Staging and prod deploys set SENTRY_ENVIRONMENT ("staging" / "prod") so
+# their events are separable in Sentry. The "local" default never reports —
+# even with a DSN in a dev .env — because localhost errors are pure noise.
+SENTRY_ENVIRONMENT = env("SENTRY_ENVIRONMENT", default="local")
 
-if SENTRY_DSN:
+if SENTRY_DSN and SENTRY_ENVIRONMENT != "local":
     sentry_sdk.init(
         dsn=SENTRY_DSN,
+        environment=SENTRY_ENVIRONMENT,
         traces_sample_rate=0.1,
     )
 

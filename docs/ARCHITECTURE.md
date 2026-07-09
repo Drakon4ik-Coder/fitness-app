@@ -107,7 +107,7 @@ All source lives under `apps/mobile/lib/`.
 
 ```
 lib/
-├── main.dart                    # FitnessApp + AuthGate (login ↔ MainShell); reports device tz
+├── main.dart                    # FitnessApp + AuthGate (login ↔ MainShell); Sentry init; reports device tz
 ├── core/
 │   ├── auth_service.dart        # login / register / google / reset / timezone, JWT exchange
 │   ├── auth_interceptor.dart    # Dio interceptor: attaches token, deduplicated 401 refresh
@@ -169,6 +169,23 @@ Base URL is chosen at build time via `--dart-define=APP_ENV`
 
 Each API service creates its own `Dio` instance and calls
 `authInterceptor?.attachTo(_dio)` to wire up auth.
+
+### Crash reporting (Sentry)
+
+One Sentry org, two projects (backend, mobile); staging and prod are
+separated inside each project by the `environment` tag, and `local` never
+reports (a DSN present locally is ignored on both sides — localhost errors
+are noise).
+
+- Mobile: `main.dart` initializes `sentry_flutter` only when
+  `--dart-define=SENTRY_DSN` is set and `APP_ENV != local`; the environment
+  tag is `APP_ENV`. It also assigns `appErrorLogger` (`core/app_log.dart`) so
+  swallowed service-layer errors become breadcrumbs on the next real crash.
+  Local runs and tests keep the logger null.
+- Backend: `config/settings/base.py` initializes `sentry-sdk` only when
+  `SENTRY_DSN` is set and `SENTRY_ENVIRONMENT != local` (the default).
+  Render (staging) sets `SENTRY_ENVIRONMENT=staging` in `render.yaml`; the
+  prod server sets `SENTRY_ENVIRONMENT=prod` in its `.env`.
 
 ### JWT lifecycle
 

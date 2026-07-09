@@ -13,6 +13,8 @@
 #      ANDROID_KEYSTORE_PASSWORD (storePassword)
 #      ANDROID_KEY_PASSWORD      (keyPassword)
 #      ANDROID_KEY_ALIAS         (e.g. "release")
+#   4. Optional: SENTRY_MOBILE_DSN secret (mobile Sentry project DSN).
+#      Unset → the app runs with crash reporting disabled.
 
 name: Mobile Release
 
@@ -76,6 +78,7 @@ jobs:
           flutter build apk --release \
             --build-number=${{ github.run_number }} \
             --dart-define=APP_ENV=prod \
+            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
             --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
 
       - name: Upload APK as GitHub Release

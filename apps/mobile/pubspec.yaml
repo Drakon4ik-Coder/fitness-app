@@ -46,6 +46,7 @@ dependencies:
   # Reports the device's IANA timezone (e.g. "Europe/Kyiv") so the backend can
   # convert UTC meal timestamps back to the user's wall clock.
   flutter_timezone: ^4.1.0
+  sentry_flutter: ^9.24.0
 
 dev_dependencies:
   flutter_test:

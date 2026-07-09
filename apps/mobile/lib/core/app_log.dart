@@ -2,8 +2,9 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 /// App-wide sink for the original error behind every user-friendly message.
 ///
-/// Null by default; when a crash reporter lands (PLAY_STORE_ROADMAP), assign
-/// it once in `main.dart` and every swallowed error becomes a breadcrumb.
+/// Null by default; `main.dart` assigns it once when Sentry is enabled
+/// (non-local build with a DSN) so every swallowed error becomes a
+/// breadcrumb. In local runs and tests it stays null.
 void Function(String context, Object error, StackTrace stackTrace)?
 appErrorLogger;
 
