@@ -1,6 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../core/access_token_claims.dart';
 import '../core/auth_interceptor.dart';
 import '../core/auth_service.dart';
 import '../ui_system/lumina_health_theme.dart';
@@ -9,6 +12,7 @@ import 'nutrition/account_page.dart';
 import 'nutrition/data/api_exceptions.dart';
 import 'nutrition/data/food_local_db.dart';
 import 'nutrition/data/foods_api_service.dart';
+import 'nutrition/data/local_db_paths.dart';
 import 'nutrition/data/nutrition_api_service.dart';
 import 'nutrition/data/nutrition_local_store.dart';
 import 'nutrition/data/off_client.dart';
@@ -55,6 +59,8 @@ class _MainShellState extends State<MainShell> {
   late final PreferencesApiService _preferencesApi;
   late final NutritionLocalStore _localStore;
   late final bool _ownsLocalStore;
+  late final FoodLocalDb _localDb;
+  late final bool _ownsLocalDb;
 
   // Shared goals/units; null until loaded (or if the fetch fails), in which case
   // the today tab falls back to catalog defaults.
@@ -69,8 +75,19 @@ class _MainShellState extends State<MainShell> {
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
+    // Both local DBs are namespaced by the token's user id (KAN-64) so
+    // offline data survives logout without being reachable from another
+    // account. The shell owns them so the deletion wipe hits the same files
+    // the pages write to.
+    final userId = userIdFromAccessToken(widget.accessToken);
     _ownsLocalStore = widget.localStore == null;
-    _localStore = widget.localStore ?? NutritionLocalStore();
+    _localStore = widget.localStore ?? NutritionLocalStore(userId: userId);
+    _ownsLocalDb = widget.localDb == null;
+    _localDb = widget.localDb ?? FoodLocalDb(userId: userId);
+    if (_ownsLocalStore && userId != null) {
+      // Storage cap for shared devices; failures never matter at startup.
+      unawaited(evictStaleUserDbs(currentUserId: userId).catchError((_) {}));
+    }
     _loadPreferences();
   }
 
@@ -85,6 +102,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void dispose() {
     if (_ownsLocalStore) _localStore.close();
+    if (_ownsLocalDb) _localDb.close();
     super.dispose();
   }
 
@@ -99,33 +117,21 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  /// Logout from the account tab: wipe the local nutrition store first so the
-  /// next user on this device can't see the previous user's log — and, since
-  /// KAN-28, so a leftover offline outbox can't replay into another account.
-  /// (The today tab wraps [widget.onLogout] with the same wipe on its own
-  /// auth-gate path.)
-  Future<void> _handleLogout() async {
-    try {
-      await _localStore.clear();
-    } catch (_) {
-      // Best-effort — never block logout on a cache wipe.
-    }
-    await widget.onLogout();
-  }
+  // Logout deliberately keeps both local DBs (KAN-64): they're namespaced per
+  // user id, so nothing in them is reachable from another account, and an
+  // unsynced offline outbox survives a re-login instead of being lost.
 
   /// Account deletion (KAN-42): the server data is gone, so scrub every local
-  /// trace — both SQLite DBs (neither is namespaced per user), then the tokens
-  /// in secure storage via [MainShell.onLogout].
+  /// trace — both SQLite DBs, then the tokens in secure storage via
+  /// [MainShell.onLogout].
   Future<void> _handleAccountDeleted() async {
     try {
       await _localStore.clear();
     } catch (_) {
       // Best-effort — never block sign-out on a cache wipe.
     }
-    final foodDb = widget.localDb ?? FoodLocalDb();
     try {
-      await foodDb.clear();
-      if (widget.localDb == null) await foodDb.close();
+      await _localDb.clear();
     } catch (_) {
       // Best-effort.
     }
@@ -147,7 +153,7 @@ class _MainShellState extends State<MainShell> {
             foodsApi: widget.foodsApi,
             localStore: _localStore,
             offClient: widget.offClient,
-            localDb: widget.localDb,
+            localDb: _localDb,
           ),
           AccountPage(
             accessToken: widget.accessToken,
@@ -155,7 +161,7 @@ class _MainShellState extends State<MainShell> {
             preferencesApi: _preferencesApi,
             authService: widget.authService,
             initialPreferences: _prefs,
-            onLogout: _handleLogout,
+            onLogout: widget.onLogout,
             onAccountDeleted: _handleAccountDeleted,
             onSaved: (prefs) => setState(() => _prefs = prefs),
           ),

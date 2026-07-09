@@ -126,15 +126,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     ...widget.preferences?.warnNutrients ?? const <String>[],
   };
 
-  /// Logs out, first wiping the local nutrition store so the next user on this
-  /// device can't see the previous user's log and no leftover offline outbox
-  /// can replay into another account (the store isn't per-user).
+  /// Logs out. The local store is deliberately kept (KAN-64): it's namespaced
+  /// per user id, so an unsynced offline outbox survives a re-login instead
+  /// of being lost, and can never replay into another account.
   Future<void> _handleLogout() async {
-    try {
-      await _repository.clear();
-    } catch (_) {
-      // Best-effort — never block logout on a cache wipe.
-    }
     await widget.onLogout();
   }
 

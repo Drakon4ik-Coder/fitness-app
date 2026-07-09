@@ -271,8 +271,8 @@ class NutritionRepository {
   Future<int> pendingSyncCount() => _store.countPendingEntries();
 
   /// Wipes all local state (day payloads, entries, queued writes, cursor).
-  /// Call on logout: the store isn't namespaced per user, and a leftover
-  /// outbox must never replay into another account.
+  /// For account deletion only — logout keeps the store, which is namespaced
+  /// per user id (KAN-64).
   Future<void> clear() => _store.clear();
 
   Future<void> close() => _store.close();

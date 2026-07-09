@@ -224,8 +224,11 @@ foods server-side.
 - **Hand-written JSON models** — `food_models.dart` and inline parsing in
   service files. No code generation.
 - **Two on-device SQLite databases** with independent migration histories:
-  `food_local_db.dart` (v7) and `nutrition_local_store.dart` (v2). Neither is
-  per-user; both are cleared on logout.
+  `food_local_db.dart` (v7) and `nutrition_local_store.dart` (v2). Both files
+  are namespaced per server user id (KAN-64, `local_db_paths.dart`): logout
+  keeps them so offline data — including an unsynced outbox — survives
+  re-login; account deletion clears them; the 3 most recently used accounts'
+  files are kept per device (LRU eviction at shell startup).
 - **Mirrored nutrient catalog** — `nutrients/catalog.py` (Python) and
   `nutrient_catalog.dart` (Dart) must change together; the backend test
   `test_nutrient_catalog_drift.py` fails on divergence.

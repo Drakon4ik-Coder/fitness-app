@@ -4,10 +4,18 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'food_models.dart';
+import 'local_db_paths.dart';
 
 class FoodLocalDb {
-  FoodLocalDb({Database? database}) : _database = database;
+  /// [userId] namespaces the SQLite file per account (KAN-64): the catalog
+  /// cache carries per-user state (favorites, custom foods, last-used), so it
+  /// follows the same scoping as the nutrition store. Null falls back to the
+  /// legacy shared file.
+  FoodLocalDb({Database? database, int? userId})
+    : _database = database,
+      _userId = userId;
 
+  final int? _userId;
   Database? _database;
   Completer<Database>? _databaseCompleter;
 
@@ -45,9 +53,9 @@ class FoodLocalDb {
     _database = null;
   }
 
-  /// Drops the whole catalog cache. Used when the account is deleted: the DB
-  /// isn't per-user, and the favorites and custom foods in it belong to the
-  /// account that no longer exists.
+  /// Drops the whole catalog cache. Used when the account is deleted — the
+  /// favorites and custom foods in it belong to the account that no longer
+  /// exists. Plain logout keeps the file (KAN-64).
   Future<void> clear() async {
     final db = await database;
     await db.delete('foods');
@@ -342,7 +350,11 @@ class FoodLocalDb {
 
   Future<Database> _openDatabase() async {
     final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/foods.db';
+    final path = await resolveUserDbPath(
+      directoryPath: directory.path,
+      baseName: 'foods',
+      userId: _userId,
+    );
     return openDatabase(
       path,
       version: 7,

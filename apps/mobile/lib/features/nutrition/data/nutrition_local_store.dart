@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'food_models.dart';
+import 'local_db_paths.dart';
 
 /// One meal entry as held in the local entry-level cache (KAN-28).
 ///
@@ -110,10 +111,17 @@ class OutboxOp {
 /// from it except unsynced outbox ops. Methods are not best-effort — callers
 /// (the repository) decide what failures may be swallowed.
 class NutritionLocalStore {
-  NutritionLocalStore({Database? database}) : _database = database;
+  /// [userId] namespaces the SQLite file per account (KAN-64) so an offline
+  /// outbox survives logout without ever being able to replay into another
+  /// user's account. Null (e.g. an unparsable token) falls back to the legacy
+  /// shared file.
+  NutritionLocalStore({Database? database, int? userId})
+    : _database = database,
+      _userId = userId;
 
   static const _syncCursorKey = 'sync_cursor';
 
+  final int? _userId;
   Database? _database;
   Completer<Database>? _databaseCompleter;
 
@@ -347,9 +355,9 @@ class NutritionLocalStore {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// Drops everything. Call on logout so the next user on this device can't
-  /// see (or accidentally replay writes into) the previous user's log — the
-  /// store isn't namespaced per user.
+  /// Drops everything. Called on account deletion; plain logout keeps the
+  /// data (KAN-64) — the file is namespaced per user, so nothing here can
+  /// leak into, or replay against, another account.
   Future<void> clear() async {
     final db = await _db;
     await db.delete('day_cache');
@@ -414,7 +422,11 @@ class NutritionLocalStore {
 
   Future<Database> _openDatabase() async {
     final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/nutrition_cache.db';
+    final path = await resolveUserDbPath(
+      directoryPath: directory.path,
+      baseName: 'nutrition_cache',
+      userId: _userId,
+    );
     return openDatabase(
       path,
       version: 2,

@@ -81,8 +81,12 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
   treat 0 as a real server id.
 - Two separate SQLite DBs on device: `food_local_db.dart` (catalog cache,
   schema v7) and `nutrition_local_store.dart` (entries/outbox/day payloads,
-  schema v2). Independent migration histories; neither is per-user —
-  `clear()` on logout is mandatory and already wired.
+  schema v2). Independent migration histories. Since KAN-64 both files are
+  namespaced per server user id (`_u<id>` suffix from the JWT's `user_id`
+  claim — see `local_db_paths.dart`): logout keeps them (an unsynced outbox
+  survives re-login and can never replay into another account), account
+  deletion clears them, legacy unsuffixed files are adopted on first scoped
+  open. Do not reintroduce a wipe-on-logout.
 - Meat foods with cooked-basis labels: grams are stored cooked-equivalent;
   raw entry applies a 0.75 yield factor (see amount sheet logic).
 - OFF never provides per-piece nutrition and its search omits serving data —
