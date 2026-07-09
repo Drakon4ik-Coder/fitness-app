@@ -187,6 +187,7 @@ Each API service creates its own `Dio` instance and calls
 | `POST /api/v1/auth/refresh` | `TokenRefreshView` |
 | `POST /api/v1/auth/google` | `GoogleLoginView` |
 | `GET/PATCH /api/v1/auth/me` | `MeView` (PATCH: timezone etc.) |
+| `DELETE /api/v1/auth/me` | `MeView` (account deletion; re-auth via password or fresh Google ID token, KAN-42) |
 | `POST /api/v1/auth/resend-verification` | `ResendVerificationView` |
 | `POST /api/v1/auth/password-reset` | `PasswordResetRequestView` |
 | `GET /api/v1/foods/typeahead` | `FoodTypeaheadView` |

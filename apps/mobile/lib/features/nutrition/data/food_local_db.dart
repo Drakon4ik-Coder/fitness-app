@@ -45,6 +45,14 @@ class FoodLocalDb {
     _database = null;
   }
 
+  /// Drops the whole catalog cache. Used when the account is deleted: the DB
+  /// isn't per-user, and the favorites and custom foods in it belong to the
+  /// account that no longer exists.
+  Future<void> clear() async {
+    final db = await database;
+    await db.delete('foods');
+  }
+
   Future<FoodItem> upsertFood(FoodItem item) async {
     final db = await database;
     return _upsertFood(db, item);

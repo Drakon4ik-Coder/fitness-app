@@ -1,8 +1,9 @@
 import logging
+from typing import cast
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.http import HttpRequest, HttpResponse
@@ -23,8 +24,14 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from accounts.models import EmailVerificationToken, PasswordResetToken
+from accounts.models import (
+    AccountDeletionToken,
+    EmailVerificationToken,
+    PasswordResetToken,
+    User,
+)
 from accounts.serializers import (
+    AccountDeleteSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
     PasswordResetRequestSerializer,
@@ -36,13 +43,12 @@ from accounts.serializers import (
 )
 from accounts.services import (
     create_user_with_defaults,
+    send_account_deletion_email,
     send_password_reset_email,
     send_verification_email,
 )
 
 logger = logging.getLogger(__name__)
-
-User = get_user_model()
 
 
 class GoogleLoginView(APIView):
@@ -327,8 +333,152 @@ def _reset_result(request: HttpRequest, result: str) -> HttpResponse:
     return render(request, "accounts/password_reset_result.html", {"result": result})
 
 
+# Mirrors the DRF "password_reset" throttle rate — this page also sends an
+# email per submit — but hand-rolled because it's a plain Django view.
+_DELETION_REQUESTS_PER_HOUR = 3
+
+
+def _deletion_request_allowed(request: HttpRequest) -> bool:
+    ip = request.META.get("REMOTE_ADDR") or "unknown"
+    key = f"account-deletion-request:{ip}"
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        # First request from this IP this hour (or the key expired).
+        cache.add(key, 1, timeout=3600)
+        count = 1
+    return count <= _DELETION_REQUESTS_PER_HOUR
+
+
+@require_http_methods(["GET", "POST"])
+def request_account_deletion(request: HttpRequest) -> HttpResponse:
+    """Logged-out web path to request account deletion.
+
+    Google Play requires a web resource where users can request deletion
+    without the app. POST emails a confirmation link when the address has an
+    active account — but the response never reveals whether it does
+    (account-enumeration defense, same posture as the password-reset flow).
+    Requests over the per-IP cap get the same neutral page with no email, so
+    the cap can't be used as an enumeration oracle either.
+    """
+    if request.method == "GET":
+        return render(request, "accounts/delete_account_request.html")
+
+    email = (request.POST.get("email") or "").strip()
+    if not email:
+        return render(
+            request,
+            "accounts/delete_account_request.html",
+            {"error": "Enter the email address of your Symbio account."},
+        )
+
+    if _deletion_request_allowed(request):
+        user = User.objects.filter(email__iexact=email).first()
+        if user is not None and user.is_active:
+            try:
+                send_account_deletion_email(user, request=request)
+            except Exception:
+                logger.exception("Failed to send account-deletion email to %s", email)
+
+    return render(request, "accounts/delete_account_result.html", {"result": "sent"})
+
+
+@require_http_methods(["GET", "POST"])
+def confirm_account_deletion(request: HttpRequest, token: str) -> HttpResponse:
+    """Landing page the account-deletion email points to.
+
+    Like :func:`verify_email`, GET only shows a confirmation page and the
+    destructive action happens on POST — an email security scanner
+    pre-fetching the link must not be able to delete an account.
+    """
+    token_obj = (
+        AccountDeletionToken.objects.select_related("user")
+        .filter(token_hash=AccountDeletionToken.hash_token(token))
+        .first()
+    )
+
+    if token_obj is None:
+        return _deletion_result(request, "invalid")
+    if token_obj.used_at is not None:
+        return _deletion_result(request, "used")
+    if token_obj.is_expired:
+        return _deletion_result(request, "expired")
+
+    if request.method == "GET":
+        return render(
+            request,
+            "accounts/delete_account_confirm.html",
+            {"email": token_obj.user.email},
+        )
+
+    # Consume the token with a single conditional UPDATE so concurrent submits
+    # can't both claim it. Claim first, then delete — deleting the user
+    # cascades this token row away with everything else.
+    claimed = AccountDeletionToken.objects.filter(
+        pk=token_obj.pk, used_at__isnull=True
+    ).update(used_at=timezone.now())
+    if not claimed:
+        return _deletion_result(request, "used")
+
+    user = token_obj.user
+    logger.info("Deleting account %s (web request)", user.email)
+    user.delete()
+    return _deletion_result(request, "success")
+
+
+def _deletion_result(request: HttpRequest, result: str) -> HttpResponse:
+    return render(request, "accounts/delete_account_result.html", {"result": result})
+
+
+def _reauth_failed() -> Response:
+    # One vague message for every re-auth failure mode: the caller already
+    # holds a valid access token, but if that token is stolen the error must
+    # not help distinguish wrong-password from wrong-account Google tokens.
+    return Response(
+        {"detail": "Re-authentication failed."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _google_reauth_error(raw_token: str, user: User) -> Response | None:
+    """Verify a fresh Google ID token as deletion re-auth proof for ``user``.
+
+    Returns None when the token is authentic, minted for our app, and belongs
+    to the signed-in user's own email. Unlike GoogleLoginView, every failure
+    collapses into the same vague 403 (503 only when Google is unreachable,
+    which isn't the caller's fault).
+    """
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            raw_token,
+            google_requests.Request(),
+            clock_skew_in_seconds=10,
+        )
+    except google_exceptions.TransportError:
+        return Response(
+            {"detail": "Could not verify Google token, try again later."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except (ValueError, google_exceptions.GoogleAuthError):
+        return _reauth_failed()
+    if claims.get("aud") not in settings.GOOGLE_OAUTH_CLIENT_IDS:
+        return _reauth_failed()
+    if (claims.get("email") or "").lower() != user.email.lower():
+        return _reauth_failed()
+    return None
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
+    # Applies to DELETE only (see get_throttles): keyed by user id, it caps
+    # re-auth attempts so a stolen access token can't brute-force the
+    # password/Google check.
+    throttle_scope = "account_delete"
+
+    def get_throttles(self) -> list:
+        if self.request.method == "DELETE":
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
 
     @extend_schema(responses=UserSerializer)
     def get(self, request: Request) -> Response:
@@ -341,3 +491,35 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response(UserSerializer(user).data)
+
+    @extend_schema(request=AccountDeleteSerializer, responses={204: None})
+    def delete(self, request: Request) -> Response:
+        """Permanently delete the signed-in account (Play Store requirement).
+
+        A live access token isn't proof enough for an irreversible wipe (it
+        could be lifted from an unlocked phone), so the request must re-prove
+        the credential: the account password, or a fresh Google ID token for
+        OAuth-only accounts.
+
+        Body (JSON, exactly one key — OpenAPI omits it because the method is
+        DELETE): {"password": "..."} or {"id_token": "..."}.
+        """
+        body = AccountDeleteSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        # IsAuthenticated guarantees a real User, not AnonymousUser.
+        user = cast(User, request.user)
+
+        password = body.validated_data.get("password")
+        if password:
+            if not (user.has_usable_password() and user.check_password(password)):
+                return _reauth_failed()
+        else:
+            error = _google_reauth_error(body.validated_data["id_token"], user)
+            if error is not None:
+                return error
+
+        logger.info("Deleting account %s (in-app request)", user.email)
+        # Cascades everything user-owned: meal entries, preferences, custom
+        # foods, edit proposals and outstanding email tokens.
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

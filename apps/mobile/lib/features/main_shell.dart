@@ -113,6 +113,25 @@ class _MainShellState extends State<MainShell> {
     await widget.onLogout();
   }
 
+  /// Account deletion (KAN-42): the server data is gone, so scrub every local
+  /// trace — both SQLite DBs (neither is namespaced per user), then the tokens
+  /// in secure storage via [MainShell.onLogout].
+  Future<void> _handleAccountDeleted() async {
+    try {
+      await _localStore.clear();
+    } catch (_) {
+      // Best-effort — never block sign-out on a cache wipe.
+    }
+    final foodDb = widget.localDb ?? FoodLocalDb();
+    try {
+      await foodDb.clear();
+      if (widget.localDb == null) await foodDb.close();
+    } catch (_) {
+      // Best-effort.
+    }
+    await widget.onLogout();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -137,6 +156,7 @@ class _MainShellState extends State<MainShell> {
             authService: widget.authService,
             initialPreferences: _prefs,
             onLogout: _handleLogout,
+            onAccountDeleted: _handleAccountDeleted,
             onSaved: (prefs) => setState(() => _prefs = prefs),
           ),
         ],

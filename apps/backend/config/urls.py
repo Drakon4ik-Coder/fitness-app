@@ -5,6 +5,7 @@ from django.http import HttpRequest, JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from accounts.views import confirm_account_deletion, request_account_deletion
 from config.well_known import assetlinks
 
 
@@ -18,6 +19,14 @@ urlpatterns = [
     # Domain-root well-known path Google fetches to affiliate the app with this
     # site for shared password autofill.
     path(".well-known/assetlinks.json", assetlinks, name="assetlinks"),
+    # Domain-root web path for account deletion — Google Play's Data safety
+    # form requires a deletion-request URL that works without the app.
+    path("delete-account", request_account_deletion, name="delete-account"),
+    path(
+        "delete-account/<str:token>",
+        confirm_account_deletion,
+        name="delete-account-confirm",
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",

@@ -7,7 +7,12 @@ from django.db import transaction
 from django.template.loader import render_to_string
 from django.urls import reverse
 
-from accounts.models import EmailVerificationToken, PasswordResetToken, User
+from accounts.models import (
+    AccountDeletionToken,
+    EmailVerificationToken,
+    PasswordResetToken,
+    User,
+)
 from preferences.models import UserPreferences
 
 
@@ -84,6 +89,42 @@ def build_password_reset_url(raw_token: str, *, request=None) -> str:
         "Cannot build an absolute password-reset URL: set PUBLIC_BASE_URL or "
         "call with a request to derive the host."
     )
+
+
+def build_account_deletion_url(raw_token: str, *, request=None) -> str:
+    """Absolute URL the user taps to confirm deleting their account.
+
+    Same host-resolution rules as :func:`build_verification_url`: prefer the
+    configured PUBLIC_BASE_URL, otherwise derive the host from the request, and
+    raise if neither is available rather than email a broken relative link.
+    """
+    path = reverse("delete-account-confirm", args=[raw_token])
+    if settings.PUBLIC_BASE_URL:
+        return f"{settings.PUBLIC_BASE_URL}{path}"
+    if request is not None:
+        return request.build_absolute_uri(path)
+    raise ImproperlyConfigured(
+        "Cannot build an absolute account-deletion URL: set PUBLIC_BASE_URL or "
+        "call with a request to derive the host."
+    )
+
+
+def send_account_deletion_email(user: User, *, request=None) -> None:
+    """Issue a fresh token and email the account-deletion link to ``user``."""
+    raw_token = AccountDeletionToken.issue(user)
+    deletion_url = build_account_deletion_url(raw_token, request=request)
+    context = {"deletion_url": deletion_url, "user": user}
+
+    text_body = render_to_string("accounts/email/account_deletion_email.txt", context)
+    html_body = render_to_string("accounts/email/account_deletion_email.html", context)
+    message = EmailMultiAlternatives(
+        subject="Confirm deleting your Symbio account",
+        body=text_body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+    message.attach_alternative(html_body, "text/html")
+    message.send()
 
 
 def send_password_reset_email(user: User, *, request=None) -> None:

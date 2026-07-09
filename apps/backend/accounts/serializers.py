@@ -53,9 +53,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    # False for OAuth-only accounts. The app uses this to pick the deletion
+    # re-auth method: password prompt vs a fresh Google sign-in.
+    has_password = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ("id", "email", "username", "display_name", "timezone")
+        fields = ("id", "email", "username", "display_name", "timezone", "has_password")
+
+    def get_has_password(self, user) -> bool:
+        return user.has_usable_password()
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -99,6 +106,25 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
 class GoogleLoginSerializer(serializers.Serializer):
     id_token = serializers.CharField()
+
+
+class AccountDeleteSerializer(serializers.Serializer):
+    """Re-auth proof for DELETE /auth/me: exactly one of the two credentials.
+
+    ``password`` for password accounts; ``id_token`` (a fresh Google ID token)
+    for OAuth-only accounts, which have no password to re-enter.
+    """
+
+    password = serializers.CharField(required=False, allow_blank=False)
+    id_token = serializers.CharField(required=False, allow_blank=False)
+
+    def validate(self, attrs):
+        provided = [key for key in ("password", "id_token") if attrs.get(key)]
+        if len(provided) != 1:
+            raise serializers.ValidationError(
+                "Provide exactly one of 'password' or 'id_token'."
+            )
+        return attrs
 
 
 class ResendVerificationSerializer(serializers.Serializer):

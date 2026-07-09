@@ -48,13 +48,14 @@ The 14-day closed test is the longest fixed delay; everything here starts it soo
 - [ ] Recruit 12–15 testers (friends/colleagues with Google accounts) now.
 
 ### Phase 1 — Policy compliance features (~1 week, app + backend work)
-- [ ] **Account deletion** (new KAN ticket):
-  - Backend: `DELETE /api/v1/accounts/me` (re-auth required) that deletes the
-    user and cascades meals/preferences/custom foods; plus a minimal web page
-    at `symbio.drakon4ik.uk/delete-account` where a logged-out user can
-    request deletion (Play requires a web path too).
+- [x] **Account deletion** (KAN-42):
+  - Backend: `DELETE /api/v1/auth/me` (re-auth: password, or a fresh Google
+    ID token for OAuth-only accounts) that deletes the user and cascades
+    meals/preferences/custom foods; plus a web page at
+    `symbio.drakon4ik.uk/delete-account` where a logged-out user requests an
+    emailed, single-use confirmation link (Play requires a web path too).
   - Mobile: "Delete account" in Settings → Profile with confirm dialog,
-    then local wipe (secure storage + SQLite) and sign-out.
+    then local wipe (secure storage + both SQLite DBs) and sign-out.
 - [ ] **Privacy policy**: write and host at `symbio.drakon4ik.uk/privacy`
   (static Django template is fine). Must cover: email/account data, health &
   nutrition data, device timezone, Google Sign-In, camera/barcode usage

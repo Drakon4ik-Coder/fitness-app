@@ -17,6 +17,7 @@ class AccountInfo {
     required this.email,
     required this.displayName,
     this.username = '',
+    this.hasPassword = true,
   });
 
   final String email;
@@ -24,6 +25,10 @@ class AccountInfo {
 
   /// The unique @handle, or empty when the user hasn't chosen one yet.
   final String username;
+
+  /// False for OAuth-only accounts. Decides the account-deletion re-auth
+  /// method: password prompt vs a fresh Google sign-in.
+  final bool hasPassword;
 }
 
 class AuthException implements Exception {
@@ -245,6 +250,7 @@ class AuthService {
           email: (data['email'] as String?) ?? '',
           displayName: (data['display_name'] as String?) ?? '',
           username: (data['username'] as String?) ?? '',
+          hasPassword: (data['has_password'] as bool?) ?? true,
         );
       }
       return null;
@@ -277,6 +283,42 @@ class AuthService {
     } on DioException catch (error) {
       throw AuthException(
         _firstErrorMessage(error.response?.data) ?? 'Unable to update profile.',
+      );
+    }
+  }
+
+  /// Permanently deletes the signed-in account (DELETE /auth/me).
+  ///
+  /// The server requires re-auth proof beyond the access token: [password]
+  /// for password accounts, or a fresh Google ID token ([googleIdToken]) for
+  /// OAuth-only accounts. Exactly one must be given.
+  ///
+  /// Throws [AuthException] with the server's message on rejection — kept
+  /// deliberately vague by the backend — or a generic message on network
+  /// failure.
+  Future<void> deleteAccount({
+    required String accessToken,
+    String? password,
+    String? googleIdToken,
+  }) async {
+    try {
+      await _dio.delete(
+        '/api/v1/auth/me',
+        data: <String, dynamic>{
+          if (password != null) 'password': password,
+          if (googleIdToken != null) 'id_token': googleIdToken,
+        },
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+    } on DioException catch (error) {
+      final message = _firstErrorMessage(error.response?.data);
+      throw AuthException(
+        message ?? 'Could not delete the account. Please try again later.',
+      );
+    } catch (error, stackTrace) {
+      logError('deleteAccount', error, stackTrace);
+      throw AuthException(
+        'Could not delete the account. Please try again later.',
       );
     }
   }

@@ -30,5 +30,6 @@ REST_FRAMEWORK = {
         "login": None,
         "register": None,
         "google": None,
+        "account_delete": None,
     },
 }

@@ -28,6 +28,7 @@ class AccountPage extends StatefulWidget {
     required this.accessToken,
     required this.preferencesApi,
     required this.onLogout,
+    this.onAccountDeleted,
     this.authInterceptor,
     this.authService,
     this.initialPreferences,
@@ -37,6 +38,10 @@ class AccountPage extends StatefulWidget {
   final String accessToken;
   final PreferencesApiService preferencesApi;
   final Future<void> Function() onLogout;
+
+  /// Called after the server confirms account deletion: wipes both local DBs
+  /// and signs out. Falls back to [onLogout] when not provided.
+  final Future<void> Function()? onAccountDeleted;
   final AuthInterceptor? authInterceptor;
   final AuthService? authService;
 
@@ -107,6 +112,7 @@ class _AccountPageState extends State<AccountPage> {
           initialDisplayName: _displayName,
           initialUsername: _username,
           email: _email,
+          onAccountDeleted: widget.onAccountDeleted ?? widget.onLogout,
         ),
       ),
     );
