@@ -561,10 +561,10 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final scheme = theme.colorScheme;
     final totals = _dayLog?.totals;
     final eatenKcal = totals?.kcal.round() ?? 0;
-    final burnedKcal = _burnedKcal;
-    // Exercise adds to the day's budget; "remaining" can now go negative, which
+    final int? burnedKcal = _burnedKcal;
+    // Exercise adds to the day's budget; "remaining" can go negative, which
     // we surface as an over-budget amount rather than clamping to zero.
-    final int kcalBudget = _calorieGoal + burnedKcal;
+    final int kcalBudget = _calorieGoal + (burnedKcal ?? 0);
     final int kcalRemaining = kcalBudget - eatenKcal;
     final bool kcalOver = kcalRemaining < 0;
     final int kcalCenterValue = kcalRemaining.abs();
@@ -925,7 +925,9 @@ class _PendingSyncChip extends StatelessWidget {
 }
 
 /// The hero biometric block: calorie ring (remaining/over + add button) over
-/// the eaten/burned stats row.
+/// the kcal stats row. BURNED appears only when [burnedKcal] is non-null,
+/// i.e. an activity source is configured (KAN-37); otherwise EATEN sits
+/// centered on its own.
 class _HeroSection extends StatelessWidget {
   const _HeroSection({
     required this.ringProgress,
@@ -942,7 +944,9 @@ class _HeroSection extends StatelessWidget {
   final bool kcalOver;
   final int kcalCenterValue;
   final int eatenKcal;
-  final int burnedKcal;
+
+  /// Null hides the BURNED stat (no activity source configured).
+  final int? burnedKcal;
   final VoidCallback onAddFood;
 
   @override
@@ -1036,17 +1040,20 @@ class _HeroSection extends StatelessWidget {
                 label: 'EATEN',
                 kcal: eatenKcal,
                 color: scheme.primary,
-                alignEnd: false,
+                alignment: burnedKcal == null
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
               ),
             ),
-            Expanded(
-              child: _KcalStat(
-                label: 'BURNED',
-                kcal: burnedKcal,
-                color: LuminaHealthColors.tertiary,
-                alignEnd: true,
+            if (burnedKcal != null)
+              Expanded(
+                child: _KcalStat(
+                  label: 'BURNED',
+                  kcal: burnedKcal!,
+                  color: LuminaHealthColors.tertiary,
+                  alignment: CrossAxisAlignment.end,
+                ),
               ),
-            ),
           ],
         ),
       ],
@@ -1054,28 +1061,26 @@ class _HeroSection extends StatelessWidget {
   }
 }
 
-/// One labelled kcal figure of the eaten/burned pair under the ring.
+/// One labelled kcal figure in the stats row under the ring.
 class _KcalStat extends StatelessWidget {
   const _KcalStat({
     required this.label,
     required this.kcal,
     required this.color,
-    required this.alignEnd,
+    required this.alignment,
   });
 
   final String label;
   final int kcal;
   final Color color;
-  final bool alignEnd;
+  final CrossAxisAlignment alignment;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Column(
-      crossAxisAlignment: alignEnd
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
+      crossAxisAlignment: alignment,
       children: [
         Text(
           label,
@@ -1087,9 +1092,11 @@ class _KcalStat extends StatelessWidget {
           ),
         ),
         Row(
-          mainAxisAlignment: alignEnd
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
+          mainAxisAlignment: switch (alignment) {
+            CrossAxisAlignment.end => MainAxisAlignment.end,
+            CrossAxisAlignment.center => MainAxisAlignment.center,
+            _ => MainAxisAlignment.start,
+          },
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
@@ -1522,7 +1529,11 @@ class _MealCard extends StatelessWidget {
   }
 }
 
-const int _burnedKcal = 0;
+/// Burned-kcal source (KAN-37). Null means no activity tracking is configured,
+/// which hides the BURNED stat entirely — a permanently-zero figure reads as
+/// broken. When an activity integration lands, supply its value here and the
+/// stat re-enables with no layout rework.
+const int? _burnedKcal = null;
 
 /// One focus nutrient's day state. [amount] is in the spec's canonical unit;
 /// null means foods were logged but none reported this nutrient.

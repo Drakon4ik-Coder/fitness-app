@@ -34,6 +34,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('EATEN'), findsOneWidget);
-    expect(find.text('BURNED'), findsOneWidget);
+    // No activity source is configured, so the BURNED stat is hidden (KAN-37).
+    expect(find.text('BURNED'), findsNothing);
   });
 }
