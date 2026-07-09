@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:fitness_app/core/app_log.dart';
 import 'package:fitness_app/features/nutrition/add_food_page.dart';
+import 'package:fitness_app/features/nutrition/custom_food_page.dart';
 import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
 import 'package:fitness_app/features/nutrition/data/food_local_db.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
@@ -10,6 +11,7 @@ import 'package:fitness_app/features/nutrition/data/nutrition_local_store.dart';
 import 'package:fitness_app/features/nutrition/data/nutrition_repository.dart';
 import 'package:fitness_app/features/nutrition/data/off_client.dart';
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
+import 'package:fitness_app/features/nutrition/food_detail_page.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -457,6 +459,128 @@ void main() {
       expect(store.entries, hasLength(3));
       expect(repository.createdFoods, ['Apple', 'Banana', 'Cherry']);
       expect(await result, isTrue);
+    },
+  );
+
+  testWidgets('long-press on a catalog result opens the read-first detail page '
+      'without staging or forking anything (KAN-35)', (
+    WidgetTester tester,
+  ) async {
+    final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
+    await pumpAddFoodPage(
+      tester,
+      localDb: localDb,
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    await tester.ensureVisible(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+
+    // Read-first detail page, not the fork-on-edit form.
+    expect(find.byType(FoodDetailPage), findsOneWidget);
+    expect(find.byType(CustomFoodPage), findsNothing);
+    // The gesture mutated nothing: no staged item, no forked override.
+    expect(localDb.upserted, isEmpty);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('ADDED ITEMS'), findsNothing);
+  });
+
+  testWidgets('long-press on your own custom food also opens the detail page, '
+      'not the edit form directly', (WidgetTester tester) async {
+    final custom = FoodItem(
+      localId: 1,
+      backendId: 7,
+      source: customSource,
+      externalId: 'cf-1',
+      name: 'My Protein Shake',
+      brands: '',
+      kcal100g: 380,
+      proteinG100g: 70,
+      rawSourceJson: '{}',
+    );
+    await pumpAddFoodPage(
+      tester,
+      localDb: _FakeLocalDb(recents: [custom]),
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    await tester.ensureVisible(find.text('My Protein Shake'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('My Protein Shake'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FoodDetailPage), findsOneWidget);
+    expect(find.byType(CustomFoodPage), findsNothing);
+  });
+
+  testWidgets(
+    'long-press on a serving-less OFF result enriches it before opening '
+    'the detail page',
+    (WidgetTester tester) async {
+      final off = _FakeOffClient(
+        searchResults: [makeOffResponse(barcode: '555', name: 'Choco Bar')],
+        productsByBarcode: {
+          '555': makeOffResponse(
+            barcode: '555',
+            name: 'Choco Bar',
+            servingSize: '30 g',
+          ),
+        },
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+      );
+
+      await search(tester, 'choco');
+      final card = find.text('Choco Bar', skipOffstage: false).first;
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.longPress(card);
+      await tester.pumpAndSettle();
+
+      // Enriched exactly once, then pushed the detail page with the full
+      // product (serving size present rather than sparse search data).
+      expect(off.fetchedBarcodes, ['555']);
+      expect(find.byType(FoodDetailPage), findsOneWidget);
+      expect(find.text('30 g', skipOffstage: false), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'long-press on an Added-items row opens the detail page for catalog '
+    'foods too',
+    (WidgetTester tester) async {
+      final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
+      await pumpAddFoodPage(
+        tester,
+        localDb: localDb,
+        repository: _offlineRepository(InMemoryNutritionStore()),
+      );
+
+      // Stage it with a tap, then long-press the staged tile (first of the
+      // two 'Oatmeal' texts — result card is last in the column).
+      await tester.ensureVisible(find.text('Oatmeal'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Oatmeal'));
+      await tester.pumpAndSettle();
+      final stagedTile = find.text('Oatmeal').first;
+      await tester.longPress(stagedTile);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FoodDetailPage), findsOneWidget);
+
+      // The staged item survived the round trip untouched.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('ADDED ITEMS'), findsOneWidget);
+      expect(find.text('1 item'), findsOneWidget);
     },
   );
 

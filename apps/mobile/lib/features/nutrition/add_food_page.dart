@@ -363,11 +363,30 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
+  // Long-press = inspect (KAN-35): always the read-first detail page, never
+  // a mutation or a direct edit form — overrides are created only via the
+  // labeled edit action inside it. Serving-less OFF results enrich first so
+  // the page doesn't open on sparse per-100g data.
+  Future<void> _onResultLongPress(_FoodResult result) async {
+    FocusScope.of(context).unfocus();
+    var item = result.item;
+    if (_needsEnrich(result)) {
+      final key = _resultKey(item);
+      if (key == null || _enrichingKey != null) return;
+      setState(() => _enrichingKey = key);
+      item = await _enrich(item);
+      if (!mounted) return;
+      setState(() => _enrichingKey = null);
+    }
+    await _openFoodDetail(item);
+  }
+
   /// Pushes the read-first food detail page (KAN-33). Edits made there are
   /// propagated into this page's lists as they happen; resolves with the
   /// updated item (or null if nothing changed) so the amount sheet can
   /// refresh its preview.
   Future<FoodItem?> _openFoodDetail(FoodItem item) {
+    FocusScope.of(context).unfocus();
     return pushFoodDetailPage(
       context,
       item: item,
@@ -460,98 +479,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
         _AddedFood(item: stored, grams: _defaultGramsFor(stored)),
       );
     });
-  }
-
-  // Opens the edit-food form for one of the user's own custom foods and
-  // propagates the update to the local db, the backend, and any occurrence
-  // in the results/Added lists.
-  Future<void> _editCustomFood(FoodItem item) async {
-    FocusScope.of(context).unfocus();
-    final result = await Navigator.of(context).push<CustomFoodResult>(
-      MaterialPageRoute(builder: (_) => CustomFoodPage(initial: item)),
-    );
-    if (result == null || !mounted) return;
-    if (result.deleted) {
-      await _deleteCustomFood(item);
-      return;
-    }
-    final updated = result.item;
-    if (updated == null) return;
-    final stored = await saveCustomFoodDraft(
-      updated,
-      foodsApi: widget.foodsApi,
-      localDb: widget.localDb,
-      onUnauthorized: widget.onLogout,
-    );
-    if (stored == null || !mounted) return;
-    _applyCustomFoodUpdate(stored);
-  }
-
-  // Fork-on-edit: opens the nutrition editor for a catalog food. Saving
-  // creates the user's private override, which shadows the global item in
-  // search/scan for them while everyone else keeps the original.
-  Future<void> _overrideFood(FoodItem global) async {
-    FocusScope.of(context).unfocus();
-    var target = global;
-    if (target.backendId == null) {
-      // The override links to the global row by backend id, so resolve one
-      // first (also what makes the OFF item exist server-side at all).
-      try {
-        final (resolved, _) = await ensureGlobalBackendId(
-          target,
-          foodsApi: widget.foodsApi,
-        );
-        target = resolved;
-      } on ApiException catch (error) {
-        if (error.isUnauthorized) {
-          await widget.onLogout();
-          return;
-        }
-        if (!mounted) return;
-        setState(() {
-          _message = 'Could not open the editor — check your connection.';
-          _messageTone = InlineBannerTone.error;
-        });
-        return;
-      }
-    }
-    if (!mounted) return;
-    final result = await Navigator.of(context).push<CustomFoodResult>(
-      MaterialPageRoute(builder: (_) => CustomFoodPage(overrideOf: target)),
-    );
-    final draft = result?.item;
-    if (draft == null || !mounted) return;
-    final stored = await saveCustomFoodDraft(
-      draft,
-      foodsApi: widget.foodsApi,
-      localDb: widget.localDb,
-      onUnauthorized: widget.onLogout,
-    );
-    if (stored == null || !mounted) return;
-    _applyCustomFoodUpdate(stored);
-  }
-
-  // Deletes a custom food (backend soft-delete + local row) and drops it
-  // from every list on this page.
-  Future<void> _deleteCustomFood(FoodItem item) async {
-    final outcome = await deleteCustomFoodEverywhere(
-      item,
-      foodsApi: widget.foodsApi,
-      localDb: widget.localDb,
-      onUnauthorized: widget.onLogout,
-    );
-    if (!mounted) return;
-    switch (outcome) {
-      case CustomFoodDeleteOutcome.unauthorized:
-        return;
-      case CustomFoodDeleteOutcome.failed:
-        setState(() {
-          _message = 'Could not delete the food — check your connection.';
-          _messageTone = InlineBannerTone.error;
-        });
-      case CustomFoodDeleteOutcome.deleted:
-        _applyCustomFoodRemoval(item);
-    }
   }
 
   Future<void> _openScanPage() async {
@@ -1035,11 +962,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 return _AddedItemTile(
                   added: added,
                   onTap: () => _editAddedItem(index),
-                  // Long-press edits the food itself (custom foods only);
-                  // tap keeps editing the logged amount.
-                  onLongPress: added.item.isCustom
-                      ? () => _editCustomFood(added.item)
-                      : null,
+                  // Tap edits the logged amount; long-press inspects the
+                  // food itself (KAN-35) — same model as the results grid.
+                  onLongPress: () => _openFoodDetail(added.item),
                   onRemove: () => setState(() => _addedItems.removeAt(index)),
                 );
               }),
@@ -1112,11 +1037,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                         _enrichingKey != null &&
                         _resultKey(item.item) == _enrichingKey,
                     onTap: () => _onResultTap(item),
-                    // Long-press: edit your own food, or fork a catalog item
-                    // into a personal override.
-                    onLongPress: item.item.isCustom
-                        ? () => _editCustomFood(item.item)
-                        : () => _overrideFood(item.item),
+                    onLongPress: () => _onResultLongPress(item),
                   );
                 },
               ),
@@ -1337,7 +1258,7 @@ class _AddedItemTile extends StatelessWidget {
 
   final _AddedFood added;
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
+  final VoidCallback onLongPress;
   final VoidCallback onRemove;
 
   @override
@@ -1554,8 +1475,7 @@ class _FoodCard extends StatelessWidget {
   final _FoodResult item;
   final VoidCallback onTap;
 
-  /// Long-press action — set only for the user's own custom foods, where it
-  /// opens the edit-food form.
+  /// Long-press action — opens the read-first food detail page (KAN-35).
   final VoidCallback? onLongPress;
   final bool isAdded;
   final bool isEnriching;
