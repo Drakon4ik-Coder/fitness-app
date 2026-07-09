@@ -386,6 +386,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         onUpdateEntry: (entry, {quantityG, mealType}) =>
             _updateEntry(entry, quantityG: quantityG, mealType: mealType),
         onDeleteEntry: (entry) => _deleteEntry(entry),
+        onRestoreEntry: (entry) => _restoreEntry(entry),
         onViewFoodDetails: _openFoodDetail,
         onAddMore: () {
           Navigator.of(context).pop();
@@ -476,6 +477,22 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         ).showSnackBar(SnackBar(content: Text(error.message)));
       }
       return false;
+    }
+  }
+
+  /// Undo of a swipe-delete (KAN-39): re-creates the entry through the
+  /// offline-first path, keeping its uuid identity. Null means it failed.
+  Future<NutritionEntry?> _restoreEntry(NutritionEntry entry) async {
+    try {
+      final restored = await _repository.restoreEntry(entry);
+      unawaited(_refreshPendingSync());
+      return restored;
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return null;
+      }
+      return null;
     }
   }
 

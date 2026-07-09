@@ -179,6 +179,7 @@ class NutritionApiService {
     required double quantityG,
     DateTime? consumedAt,
     String? clientUuid,
+    DateTime? clientUpdatedAt,
   }) {
     return mapApiErrors('Unable to add entry.', () async {
       final response = await _dio.post<Map<String, dynamic>>(
@@ -195,6 +196,10 @@ class NutritionApiService {
           // Stable client identity (KAN-28): replaying this exact create after
           // a lost ack returns the existing entry instead of a duplicate.
           if (clientUuid != null) 'client_uuid': clientUuid,
+          // LWW mutation time of an undo re-create (KAN-39): newer than the
+          // entry's tombstone, it resurrects the row under the same uuid.
+          if (clientUpdatedAt != null)
+            'client_updated_at': clientUpdatedAt.toUtc().toIso8601String(),
         },
       );
       final data = response.data;

@@ -166,6 +166,7 @@ void main() {
             ],
             onUpdateEntry: (_, {quantityG, mealType}) async => null,
             onDeleteEntry: (_) async => true,
+            onRestoreEntry: (entry) async => entry,
             onAddMore: () {},
           ),
         ),

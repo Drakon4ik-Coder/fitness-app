@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' show min;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../ui_components/ui_components.dart';
@@ -24,6 +26,7 @@ import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
 import 'widgets/amount_sheet.dart';
 import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
+import 'widgets/swipe_delete_background.dart';
 
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
@@ -349,10 +352,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
       onViewDetails: _openFoodDetail,
     );
     if (result == null || !mounted) return;
+    if (result.removed) {
+      _removeAddedItem(index);
+      return;
+    }
     setState(() {
-      if (result.removed) {
-        _addedItems.removeAt(index);
-      } else if (result.grams != null) {
+      if (result.grams != null) {
         // Re-read the staged item: viewing details from the sheet may have
         // replaced it (an edit or a fresh override) while the sheet was open.
         _addedItems[index] = _AddedFood(
@@ -361,6 +366,32 @@ class _AddFoodPageState extends State<AddFoodPage> {
         );
       }
     });
+  }
+
+  /// Drops the staged item at [index] and offers Undo (KAN-39). Staged items
+  /// only live in this list, so undo is a plain re-insert at the old spot.
+  void _removeAddedItem(int index) {
+    final removed = _addedItems[index];
+    unawaited(HapticFeedback.mediumImpact());
+    setState(() => _addedItems.removeAt(index));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Removed ${removed.item.name}'),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              if (!mounted) return;
+              setState(() {
+                _addedItems.insert(min(index, _addedItems.length), removed);
+              });
+            },
+          ),
+        ),
+      );
   }
 
   // Long-press = inspect (KAN-35): always the read-first detail page, never
@@ -965,7 +996,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   // Tap edits the logged amount; long-press inspects the
                   // food itself (KAN-35) — same model as the results grid.
                   onLongPress: () => _openFoodDetail(added.item),
-                  onRemove: () => setState(() => _addedItems.removeAt(index)),
+                  onRemove: () => _removeAddedItem(index),
                 );
               }),
             ],
@@ -1246,8 +1277,9 @@ class _SummaryBento extends StatelessWidget {
   }
 }
 
-/// One staged item in the Added list: thumb, amount + kcal line, and the
-/// edit/remove affordances.
+/// One staged item in the Added list: thumb plus amount + kcal line. Tap
+/// edits, swipe (endToStart) removes with Undo (KAN-39) — no persistent
+/// remove button, and the editor's "Remove from meal" is the visible path.
 class _AddedItemTile extends StatelessWidget {
   const _AddedItemTile({
     required this.added,
@@ -1270,56 +1302,61 @@ class _AddedItemTile extends StatelessWidget {
     final amountLabel = describeAmount(grams, added.item);
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-      child: Material(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: InkWell(
+      child: Dismissible(
+        key: ObjectKey(added),
+        // endToStart only, so the swipe never fights the Android back
+        // gesture on the left edge.
+        direction: DismissDirection.endToStart,
+        background: SwipeDeleteBackground(
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                FoodThumb(
-                  url: added.item.imageUrl?.trim().isNotEmpty == true
-                      ? added.item.imageUrl!.trim()
-                      : null,
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        added.item.name,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+        ),
+        onDismissed: (_) => onRemove(),
+        // The swipe gesture is invisible to screen readers; expose the
+        // removal as an explicit accessibility action instead.
+        child: Semantics(
+          customSemanticsActions: {
+            CustomSemanticsAction(label: 'Remove ${added.item.name}'): onRemove,
+          },
+          child: Material(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              onTap: onTap,
+              onLongPress: onLongPress,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    FoodThumb(
+                      url: added.item.imageUrl?.trim().isNotEmpty == true
+                          ? added.item.imageUrl!.trim()
+                          : null,
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            added.item.name,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '$amountLabel • $kcal kcal',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        '$amountLabel • $kcal kcal',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                Icon(
-                  Icons.edit_outlined,
-                  size: 18,
-                  color: scheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                IconButton(
-                  icon: Icon(Icons.remove_circle, color: scheme.error),
-                  tooltip: 'Remove ${added.item.name}',
-                  onPressed: onRemove,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
+              ),
             ),
           ),
         ),

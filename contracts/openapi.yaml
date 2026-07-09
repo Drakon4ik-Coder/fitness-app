@@ -1248,6 +1248,10 @@ components:
         client_uuid:
           type: string
           format: uuid
+        client_updated_at:
+          type: string
+          format: date-time
+          writeOnly: true
       required:
       - food_item_id
       - meal_type

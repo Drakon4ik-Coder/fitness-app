@@ -89,6 +89,7 @@ class MealEntryCreateView(APIView):
         # (even a since-deleted one; the tombstone reaches the client via delta
         # sync) instead of duplicating the meal.
         client_uuid = serializer.validated_data.get("client_uuid")
+        client_updated_at = serializer.validated_data.pop("client_updated_at", None)
         if client_uuid is not None:
             # cast, not assert: asserts vanish under `python -O`.
             user = cast(User, request.user)
@@ -96,6 +97,36 @@ class MealEntryCreateView(APIView):
                 user=user, client_uuid=client_uuid
             ).first()
             if existing is not None:
+                if (
+                    existing.deleted_at is not None
+                    and client_updated_at is not None
+                    and client_updated_at > existing.updated_at
+                ):
+                    # Undo of a delete (KAN-39): a re-create minted *after* the
+                    # tombstone wins LWW and resurrects the row, keeping the
+                    # uuid identity for life. A replayed original create (no
+                    # mutation time, or one older than the delete) falls
+                    # through to the plain dedupe below and the tombstone
+                    # stands — resurrecting there would undo another device's
+                    # newer delete.
+                    data = serializer.validated_data
+                    existing.food_item = data["food_item"]
+                    existing.meal_type = data["meal_type"]
+                    existing.quantity_g = data["quantity_g"]
+                    if "consumed_at" in data:
+                        existing.consumed_at = data["consumed_at"]
+                    existing.deleted_at = None
+                    existing.updated_at = _clamp_mutation_time(client_updated_at)
+                    # Full save so auto_now bumps synced_at: other devices learn
+                    # about the resurrection on their next delta pull.
+                    existing.save()
+                    cache.delete(
+                        meal_times_cache_key(
+                            existing.user_id, str(_user_zone(request.user))
+                        )
+                    )
+                    output = MealEntrySerializer(existing, context={"request": request})
+                    return Response(output.data, status=status.HTTP_200_OK)
                 output = MealEntrySerializer(existing, context={"request": request})
                 return Response(output.data, status=status.HTTP_200_OK)
         entry = serializer.save()

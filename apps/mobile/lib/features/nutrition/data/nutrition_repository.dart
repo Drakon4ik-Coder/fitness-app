@@ -224,6 +224,47 @@ class NutritionRepository {
     return true;
   }
 
+  /// Undoes a delete (KAN-39): brings [entry] back under its original uuid so
+  /// its identity survives the delete/undo round-trip. Locally the row is
+  /// un-tombstoned right away; the queued re-create carries a fresh mutation
+  /// time, so it beats the tombstone LWW-wise server-side — even when the
+  /// delete op is still ahead of it in the outbox, replay order converges.
+  Future<NutritionEntry?> restoreEntry(NutritionEntry entry) async {
+    final backendId = entry.foodItem.backendId;
+    if (backendId == null) {
+      throw ApiException('Unable to resolve food item id.');
+    }
+    final uuid = entry.uuid;
+    if (uuid == null) {
+      // Entry from a pre-sync payload: plain online-only re-create.
+      return _api.createEntry(
+        foodItemId: backendId,
+        mealType: entry.mealType,
+        quantityG: entry.quantityG,
+        consumedAt: entry.consumedAt,
+      );
+    }
+    final nowUtc = _now();
+    await _store.upsertEntry(
+      _toStoredEntry(entry).copyWith(updatedAt: nowUtc, pending: true),
+    );
+    await _store.enqueueOp(
+      kind: OutboxOp.create,
+      entryUuid: uuid,
+      payload: {
+        'food_item_id': backendId,
+        'meal_type': entry.mealType,
+        'quantity_g': entry.quantityG,
+        'consumed_at': entry.consumedAt.toUtc().toIso8601String(),
+        'client_updated_at': nowUtc.toIso8601String(),
+      },
+      queuedAt: nowUtc,
+    );
+    await _tryPushOutbox();
+    final after = await _store.readEntry(uuid);
+    return after == null ? null : _toNutritionEntry(after);
+  }
+
   /// How many entries have queued offline writes awaiting replay. Read-only
   /// surfacing of the outbox for the UI (KAN-56) — it never changes sync
   /// behavior. Zero means everything this device wrote reached the server.
@@ -281,6 +322,11 @@ class NutritionRepository {
             op.payload['consumed_at'] as String? ?? '',
           ),
           clientUuid: op.entryUuid,
+          // Present only on undo re-creates (KAN-39); lets the server
+          // resurrect a tombstoned row instead of bouncing off the dedupe.
+          clientUpdatedAt: DateTime.tryParse(
+            op.payload['client_updated_at'] as String? ?? '',
+          ),
         );
         await _store.removeOp(op.id);
         final local = await _store.readEntry(op.entryUuid);
@@ -318,8 +364,13 @@ class NutritionRepository {
         await _store.removeOp(op.id);
         // Acknowledged: the server carries the tombstone for other devices
         // now (or dropped the delete LWW-wise, in which case the next delta
-        // pull resurrects the row here).
-        await _store.purgeEntry(op.entryUuid);
+        // pull resurrects the row here). But an undo re-create queued behind
+        // this delete (KAN-39) has already brought the local row back to
+        // life — purging would drop the restore, so leave the row to the
+        // queued create when one exists.
+        if (!await _store.hasOpsFor(op.entryUuid)) {
+          await _store.purgeEntry(op.entryUuid);
+        }
     }
   }
 

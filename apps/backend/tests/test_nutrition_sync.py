@@ -98,6 +98,108 @@ def test_create_without_client_uuid_still_works() -> None:
     assert response.data["client_uuid"]
 
 
+# --- undo resurrect (KAN-39) ---
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_create_newer_than_tombstone_resurrects_entry() -> None:
+    client, user = _auth_client()
+    food = _food()
+    entry = _entry(user, food, quantity_g=Decimal("120"))
+    # Both in the past so the undo's mutation time survives the server clamp.
+    entry.deleted_at = timezone.now() - timedelta(minutes=1)
+    entry.updated_at = timezone.now() - timedelta(minutes=1)
+    entry.save()
+
+    undo_time = entry.updated_at + timedelta(seconds=5)
+    response = client.post(
+        "/api/v1/nutrition/entries",
+        {
+            "food_item_id": food.id,
+            "meal_type": "lunch",
+            "quantity_g": "120",
+            "client_uuid": str(entry.client_uuid),
+            "client_updated_at": undo_time.isoformat(),
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["id"] == entry.id
+    entry.refresh_from_db()
+    assert entry.deleted_at is None
+    assert entry.meal_type == "lunch"
+    # The undo's mutation time becomes the LWW basis (clamped to server now).
+    assert entry.updated_at == undo_time
+    assert MealEntry.objects.filter(client_uuid=entry.client_uuid).count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_replayed_create_older_than_tombstone_keeps_delete() -> None:
+    """A replayed original create must not undo a newer delete (LWW)."""
+    client, user = _auth_client()
+    food = _food()
+    entry = _entry(user, food)
+    entry.deleted_at = timezone.now()
+    entry.updated_at = timezone.now()
+    entry.save()
+
+    stale_time = entry.updated_at - timedelta(minutes=5)
+    for payload_extra in (
+        {},  # legacy replay without a mutation time
+        {"client_updated_at": stale_time.isoformat()},
+    ):
+        response = client.post(
+            "/api/v1/nutrition/entries",
+            {
+                "food_item_id": food.id,
+                "meal_type": "breakfast",
+                "quantity_g": "100",
+                "client_uuid": str(entry.client_uuid),
+                **payload_extra,
+            },
+            format="json",
+        )
+        assert response.status_code == 200
+        assert response.data["id"] == entry.id
+        entry.refresh_from_db()
+        assert entry.deleted_at is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_resurrected_entry_reaches_other_devices_via_delta_feed() -> None:
+    client, user = _auth_client()
+    food = _food()
+    entry = _entry(user, food)
+    entry.deleted_at = timezone.now() - timedelta(minutes=1)
+    entry.updated_at = timezone.now() - timedelta(minutes=1)
+    entry.save()
+
+    cursor = client.get("/api/v1/nutrition/entries/sync").data["next_cursor"]
+
+    undo_time = entry.updated_at + timedelta(seconds=1)
+    resurrect = client.post(
+        "/api/v1/nutrition/entries",
+        {
+            "food_item_id": food.id,
+            "meal_type": "breakfast",
+            "quantity_g": "100",
+            "client_uuid": str(entry.client_uuid),
+            "client_updated_at": undo_time.isoformat(),
+        },
+        format="json",
+    )
+    assert resurrect.status_code == 200
+
+    page = client.get(f"/api/v1/nutrition/entries/sync?since={quote(cursor)}").data
+    rows = {row["client_uuid"]: row for row in page["entries"]}
+    assert str(entry.client_uuid) in rows
+    assert rows[str(entry.client_uuid)]["deleted"] is False
+
+
 # --- uuid addressing ---
 
 

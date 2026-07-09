@@ -1,6 +1,8 @@
 import 'dart:async' show unawaited;
+import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../../ui_system/tokens.dart';
@@ -9,6 +11,7 @@ import '../data/nutrient_catalog.dart';
 import '../data/nutrition_api_service.dart';
 import 'amount_sheet.dart';
 import 'nutrient_breakdown_view.dart';
+import 'swipe_delete_background.dart';
 
 /// Bottom sheet that opens when a logged meal is tapped. Lists every food in the
 /// meal and lets the user change an item's amount (reusing the add-food
@@ -24,6 +27,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.entries,
     required this.onUpdateEntry,
     required this.onDeleteEntry,
+    required this.onRestoreEntry,
     required this.onAddMore,
     this.focusSpecs,
     this.warnNutrients = const {},
@@ -50,6 +54,11 @@ class MealDetailSheet extends StatefulWidget {
   /// Removes [entry] from the log. Returns true on success.
   final Future<bool> Function(NutritionEntry entry) onDeleteEntry;
 
+  /// Undoes a delete (KAN-39): re-creates [entry] through the repository so
+  /// the exact entry (amount, meal, uuid) comes back even offline. Returns the
+  /// restored entry, or null on failure.
+  final Future<NutritionEntry?> Function(NutritionEntry entry) onRestoreEntry;
+
   /// Closes the sheet and opens add-food scoped to this meal.
   final VoidCallback onAddMore;
 
@@ -75,6 +84,14 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
   late final List<NutritionEntry> _entries;
   int? _busyEntryId;
   bool _movingAll = false;
+
+  /// The sheet's own messenger: snackbars from the root messenger would render
+  /// behind this modal sheet, so the Undo action (KAN-39) must live inside it.
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+  /// Salts the row keys so a re-inserted entry (failed delete, undo) gets a
+  /// fresh Dismissible instead of one still holding its dismissed state.
+  int _rowGeneration = 0;
 
   @override
   void initState() {
@@ -107,7 +124,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
     if (_entries.isEmpty && mounted) {
       Navigator.of(context).pop();
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messengerKey.currentState?.showSnackBar(
         const SnackBar(content: Text('Some foods could not be moved.')),
       );
     }
@@ -163,7 +180,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
     );
     if (result == null || !mounted) return;
     if (result.removed) {
-      await _delete(entry, confirm: false);
+      await _delete(entry);
       return;
     }
     final grams = result.grams;
@@ -201,45 +218,53 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
     }
   }
 
-  Future<void> _delete(NutritionEntry entry, {bool confirm = true}) async {
-    if (confirm) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Remove food?'),
-          content: Text(
-            'Remove ${entry.foodItem.name} from ${widget.mealLabel.toLowerCase()}?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(ctx).colorScheme.error,
-              ),
-              child: const Text('Remove'),
-            ),
-          ],
-        ),
-      );
-      if (ok != true || !mounted) return;
-    }
-    setState(() => _busyEntryId = entry.id);
+  /// Removes [entry] optimistically (the swiped row is already gone from the
+  /// tree when this runs) and offers Undo (KAN-39). No confirm dialog — undo
+  /// replaced it. A failed delete puts the row back. The sheet deliberately
+  /// stays open even when the meal empties, so the Undo stays reachable.
+  Future<void> _delete(NutritionEntry entry) async {
+    final index = _entries.indexOf(entry);
+    if (index < 0) return;
+    setState(() => _entries.removeAt(index));
     final success = await widget.onDeleteEntry(entry);
     if (!mounted) return;
-    setState(() {
-      _busyEntryId = null;
-      if (success) {
-        _entries.removeWhere((e) => e.id == entry.id);
-      }
-    });
-    if (success) unawaited(HapticFeedback.mediumImpact());
-    if (_entries.isEmpty && mounted) {
-      Navigator.of(context).pop();
+    if (!success) {
+      setState(() {
+        _rowGeneration++;
+        _entries.insert(min(index, _entries.length), entry);
+      });
+      _messengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('Couldn\'t remove ${entry.foodItem.name}.')),
+      );
+      return;
     }
+    unawaited(HapticFeedback.mediumImpact());
+    _messengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text('Removed ${entry.foodItem.name}'),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => _undoDelete(entry, index),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _undoDelete(NutritionEntry entry, int index) async {
+    final restored = await widget.onRestoreEntry(entry);
+    if (!mounted) return;
+    if (restored == null) {
+      _messengerKey.currentState?.showSnackBar(
+        SnackBar(content: Text('Couldn\'t restore ${entry.foodItem.name}.')),
+      );
+      return;
+    }
+    setState(() {
+      _rowGeneration++;
+      _entries.insert(min(index, _entries.length), restored);
+    });
   }
 
   @override
@@ -260,92 +285,123 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
               top: Radius.circular(AppRadius.lg * 1.5),
             ),
           ),
-          child: Column(
-            children: [
-              // Drag handle
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.sm),
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              _Header(
-                icon: widget.mealIcon,
-                label: widget.mealLabel,
-                totalKcal: _totalKcal,
-                itemCount: _entries.length,
-                moving: _movingAll,
-                onMoveAll: _busy || _entries.isEmpty ? null : _moveAll,
-              ),
-              Divider(
-                height: 1,
-                color: scheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-              Expanded(
-                child: _entries.isEmpty
-                    ? _EmptyState(scrollController: scrollController)
-                    : ListView.separated(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.sm,
-                        ),
-                        itemCount: _entries.length,
-                        separatorBuilder: (_, _) => Divider(
-                          height: 1,
-                          indent: AppSpacing.lg,
-                          endIndent: AppSpacing.lg,
-                          color: scheme.outlineVariant.withValues(alpha: 0.25),
-                        ),
-                        itemBuilder: (context, index) {
-                          final entry = _entries[index];
-                          return _EntryRow(
-                            entry: entry,
-                            busy: _busyEntryId == entry.id || _movingAll,
-                            warnNutrients: widget.warnNutrients,
-                            onEdit: () => _editAmount(entry),
-                            onDelete: () => _delete(entry),
-                            onViewDetails: widget.onViewFoodDetails == null
-                                ? null
-                                : () =>
-                                      widget.onViewFoodDetails!(entry.foodItem),
-                          );
-                        },
+          // The sheet hosts its own messenger/scaffold pair: a snackbar shown
+          // via the root messenger would sit behind this modal route, putting
+          // the Undo action (KAN-39) out of reach.
+          child: ScaffoldMessenger(
+            key: _messengerKey,
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: Column(
+                children: [
+                  // Drag handle
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(999),
                       ),
-              ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.sm,
-                    AppSpacing.lg,
-                    AppSpacing.md,
+                    ),
                   ),
-                  child: SizedBox(
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: widget.onAddMore,
-                      icon: const Icon(Icons.add),
-                      label: Text('Add to ${widget.mealLabel.toLowerCase()}'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: scheme.primary,
-                        side: BorderSide(
-                          color: scheme.primary.withValues(alpha: 0.5),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.md),
+                  _Header(
+                    icon: widget.mealIcon,
+                    label: widget.mealLabel,
+                    totalKcal: _totalKcal,
+                    itemCount: _entries.length,
+                    moving: _movingAll,
+                    onMoveAll: _busy || _entries.isEmpty ? null : _moveAll,
+                  ),
+                  Divider(
+                    height: 1,
+                    color: scheme.outlineVariant.withValues(alpha: 0.4),
+                  ),
+                  Expanded(
+                    child: _entries.isEmpty
+                        ? _EmptyState(scrollController: scrollController)
+                        : ListView.separated(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.sm,
+                            ),
+                            itemCount: _entries.length,
+                            separatorBuilder: (_, _) => Divider(
+                              height: 1,
+                              indent: AppSpacing.lg,
+                              endIndent: AppSpacing.lg,
+                              color: scheme.outlineVariant.withValues(
+                                alpha: 0.25,
+                              ),
+                            ),
+                            itemBuilder: (context, index) {
+                              final entry = _entries[index];
+                              final busy =
+                                  _busyEntryId == entry.id || _movingAll;
+                              return Dismissible(
+                                key: ValueKey(
+                                  '${entry.uuid ?? 'entry-${entry.id}'}'
+                                  '#$_rowGeneration',
+                                ),
+                                // endToStart only: a startToEnd swipe would fight
+                                // the Android back gesture on the left edge. The
+                                // sheet's own drag is vertical, so no conflict.
+                                direction: busy
+                                    ? DismissDirection.none
+                                    : DismissDirection.endToStart,
+                                background: const SwipeDeleteBackground(),
+                                onDismissed: (_) => _delete(entry),
+                                child: _EntryRow(
+                                  entry: entry,
+                                  busy: busy,
+                                  warnNutrients: widget.warnNutrients,
+                                  onEdit: () => _editAmount(entry),
+                                  onDelete: () => _delete(entry),
+                                  onViewDetails:
+                                      widget.onViewFoodDetails == null
+                                      ? null
+                                      : () => widget.onViewFoodDetails!(
+                                          entry.foodItem,
+                                        ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.sm,
+                        AppSpacing.lg,
+                        AppSpacing.md,
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton.icon(
+                          onPressed: widget.onAddMore,
+                          icon: const Icon(Icons.add),
+                          label: Text(
+                            'Add to ${widget.mealLabel.toLowerCase()}',
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: scheme.primary,
+                            side: BorderSide(
+                              color: scheme.primary.withValues(alpha: 0.5),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         );
       },
@@ -499,89 +555,92 @@ class _EntryRowState extends State<_EntryRow> {
 
     return Column(
       children: [
-        InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-              vertical: AppSpacing.sm,
-            ),
-            child: Row(
-              children: [
-                FoodThumb(
-                  url: (imageUrl != null && imageUrl.isNotEmpty)
-                      ? imageUrl
-                      : null,
-                  size: 44,
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        entry.foodItem.name,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
+        // The swipe gesture is invisible to screen readers; expose the delete
+        // as an explicit accessibility action on the row (KAN-39).
+        Semantics(
+          customSemanticsActions: {
+            const CustomSemanticsAction(label: 'Remove from meal'):
+                widget.onDelete,
+          },
+          child: InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  FoodThumb(
+                    url: (imageUrl != null && imageUrl.isNotEmpty)
+                        ? imageUrl
+                        : null,
+                    size: 44,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          entry.foodItem.name,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              '${describeAmount(entry.quantityG, entry.foodItem)}  •  ${entry.kcal.round()} kcal',
-                              style: theme.textTheme.bodySmall?.copyWith(
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '${describeAmount(entry.quantityG, entry.foodItem)}  •  ${entry.kcal.round()} kcal',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            AnimatedRotation(
+                              turns: _expanded ? 0.5 : 0,
+                              duration: const Duration(milliseconds: 200),
+                              child: Icon(
+                                Icons.expand_more,
+                                size: 16,
                                 color: scheme.onSurfaceVariant,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          const SizedBox(width: AppSpacing.xs),
-                          AnimatedRotation(
-                            turns: _expanded ? 0.5 : 0,
-                            duration: const Duration(milliseconds: 200),
-                            child: Icon(
-                              Icons.expand_more,
-                              size: 16,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (widget.busy)
-                  const Padding(
-                    padding: EdgeInsets.all(AppSpacing.sm),
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ],
+                        ),
+                      ],
                     ),
-                  )
-                else ...[
-                  IconButton(
-                    onPressed: widget.onEdit,
-                    icon: const Icon(Icons.edit_outlined),
-                    iconSize: 20,
-                    tooltip: 'Edit amount',
-                    color: scheme.onSurfaceVariant,
                   ),
-                  IconButton(
-                    onPressed: widget.onDelete,
-                    icon: const Icon(Icons.delete_outline),
-                    iconSize: 20,
-                    tooltip: 'Remove',
-                    color: scheme.error,
-                  ),
+                  if (widget.busy)
+                    const Padding(
+                      padding: EdgeInsets.all(AppSpacing.sm),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                    )
+                  else
+                    // No persistent delete button (KAN-39): removal is the
+                    // endToStart swipe, the "Remove from meal" action in the
+                    // edit sheet, or the row's custom semantics action.
+                    IconButton(
+                      onPressed: widget.onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      iconSize: 20,
+                      tooltip: 'Edit amount',
+                      color: scheme.onSurfaceVariant,
+                    ),
                 ],
-              ],
+              ),
             ),
           ),
         ),

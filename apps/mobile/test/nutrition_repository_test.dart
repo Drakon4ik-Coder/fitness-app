@@ -22,6 +22,10 @@ class _FakeNutritionApi implements NutritionApiService {
   /// Server-side entries by uuid; value null means tombstone.
   final Map<String, NutritionEntry?> serverEntries = {};
   final List<String> createUuids = [];
+
+  /// Uuids resurrected by an undo re-create (KAN-39): the create arrived for a
+  /// tombstoned uuid with a mutation time newer than the delete.
+  final List<String> resurrectedUuids = [];
   int updateCalls = 0;
   int deleteCalls = 0;
   int syncCalls = 0;
@@ -49,12 +53,19 @@ class _FakeNutritionApi implements NutritionApiService {
     required double quantityG,
     DateTime? consumedAt,
     String? clientUuid,
+    DateTime? clientUpdatedAt,
   }) async {
     _checkOnline('create');
     if (clientUuid != null && serverEntries.containsKey(clientUuid)) {
       final existing = serverEntries[clientUuid];
       if (existing != null) {
         return existing; // idempotent replay
+      }
+      // Tombstoned uuid: only a re-create carrying a newer mutation time may
+      // resurrect it (KAN-39 undo); this fake treats any mutation time as
+      // newer than the tombstone.
+      if (clientUpdatedAt != null) {
+        resurrectedUuids.add(clientUuid);
       }
     }
     createUuids.add(clientUuid ?? '');
@@ -372,6 +383,69 @@ void main() {
       await seedToday();
       await repo.refreshDay(today);
       expect(api.createUuids, isEmpty); // the create never replayed
+    });
+
+    test(
+      'restore after an offline delete keeps the uuid and converges',
+      () async {
+        // Undo of a swipe-delete (KAN-39) while offline: the delete op is still
+        // queued when the restore is enqueued behind it; replay must end with
+        // the entry alive server-side under its original uuid.
+        await seedToday();
+        final uuid = 'synced-3';
+        store.entries[uuid] = makeStoredEntry(uuid: uuid, serverId: 502);
+        api.serverEntries[uuid] = _serverEntry(uuid: uuid, id: 502);
+        final entry = NutritionEntry(
+          id: 502,
+          uuid: uuid,
+          mealType: 'breakfast',
+          consumedAt: store.entries[uuid]!.consumedAt,
+          quantityG: 100,
+          kcal: 150,
+          foodItem: makeTestFood(backendId: 7),
+        );
+
+        api.offline = true;
+        await repo.deleteEntry(entry);
+        final restored = await repo.restoreEntry(entry);
+
+        // Locally alive again right away, same identity, before any network.
+        expect(restored, isNotNull);
+        expect(restored!.uuid, uuid);
+        final day = await repo.readCachedDay(today);
+        expect(day!.meals['breakfast'], hasLength(1));
+
+        api.offline = false;
+        await repo.refreshDay(today);
+
+        expect(api.deleteCalls, 1);
+        expect(api.resurrectedUuids, [uuid]); // re-create beat the tombstone
+        expect(api.serverEntries[uuid], isNotNull);
+        expect(store.outbox, isEmpty);
+      },
+    );
+
+    test('restore of a purged never-synced entry re-creates it', () async {
+      api.offline = true;
+      final entry = await repo.createEntry(
+        food: makeTestFood(backendId: 7),
+        mealType: 'snacks',
+        quantityG: 50,
+        consumedAt: DateTime(today.year, today.month, today.day, 16),
+      );
+      await repo.deleteEntry(entry); // cancels the queued create entirely
+
+      final restored = await repo.restoreEntry(entry);
+
+      expect(restored, isNotNull);
+      expect(restored!.uuid, entry.uuid);
+      expect(store.outbox, hasLength(1));
+
+      api.offline = false;
+      await seedToday();
+      await repo.refreshDay(today);
+      expect(api.createUuids, [entry.uuid]);
+      expect(api.serverEntries[entry.uuid], isNotNull);
     });
   });
 

@@ -230,6 +230,7 @@ void main() {
             entries: [entry],
             onUpdateEntry: (entry, {quantityG, mealType}) async => null,
             onDeleteEntry: (entry) async => true,
+            onRestoreEntry: (entry) async => entry,
             onAddMore: () {},
             onViewFoodDetails: (item) async {
               requested = item;

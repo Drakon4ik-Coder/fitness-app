@@ -77,7 +77,7 @@ Root URLconf: `config/urls.py`
 - `FoodImageUploadView` — multipart image upload for a food item
 
 `nutrition/views.py`
-- `MealEntryCreateView` — log a meal (idempotent on `client_uuid`)
+- `MealEntryCreateView` — log a meal (idempotent on `client_uuid`; a re-create carrying a `client_updated_at` newer than the entry's tombstone resurrects it in place — the undo path for swipe-to-delete, KAN-39)
 - `MealEntryDetailView` — PATCH/DELETE by pk or client UUID (LWW conflict rules)
 - `MealEntrySyncView` — delta feed with opaque `synced_at|id` cursor
 - `NutritionDayView` — totals + per-nutrient breakdown for a date

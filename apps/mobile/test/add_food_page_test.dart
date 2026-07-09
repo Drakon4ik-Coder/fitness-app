@@ -296,7 +296,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Oatmeal'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Remove Oatmeal'), findsOneWidget);
+    expect(find.text('ADDED ITEMS'), findsOneWidget);
 
     // The result card now reads as added; tapping it edits the staged amount
     // (no second copy). 'Oatmeal' appears twice now — staged tile first in
@@ -307,13 +307,45 @@ void main() {
     await tester.tap(addedCard);
     await tester.pumpAndSettle();
     expect(find.text('Save changes'), findsOneWidget);
-    expect(find.byTooltip('Remove Oatmeal'), findsOneWidget);
 
-    // Removing from the sheet unstages it and the log bar disappears.
+    // Removing from the sheet unstages it and the log bar disappears; the
+    // Undo snackbar (KAN-39) brings the staged item back.
     await tester.tap(find.text('Remove from meal'));
     await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsNothing);
     expect(find.text('Log to Breakfast'), findsNothing);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(find.text('ADDED ITEMS'), findsOneWidget);
+    expect(find.text('Log to Breakfast'), findsOneWidget);
+  });
+
+  testWidgets('swiping a staged item removes it with Undo (KAN-39)', (
+    WidgetTester tester,
+  ) async {
+    final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
+    await pumpAddFoodPage(
+      tester,
+      localDb: localDb,
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    await tester.ensureVisible(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    // No persistent remove button on the staged row (KAN-39).
+    expect(find.byIcon(Icons.remove_circle), findsNothing);
+    expect(find.byType(Dismissible), findsOneWidget);
+
+    await tester.drag(find.byType(Dismissible), const Offset(-800, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('ADDED ITEMS'), findsNothing);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(find.text('ADDED ITEMS'), findsOneWidget);
   });
 
   testWidgets('empty recents show the search/scan nudge and custom-food CTA', (

@@ -111,6 +111,7 @@ void main() {
               return _entry(mealType ?? entry.mealType);
             },
             onDeleteEntry: (_) async => true,
+            onRestoreEntry: (entry) async => entry,
             onAddMore: () {},
           ),
         ),
@@ -146,6 +147,7 @@ void main() {
               return _entry(mealType ?? entry.mealType, id: entry.id);
             },
             onDeleteEntry: (_) async => true,
+            onRestoreEntry: (entry) async => entry,
             onAddMore: () {},
           ),
         ),
