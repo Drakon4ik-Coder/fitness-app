@@ -121,6 +121,11 @@ final RegExp _gramUnitRegExp = RegExp(
   caseSensitive: false,
 );
 
+// The subset of [_measureWords] whose amounts really are grams/millilitres.
+// Any other measure word states an amount in a unit this parser does not
+// convert, so a bare number next to it must never be read as grams.
+const Set<String> _gramEquivalentWords = {'g', 'gr', 'gram', 'grams', 'ml'};
+
 /// A leading `count noun` at the start of a serving text where the noun is a
 /// countable piece, e.g. "2 eggs ..." -> (2, "egg"). Returns null for measure
 /// words ("1 serving", "100 g") so they are never mistaken for pieces.
@@ -147,7 +152,9 @@ final RegExp _gramUnitRegExp = RegExp(
 /// "355ml" -> 355). Falls back to a bare number only when the text has no
 /// leading piece count the number could really be — so "30" -> 30 but "1 egg"
 /// -> null (the "1" counts eggs, not grams). This is what stops a bare
-/// "1 egg" from being read as a 1-gram serving.
+/// "1 egg" from being read as a 1-gram serving. Texts using a measure word in
+/// a unit we don't convert ("100 mg", "1 oz", "2 cups") are unparseable — the
+/// bare number would be off by the unit's conversion factor.
 double? gramsFromServingText(String? text) {
   if (text == null) return null;
   final trimmed = text.trim();
@@ -155,6 +162,15 @@ double? gramsFromServingText(String? text) {
   final unitMatch = _gramUnitRegExp.firstMatch(trimmed);
   if (unitMatch != null) {
     return double.tryParse(unitMatch.group(1)!.replaceAll(',', '.'));
+  }
+  // No explicit g/ml amount anywhere in the text: if it mentions any other
+  // mass/volume unit, its numbers are in that unit, not grams — reading
+  // "100 mg" as 100 g would be a 1000x error.
+  for (final match in RegExp(r'[a-zA-Z]+').allMatches(trimmed)) {
+    final word = match.group(0)!.toLowerCase();
+    if (_measureWords.contains(word) && !_gramEquivalentWords.contains(word)) {
+      return null;
+    }
   }
   if (parseLeadingPiece(trimmed) != null) return null;
   final any = RegExp(r'([\d.,]+)').firstMatch(trimmed);

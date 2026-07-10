@@ -306,6 +306,24 @@ void main() {
     expect(item.pieceUnit, isNull);
   });
 
+  test('does not read an mg serving as grams (no 1000x serving)', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '888',
+        'product_name': 'Vitamin D drops',
+        'serving_size': '100 mg',
+        'serving_quantity': 100,
+        'serving_quantity_unit': 'mg',
+        'nutriments': {'energy-kcal_100g': 400},
+      },
+      rawJson: '{"product": {"product_name": "Vitamin D drops"}}',
+    );
+
+    expect(item.servingSizeG, isNull);
+    expect(item.gramsPerPiece, isNull);
+  });
+
   test('reads completeness for search-result ranking', () {
     final mapper = OffMapper();
     final item = mapper.mapProduct(

@@ -27,6 +27,37 @@ void main() {
     expect(item.nutrimentsJson, isNull);
   });
 
+  group('gramsFromServingText', () {
+    test('reads an explicit g/ml amount', () {
+      expect(gramsFromServingText('30 g'), 30);
+      expect(gramsFromServingText('355ml'), 355);
+      expect(gramsFromServingText('1 egg (50 g)'), 50);
+      // An explicit gram amount wins even next to a foreign unit.
+      expect(gramsFromServingText('1 oz (28 g)'), 28);
+    });
+
+    test('reads a bare number and spelled-out gram words', () {
+      expect(gramsFromServingText('30'), 30);
+      expect(gramsFromServingText('100 grams'), 100);
+      expect(gramsFromServingText('100 gr'), 100);
+    });
+
+    test('rejects a bare piece count', () {
+      expect(gramsFromServingText('1 egg'), isNull);
+    });
+
+    test('rejects amounts in units it does not convert', () {
+      // Reading the bare number as grams would be off by the unit's
+      // conversion factor (1000x for mg/kg, ~28x for oz).
+      expect(gramsFromServingText('100 mg'), isNull);
+      expect(gramsFromServingText('1 kg'), isNull);
+      expect(gramsFromServingText('1 oz'), isNull);
+      expect(gramsFromServingText('2 cups'), isNull);
+      expect(gramsFromServingText('8 fl oz'), isNull);
+      expect(gramsFromServingText('1 tbsp'), isNull);
+    });
+  });
+
   group('detectCookedNutritionBasis', () {
     test('flags fresh meat with protein above the raw ceiling', () {
       // UK mince case: 29 g protein/100g is only reachable after cooking.
