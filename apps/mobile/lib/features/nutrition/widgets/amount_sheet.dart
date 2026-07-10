@@ -163,12 +163,31 @@ IconData mealTypeIcon(MealType meal) => switch (meal) {
   MealType.snacks => Icons.emoji_food_beverage,
 };
 
-/// The meal types an entry can be moved between, with their display label and
-/// icon (icons match the meal cards on the today page). Keyed by the backend
-/// `meal_type` name.
-final List<({String name, String label, IconData icon})> kMealTypeOptions = [
+/// Accent color for each meal slot (KAN-3), drawn from the theme's existing
+/// four-accent set so no new literals enter feature code and contrast on dark
+/// surfaces is already proven. The mapping follows the day: orange sunrise for
+/// breakfast, the green brand midday for lunch, purple evening for dinner,
+/// cyan for snacks. Color never carries the meaning alone — every surface
+/// pairs it with the meal's [mealTypeIcon] and label.
+Color mealTypeAccent(MealType meal) => switch (meal) {
+  MealType.breakfast => LuminaHealthColors.tertiary,
+  MealType.lunch => LuminaHealthColors.primary,
+  MealType.dinner => LuminaHealthColors.secondary,
+  MealType.snacks => LuminaHealthColors.quaternary,
+};
+
+/// The meal types an entry can be moved between, with their display label,
+/// icon, and accent (matching the meal cards on the today page). Keyed by the
+/// backend `meal_type` name.
+final List<({String name, String label, IconData icon, Color color})>
+kMealTypeOptions = [
   for (final meal in MealType.values)
-    (name: meal.wireName, label: meal.label, icon: mealTypeIcon(meal)),
+    (
+      name: meal.wireName,
+      label: meal.label,
+      icon: mealTypeIcon(meal),
+      color: mealTypeAccent(meal),
+    ),
 ];
 
 /// Outcome of the amount bottom sheet: either a saved amount (with an optional
@@ -565,7 +584,7 @@ class _AmountSheetState extends State<AmountSheet> {
                       avatar: Icon(
                         option.icon,
                         size: 18,
-                        color: selected ? scheme.onPrimary : scheme.onSurface,
+                        color: selected ? scheme.onPrimary : option.color,
                       ),
                       selected: selected,
                       showCheckmark: false,

@@ -105,6 +105,7 @@ void main() {
             mealLabel: 'Breakfast',
             mealTypeName: 'breakfast',
             mealIcon: Icons.breakfast_dining,
+            mealColor: LuminaHealthColors.tertiary,
             entries: [_entry('breakfast')],
             onUpdateEntry: (entry, {quantityG, mealType}) async {
               capturedMeal = mealType;
@@ -141,6 +142,7 @@ void main() {
             mealLabel: 'Breakfast',
             mealTypeName: 'breakfast',
             mealIcon: Icons.breakfast_dining,
+            mealColor: LuminaHealthColors.tertiary,
             entries: [_entry('breakfast', id: 1), _entry('breakfast', id: 2)],
             onUpdateEntry: (entry, {quantityG, mealType}) async {
               movedTo[entry.id] = mealType;

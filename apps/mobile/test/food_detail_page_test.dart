@@ -227,6 +227,7 @@ void main() {
             mealLabel: 'Lunch',
             mealTypeName: 'lunch',
             mealIcon: Icons.lunch_dining,
+            mealColor: LuminaHealthColors.primary,
             entries: [entry],
             onUpdateEntry: (entry, {quantityG, mealType}) async => null,
             onDeleteEntry: (entry) async => true,

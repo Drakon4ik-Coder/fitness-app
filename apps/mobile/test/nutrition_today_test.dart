@@ -10,7 +10,7 @@ import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
 import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart'
-    show FoodImage;
+    show FoodImage, mealTypeAccent, mealTypeIcon;
 import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
@@ -739,6 +739,55 @@ void main() {
     // tile is the only 'Lunch' text on that page).
     expect(find.byType(AddFoodPage), findsOneWidget);
     expect(find.text('Lunch'), findsOneWidget);
+  });
+
+  testWidgets('meal cards tint their icons with per-meal accents (KAN-3)', (
+    WidgetTester tester,
+  ) async {
+    // Tall viewport so all four meal cards are onstage.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 0),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+          localStore: InMemoryNutritionStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Each card's icon carries its own meal accent, and no two meals share
+    // one — color backs up the icon+label pair without ever colliding.
+    for (final meal in MealType.values) {
+      final icon = tester.widget<Icon>(find.byIcon(mealTypeIcon(meal)));
+      expect(
+        icon.color,
+        mealTypeAccent(meal),
+        reason: '${meal.label} icon should use its meal accent',
+      );
+    }
+    final accents = MealType.values.map(mealTypeAccent).toSet();
+    expect(accents, hasLength(MealType.values.length));
   });
 
   testWidgets(

@@ -157,6 +157,7 @@ void main() {
             mealLabel: 'Breakfast',
             mealTypeName: 'breakfast',
             mealIcon: Icons.breakfast_dining,
+            mealColor: LuminaHealthColors.tertiary,
             entries: [
               _entry({
                 'proteins_100g': 1,

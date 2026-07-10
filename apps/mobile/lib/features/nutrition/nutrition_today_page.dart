@@ -20,7 +20,7 @@ import 'data/user_preferences.dart';
 import 'food_detail_page.dart';
 import 'meal_suggestion.dart';
 import 'nutrition_detail_page.dart';
-import 'widgets/amount_sheet.dart' show FoodImage, mealTypeIcon;
+import 'widgets/amount_sheet.dart' show FoodImage, mealTypeAccent, mealTypeIcon;
 import 'widgets/meal_detail_sheet.dart';
 import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 
@@ -481,6 +481,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         mealLabel: meal.name,
         mealTypeName: meal.mealType.name,
         mealIcon: meal.icon,
+        mealColor: meal.color,
         entries: meal.entries,
         focusSpecs: _focusSpecs,
         warnNutrients: _warnNutrients,
@@ -668,6 +669,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           name: meal.label,
           mealType: meal,
           icon: mealTypeIcon(meal),
+          color: mealTypeAccent(meal),
           entries: meals[meal.wireName] ?? const [],
         ),
     ];
@@ -1581,14 +1583,11 @@ class _MealCard extends StatelessWidget {
         ? firstImage
         : null;
 
+    // Meal-accent chip (KAN-3): each meal's icon sits on a wash of its own
+    // accent so the four cards scan apart at a glance even before reading.
     final fallbackIcon = Container(
-      color: scheme.surfaceContainerHigh,
-      child: Center(
-        child: Icon(
-          meal.icon,
-          color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
-        ),
-      ),
+      color: meal.color.withValues(alpha: 0.12),
+      child: Center(child: Icon(meal.icon, color: meal.color)),
     );
 
     return Material(
@@ -1728,12 +1727,17 @@ class _MealSummary {
     required this.name,
     required this.mealType,
     required this.icon,
+    required this.color,
     required this.entries,
   });
 
   final String name;
   final MealType mealType;
   final IconData icon;
+
+  /// Per-meal accent (KAN-3): tints the card's icon chip and carries into the
+  /// detail sheet header so the meal keeps its identity across surfaces.
+  final Color color;
   final List<NutritionEntry> entries;
 
   int get totalKcal =>

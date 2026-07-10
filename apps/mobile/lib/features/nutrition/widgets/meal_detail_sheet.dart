@@ -24,6 +24,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.mealLabel,
     required this.mealTypeName,
     required this.mealIcon,
+    required this.mealColor,
     required this.entries,
     required this.onUpdateEntry,
     required this.onDeleteEntry,
@@ -40,6 +41,10 @@ class MealDetailSheet extends StatefulWidget {
   /// it from the "Move all to…" target list.
   final String mealTypeName;
   final IconData mealIcon;
+
+  /// This meal's accent (KAN-3); tints the header chip to match the today-page
+  /// card the sheet was opened from.
+  final Color mealColor;
   final List<NutritionEntry> entries;
 
   /// Persists a new amount and/or meal type for [entry]. Returns the updated
@@ -139,7 +144,6 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
     return showModalBottomSheet<String>(
       context: context,
       builder: (ctx) {
-        final scheme = Theme.of(ctx).colorScheme;
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -155,7 +159,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
               ),
               for (final option in targets)
                 ListTile(
-                  leading: Icon(option.icon, color: scheme.primary),
+                  leading: Icon(option.icon, color: option.color),
                   title: Text(option.label),
                   onTap: () => Navigator.of(ctx).pop(option.name),
                 ),
@@ -308,6 +312,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                   ),
                   _Header(
                     icon: widget.mealIcon,
+                    color: widget.mealColor,
                     label: widget.mealLabel,
                     totalKcal: _totalKcal,
                     itemCount: _entries.length,
@@ -412,6 +417,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
 class _Header extends StatelessWidget {
   const _Header({
     required this.icon,
+    required this.color,
     required this.label,
     required this.totalKcal,
     required this.itemCount,
@@ -420,6 +426,7 @@ class _Header extends StatelessWidget {
   });
 
   final IconData icon;
+  final Color color;
   final String label;
   final int totalKcal;
   final int itemCount;
@@ -447,10 +454,10 @@ class _Header extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Icon(icon, color: scheme.primary),
+            child: Icon(icon, color: color),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(

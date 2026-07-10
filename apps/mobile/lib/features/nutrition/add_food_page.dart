@@ -869,6 +869,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
             mainAxisSize: MainAxisSize.min,
             children: MealType.values.map((meal) {
               return ListTile(
+                leading: Icon(mealTypeIcon(meal), color: mealTypeAccent(meal)),
                 title: Text(meal.label),
                 selected: meal == _selectedMeal,
                 selectedColor: Theme.of(context).colorScheme.primary,
@@ -972,7 +973,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _MealTypeSelectorTile(
-                    mealLabel: mealLabel,
+                    meal: _selectedMeal,
                     onTap: _showMealSelector,
                   ),
                   const SizedBox(height: AppSpacing.lg),
@@ -1248,9 +1249,9 @@ class _MacroSummaryRow extends StatelessWidget {
 
 /// The tappable row showing which meal the staged items will be logged to.
 class _MealTypeSelectorTile extends StatelessWidget {
-  const _MealTypeSelectorTile({required this.mealLabel, required this.onTap});
+  const _MealTypeSelectorTile({required this.meal, required this.onTap});
 
-  final String mealLabel;
+  final MealType meal;
   final VoidCallback onTap;
 
   @override
@@ -1275,11 +1276,13 @@ class _MealTypeSelectorTile extends StatelessWidget {
             Expanded(
               child: Row(
                 children: [
-                  Icon(Icons.restaurant, color: scheme.secondary),
+                  // The selected meal's own icon + accent (KAN-3) so the
+                  // destination reads at a glance, matching the today page.
+                  Icon(mealTypeIcon(meal), color: mealTypeAccent(meal)),
                   const SizedBox(width: AppSpacing.md),
                   Flexible(
                     child: Text(
-                      mealLabel,
+                      meal.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(

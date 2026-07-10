@@ -50,6 +50,7 @@ Future<void> _pumpSheet(
           mealLabel: 'Breakfast',
           mealTypeName: 'breakfast',
           mealIcon: Icons.breakfast_dining,
+          mealColor: LuminaHealthColors.tertiary,
           entries: [_entry(uuid: 'uuid-1')],
           onUpdateEntry: (entry, {quantityG, mealType}) async => entry,
           onDeleteEntry: onDelete,
