@@ -1,6 +1,11 @@
 # Mobile Release Workflow
 #
-# Builds a signed Android APK and publishes it as a GitHub Release.
+# Builds a signed Android APK and publishes it as a GitHub Release, plus a
+# signed AAB (uploaded as a workflow artifact) for the Play Store. Play only
+# accepts App Bundles; with Play App Signing our keystore is the *upload*
+# key and Google re-signs on distribution — so the Android OAuth client must
+# also include the Play app-signing certificate SHA-1 (Play Console → Test
+# and release → App integrity), not just this keystore's SHA-1.
 #
 # ONE-TIME SETUP (do this before the first push to main):
 #   1. Generate a keystore:
@@ -80,6 +85,21 @@ jobs:
             --dart-define=APP_ENV=prod \
             --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
             --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
+
+      - name: Build release AAB (Play Store)
+        run: |
+          flutter build appbundle --release \
+            --build-number=${{ github.run_number }} \
+            --dart-define=APP_ENV=prod \
+            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab-v${{ steps.version.outputs.name }}+${{ github.run_number }}
+          path: apps/mobile/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
 
       - name: Upload APK as GitHub Release
         uses: softprops/action-gh-release@v2

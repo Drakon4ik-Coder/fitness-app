@@ -65,8 +65,8 @@ The 14-day closed test is the longest fixed delay; everything here starts it soo
 - [x] **About/Licenses screen** (KAN-43) in Settings: app version via
   `package_info_plus`, "Powered by Open Food Facts" (ODbL) attribution,
   link to privacy policy, Flutter `showLicensePage`, Apache-2.0/NOTICE.
-- [ ] Add `<uses-permission android:name="android.permission.INTERNET"/>` to
-  the main manifest explicitly.
+- [x] Add `<uses-permission android:name="android.permission.INTERNET"/>` to
+  the main manifest explicitly (KAN-45).
 - [x] **Crash reporting** (KAN-44): `sentry_flutter` wired to
   `appErrorLogger`; one org, two projects (backend + mobile), staging/prod
   split by the Sentry `environment` tag, `local` never reports. Code-side
@@ -76,8 +76,9 @@ The 14-day closed test is the longest fixed delay; everything here starts it soo
   privacy policy + Data safety form (folded into those items below/Phase 3).
 
 ### Phase 2 — Release engineering (~2–3 days)
-- [ ] Switch `mobile-release.yml` to also build `flutter build appbundle
-  --release` and upload the `.aab` artifact. Keep the APK for GitHub Releases.
+- [x] Switch `mobile-release.yml` to also build `flutter build appbundle
+  --release` and upload the `.aab` artifact (KAN-45). Keep the APK for
+  GitHub Releases.
 - [ ] Keep `--build-number=${{ github.run_number }}` as versionCode (monotonic ✅);
   bump `pubspec.yaml` to the version you want to launch as.
 - [ ] Upload first AAB to the **Internal testing** track manually; verify
