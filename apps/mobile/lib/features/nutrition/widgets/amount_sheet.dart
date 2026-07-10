@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../ui_system/lumina_health_theme.dart';
 import '../../../ui_system/tokens.dart';
@@ -645,6 +646,12 @@ class _AmountSheetState extends State<AmountSheet> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      // Same digits-and-separators filter as the custom-food
+                      // number fields — the numeric keyboard alone doesn't
+                      // block letters from hardware keyboards or paste.
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
+                      ],
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _submit(),
                       style: theme.textTheme.displaySmall?.copyWith(
@@ -664,13 +671,26 @@ class _AmountSheetState extends State<AmountSheet> {
                   ),
                 ],
               ),
+              // Invalid input (empty, zero, or a malformed number) disables
+              // the submit button; say why in the unit label's slot instead of
+              // leaving a dead button unexplained (KAN-61).
               Center(
-                child: Text(
-                  conversion == null ? unitLabel : '$unitLabel  •  $conversion',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
+                child: grams == null
+                    ? Text(
+                        'Enter an amount above 0',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    : Text(
+                        conversion == null
+                            ? unitLabel
+                            : '$unitLabel  •  $conversion',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
               ),
               const SizedBox(height: AppSpacing.lg),
 
