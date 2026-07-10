@@ -82,7 +82,8 @@ docker compose -f docker-compose.prod.yml exec db-backup sh -c \
 docker compose -f docker-compose.prod.yml exec db psql -U postgres \
   -c 'CREATE DATABASE restore_check;'
 docker compose -f docker-compose.prod.yml exec db-backup sh -c \
-  'pg_restore --host=db --username=postgres --dbname=restore_check /tmp/<file>.pgdump'
+  'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore --host=db --username=postgres \
+     --dbname=restore_check /tmp/<file>.pgdump'
 docker compose -f docker-compose.prod.yml exec db psql -U postgres -d restore_check \
   -c 'SELECT count(*) FROM nutrition_mealentry;'
 docker compose -f docker-compose.prod.yml exec db psql -U postgres \
