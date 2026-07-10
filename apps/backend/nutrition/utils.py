@@ -100,6 +100,24 @@ _MIN_HALF_WIDTH = 1.0
 _MAX_HALF_WIDTH = 3.0
 
 
+def _unwrap_hours(ordered: list[float]) -> list[float]:
+    """Re-anchor sorted hour-of-day values so a cluster straddling midnight is
+    contiguous. Hours live on a 24h circle: 23.5 and 0.5 are neighbors, but a
+    linear sort puts them at opposite ends and the median lands near noon. Cut
+    the circle at its largest empty gap (for a real meal habit that's the long
+    stretch with no entries) and shift everything before the cut up by 24, so
+    linear median/IQR are computed on one contiguous run.
+    """
+    wrap_gap = ordered[0] + 24.0 - ordered[-1]
+    cut = 0
+    for i in range(len(ordered) - 1):
+        gap = ordered[i + 1] - ordered[i]
+        if gap > wrap_gap:
+            wrap_gap = gap
+            cut = i + 1
+    return ordered[cut:] + [h + 24.0 for h in ordered[:cut]]
+
+
 def summarize_meal_time(hours: Iterable[float]) -> dict[str, float | int] | None:
     """Summarize when a meal is typically eaten from a set of hour-of-day values.
 
@@ -110,8 +128,8 @@ def summarize_meal_time(hours: Iterable[float]) -> dict[str, float | int] | None
     values = [h for h in hours]
     if len(values) < MIN_MEAL_SAMPLES:
         return None
-    ordered = sorted(values)
-    typical = _median(ordered)
+    ordered = _unwrap_hours(sorted(values))
+    typical = _median(ordered) % 24.0
     mid = len(ordered) // 2
     lower = ordered[:mid]
     upper = ordered[mid + 1 :] if len(ordered) % 2 == 1 else ordered[mid:]

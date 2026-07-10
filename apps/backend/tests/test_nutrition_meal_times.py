@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from accounts.models import User
 from foods.models import FoodItem
 from nutrition.models import MealEntry
+from nutrition.utils import summarize_meal_time
 
 
 @pytest.fixture(autouse=True)
@@ -125,6 +126,32 @@ def test_meal_times_converts_to_user_timezone() -> None:
     lunch = response.data["meal_times"]["lunch"]
     # Converted to the user's zone, the typical hour is 13:00, not 04:00.
     assert lunch["typical_hour"] == pytest.approx(13.0, abs=0.01)
+
+
+def test_summarize_meal_time_handles_midnight_straddle() -> None:
+    # Late dinners around midnight: 23:30, 23:45, 00:15, 00:30. Circularly these
+    # cluster at ~00:00; a naive linear median would report ~12:00 (noon).
+    summary = summarize_meal_time([23.5, 23.75, 0.25, 0.5])
+    assert summary is not None
+    typical = summary["typical_hour"]
+    assert typical >= 23.5 or typical <= 0.5
+    # The spread is ~1h circularly, so the half-width stays at the clamp floor
+    # instead of blowing up to the 3h ceiling.
+    assert summary["half_width"] == pytest.approx(1.0)
+
+
+def test_summarize_meal_time_midnight_cluster_median() -> None:
+    # Odd sample count so the median is a single sample; 23:00, 23:30, 00:30,
+    # 01:00, 01:30 → circular median is 00:30.
+    summary = summarize_meal_time([23.0, 23.5, 0.5, 1.0, 1.5])
+    assert summary is not None
+    assert summary["typical_hour"] == pytest.approx(0.5)
+
+
+def test_summarize_meal_time_daytime_unaffected_by_unwrap() -> None:
+    summary = summarize_meal_time([12.5, 13.0, 13.0, 13.5, 14.0])
+    assert summary is not None
+    assert summary["typical_hour"] == pytest.approx(13.0)
 
 
 @pytest.mark.django_db
