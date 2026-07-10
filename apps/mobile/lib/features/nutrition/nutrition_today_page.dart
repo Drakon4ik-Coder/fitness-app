@@ -69,6 +69,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final OffClient _offClient;
 
   NutritionDayLog? _dayLog;
+  // The locally known day before the selected one, feeding the empty-meal
+  // "copy yesterday" shortcut (KAN-51). Null hides the shortcut.
+  NutritionDayLog? _previousDayLog;
   // Per-meal windows learned from the user's own history; null until loaded (or
   // if the fetch fails), in which case the smart guess uses population defaults.
   Map<MealType, MealWindow>? _mealWindows;
@@ -180,6 +183,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     //    Best-effort — a store miss or failure just falls through to the
     //    spinner + network path below.
     final bool hadLocal = await _showLocalDay(date);
+    unawaited(_loadPreviousDay(date));
 
     // Only show the loading bar if we have nothing on screen yet; with a local
     // hit the sync happens silently underneath the already-rendered day.
@@ -256,6 +260,108 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Reads the locally known state of the day before [date] so empty meal
+  /// sections can offer the one-tap repeat shortcut (KAN-51). Local-only and
+  /// best-effort: a store miss just hides the shortcut.
+  Future<void> _loadPreviousDay(DateTime date) async {
+    final prev = DateTime(date.year, date.month, date.day - 1);
+    try {
+      final log = await _repository.readCachedDay(prev);
+      if (!mounted || date != _selectedDate) return;
+      setState(() => _previousDayLog = log);
+    } catch (_) {
+      // Non-critical shortcut — never let it break the page.
+    }
+  }
+
+  /// The previous day's entries for [meal] that can be re-logged as-is. The
+  /// offline-first create path needs a server-resolved food id, so entries
+  /// without one (never-synced foods) are skipped.
+  List<NutritionEntry> _copyableFromPreviousDay(MealType meal) {
+    final entries = _previousDayLog?.meals[meal.wireName] ?? const [];
+    return [
+      for (final entry in entries)
+        if (entry.foodItem.backendId != null) entry,
+    ];
+  }
+
+  /// One-tap repeat of the previous day's [meal] into the selected day
+  /// (KAN-51). Each copy is a brand-new entry (fresh client uuid, same food
+  /// and amount) created through the normal offline-first path, so it queues
+  /// via the outbox like any other write.
+  Future<void> _copyMealFromPreviousDay(MealType meal) async {
+    final source = _copyableFromPreviousDay(meal);
+    if (source.isEmpty) return;
+    final date = _selectedDate;
+    final messenger = ScaffoldMessenger.of(context);
+    final created = <NutritionEntry>[];
+    try {
+      for (final entry in source) {
+        final at = entry.consumedAt.toLocal();
+        created.add(
+          await _repository.createEntry(
+            food: entry.foodItem,
+            mealType: meal.wireName,
+            quantityG: entry.quantityG,
+            // Same wall-clock time on the target day, so the copy stays in
+            // the meal window it came from.
+            consumedAt: DateTime(
+              date.year,
+              date.month,
+              date.day,
+              at.hour,
+              at.minute,
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return;
+      }
+      // Entries copied before the failure stay logged; the reload below
+      // shows exactly what made it.
+    }
+    unawaited(_refreshPendingSync());
+    if (!mounted) return;
+    await _loadDay();
+    if (!mounted || created.isEmpty) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          created.length == 1
+              ? 'Copied 1 food'
+              : 'Copied ${created.length} foods',
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => _undoCopy(created),
+        ),
+      ),
+    );
+  }
+
+  /// Undo of a meal copy: deletes the freshly created entries. Copies whose
+  /// create is still queued are simply forgotten; synced ones get tombstoned
+  /// like any other delete.
+  Future<void> _undoCopy(List<NutritionEntry> created) async {
+    try {
+      for (final entry in created) {
+        await _repository.deleteEntry(entry);
+      }
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return;
+      }
+    }
+    unawaited(_refreshPendingSync());
+    if (mounted) await _loadDay();
   }
 
   void _changeDate(int deltaDays) {
@@ -723,6 +829,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                     SliverList(
                       delegate: SliverChildBuilderDelegate((context, index) {
                         final meal = mealSummaries[index];
+                        final canCopy =
+                            meal.entries.isEmpty &&
+                            _copyableFromPreviousDay(meal.mealType).isNotEmpty;
                         return Padding(
                           padding: EdgeInsets.fromLTRB(
                             AppSpacing.lg,
@@ -737,6 +846,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                               context,
                               initialMeal: meal.mealType,
                             ),
+                            onCopyPreviousDay: canCopy
+                                ? () => _copyMealFromPreviousDay(meal.mealType)
+                                : null,
+                            copyPreviousDayLabel: isToday
+                                ? 'Copy from yesterday'
+                                : 'Copy from previous day',
                           ),
                         );
                       }, childCount: mealSummaries.length),
@@ -1435,6 +1550,8 @@ class _MealCard extends StatelessWidget {
     required this.meal,
     required this.onTap,
     required this.onAddFood,
+    this.onCopyPreviousDay,
+    this.copyPreviousDayLabel = 'Copy from yesterday',
   });
 
   final _MealSummary meal;
@@ -1444,6 +1561,12 @@ class _MealCard extends StatelessWidget {
   /// shortcut instead: straight to add-food with this meal preselected
   /// (KAN-36). The trailing affordance flips to a "+" to match.
   final VoidCallback onAddFood;
+
+  /// One-tap repeat of the previous day's version of this meal (KAN-51).
+  /// Non-null only while the meal is empty and the previous day is known
+  /// locally to have entries for it.
+  final VoidCallback? onCopyPreviousDay;
+  final String copyPreviousDayLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1548,6 +1671,22 @@ class _MealCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (onCopyPreviousDay != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: Key('copyPrevious-${meal.mealType.wireName}'),
+                          onPressed: onCopyPreviousDay,
+                          icon: const Icon(Icons.history, size: 18),
+                          label: Text(copyPreviousDayLabel),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

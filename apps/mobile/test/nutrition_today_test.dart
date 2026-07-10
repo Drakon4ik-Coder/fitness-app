@@ -886,6 +886,169 @@ void main() {
     },
   );
 
+  group('copy previous day (KAN-51)', () {
+    /// Routes the three calls the copy flow makes: entry creates echo the
+    /// request as a server entry, deletes ack with 204, everything else gets
+    /// an empty day/sync payload.
+    Dio copyDio(List<Map<String, dynamic>> createBodies) {
+      var nextId = 100;
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.method == 'POST' &&
+                options.path.endsWith('/nutrition/entries')) {
+              final body = (options.data as Map).cast<String, dynamic>();
+              createBodies.add(body);
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  statusCode: 201,
+                  data: {
+                    'id': nextId++,
+                    'client_uuid': body['client_uuid'],
+                    'meal_type': body['meal_type'],
+                    'consumed_at': body['consumed_at'],
+                    'quantity_g': body['quantity_g'],
+                    'kcal': 180,
+                    'updated_at': body['consumed_at'],
+                    'food_item': {
+                      'id': 7,
+                      'name': 'Test Food',
+                      'kcal_100g': 150,
+                    },
+                  },
+                ),
+              );
+              return;
+            }
+            if (options.method == 'DELETE') {
+              handler.resolve(
+                Response(requestOptions: options, statusCode: 204),
+              );
+              return;
+            }
+            if (options.path.contains('/entries/sync')) {
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: {'entries': [], 'next_cursor': '', 'has_more': false},
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: _dayPayload(date: _todayKey(), kcal: 0),
+              ),
+            );
+          },
+        ),
+      );
+      return dio;
+    }
+
+    /// A store that already knows yesterday: seeded, with one breakfast entry.
+    InMemoryNutritionStore storeWithYesterdayBreakfast() {
+      final now = DateTime.now();
+      final yesterday = DateTime(now.year, now.month, now.day - 1);
+      final yesterdayKey = NutritionApiService.formatDate(yesterday);
+      final store = InMemoryNutritionStore(
+        seedPayloads: {
+          yesterdayKey: _dayPayload(date: yesterdayKey, kcal: 180),
+        },
+      );
+      store.entries['y-1'] = makeStoredEntry(
+        uuid: 'y-1',
+        serverId: 11,
+        mealType: 'breakfast',
+        consumedAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 8),
+        quantityG: 120,
+        kcal: 180,
+      );
+      return store;
+    }
+
+    Widget app(Dio dio, InMemoryNutritionStore store) {
+      return MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+          localStore: store,
+        ),
+      );
+    }
+
+    testWidgets('empty meal offers the shortcut only when yesterday has it', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(app(copyDio([]), storeWithYesterdayBreakfast()));
+      await tester.pumpAndSettle();
+
+      // Only breakfast — the meal yesterday actually had — gets the shortcut.
+      expect(find.byKey(const Key('copyPrevious-breakfast')), findsOneWidget);
+      expect(find.text('Copy from yesterday'), findsOneWidget);
+      expect(find.byKey(const Key('copyPrevious-lunch')), findsNothing);
+    });
+
+    testWidgets('shortcut is absent when nothing is known about yesterday', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(app(copyDio([]), InMemoryNutritionStore()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Copy from yesterday'), findsNothing);
+    });
+
+    testWidgets('one tap re-logs the meal as new entries, Undo removes them', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final createBodies = <Map<String, dynamic>>[];
+      final store = storeWithYesterdayBreakfast();
+      await tester.pumpWidget(app(copyDio(createBodies), store));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('copyPrevious-breakfast')));
+      await tester.pumpAndSettle();
+
+      // Same food and amount, but a brand-new client identity (KAN-28: the
+      // uuid is the entry's identity for life — a copy must never reuse it).
+      expect(createBodies, hasLength(1));
+      expect(createBodies.single['food_item_id'], 7);
+      expect(createBodies.single['meal_type'], 'breakfast');
+      expect(createBodies.single['quantity_g'], 120);
+      expect(createBodies.single['client_uuid'], isNot('y-1'));
+
+      // The copy is on today's breakfast card and the shortcut is gone.
+      expect(find.text('Test Food'), findsOneWidget);
+      expect(find.byKey(const Key('copyPrevious-breakfast')), findsNothing);
+      expect(find.text('Copied 1 food'), findsOneWidget);
+
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Test Food'), findsNothing);
+      expect(find.byKey(const Key('copyPrevious-breakfast')), findsOneWidget);
+    });
+  });
+
   testWidgets(
     'today page survives max system text scale without overflow (KAN-40)',
     (WidgetTester tester) async {
