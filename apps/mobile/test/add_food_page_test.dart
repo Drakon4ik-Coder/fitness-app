@@ -650,6 +650,87 @@ void main() {
   });
 
   testWidgets(
+    'search bar stays pinned while the results grid scrolls (KAN-60)',
+    (WidgetTester tester) async {
+      // backendId null so each food keeps its own result key (the shared
+      // default id would dedup them all into one card).
+      final localDb = _FakeLocalDb(
+        recents: [
+          for (var i = 0; i < 30; i++)
+            makeTestFood(name: 'Food $i', backendId: null),
+        ],
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: localDb,
+        repository: _offlineRepository(InMemoryNutritionStore()),
+      );
+
+      expect(find.text('TOTAL ENERGY'), findsOneWidget);
+
+      // Scroll deep into the grid: the summary scrolls away but the search
+      // field stays reachable without scrolling back up.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+
+      expect(find.text('TOTAL ENERGY'), findsNothing);
+      expect(find.byType(TextField).hitTestable(), findsOneWidget);
+    },
+  );
+
+  testWidgets('result cards build lazily, not all at once (KAN-60)', (
+    WidgetTester tester,
+  ) async {
+    // backendId null so each food keeps its own result key (the shared
+    // default id would dedup them all into one card).
+    final localDb = _FakeLocalDb(
+      recents: [
+        for (var i = 0; i < 30; i++)
+          makeTestFood(name: 'Food $i', backendId: null),
+      ],
+    );
+    await pumpAddFoodPage(
+      tester,
+      localDb: localDb,
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    // The first card is built; the far end of the list is not even offstage —
+    // a virtualized sliver never instantiates it.
+    expect(find.text('Food 0', skipOffstage: false), findsOneWidget);
+    expect(find.text('Food 29', skipOffstage: false), findsNothing);
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -6000));
+    await tester.pumpAndSettle();
+    expect(find.text('Food 29', skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('log bar animates out instead of vanishing in one frame '
+      '(KAN-60)', (WidgetTester tester) async {
+    final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
+    await pumpAddFoodPage(
+      tester,
+      localDb: localDb,
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    await tester.ensureVisible(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    expect(find.text('Log to Breakfast'), findsOneWidget);
+
+    // Unstage the only item: mid-transition the bar is still on screen,
+    // after the ~200 ms switch it is gone.
+    await tester.drag(find.byType(Dismissible), const Offset(-800, 0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Log to Breakfast'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Log to Breakfast'), findsNothing);
+  });
+
+  testWidgets(
     'add-food page and amount sheet survive max system text scale (KAN-40)',
     (WidgetTester tester) async {
       // Phone-sized viewport at the largest Android text scale; any RenderFlex

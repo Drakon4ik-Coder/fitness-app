@@ -60,7 +60,7 @@ class FoodThumb extends StatelessWidget {
       child: SizedBox(
         width: size,
         height: size,
-        child: FoodImage(url: url),
+        child: FoodImage(url: url, cacheWidth: size.round()),
       ),
     );
   }
@@ -70,9 +70,15 @@ class FoodThumb extends StatelessWidget {
 /// image URL is known, and — when an image URL exists but fails to load — a
 /// tappable red reload button that evicts the cached failure and retries.
 class FoodImage extends StatefulWidget {
-  const FoodImage({super.key, required this.url});
+  const FoodImage({super.key, required this.url, this.cacheWidth});
 
   final String? url;
+
+  /// Decode-target width in *logical* pixels for small slots (list thumbs,
+  /// the today page's 64px meal images). OFF photos arrive full-size, so
+  /// without this the engine decodes megapixels for a thumbnail (KAN-60).
+  /// Null decodes at native resolution — right for full-card images.
+  final int? cacheWidth;
 
   @override
   State<FoodImage> createState() => _FoodImageState();
@@ -98,10 +104,16 @@ class _FoodImageState extends State<FoodImage> {
     if (url == null || url.isEmpty) {
       return _placeholder(scheme);
     }
+    final logicalWidth = widget.cacheWidth;
     return Image.network(
       url,
       key: ValueKey('$url#$_attempt'),
       fit: BoxFit.cover,
+      // Image.network's cacheWidth is in physical pixels; scale the logical
+      // slot width by the device ratio so the thumb stays crisp.
+      cacheWidth: logicalWidth == null
+          ? null
+          : (logicalWidth * MediaQuery.devicePixelRatioOf(context)).round(),
       loadingBuilder: (context, child, progress) =>
           progress == null ? child : _placeholder(scheme),
       errorBuilder: (context, error, stackTrace) => _errorState(scheme),

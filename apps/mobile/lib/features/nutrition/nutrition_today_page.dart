@@ -20,7 +20,7 @@ import 'data/user_preferences.dart';
 import 'food_detail_page.dart';
 import 'meal_suggestion.dart';
 import 'nutrition_detail_page.dart';
-import 'widgets/amount_sheet.dart' show mealTypeIcon;
+import 'widgets/amount_sheet.dart' show FoodImage, mealTypeIcon;
 import 'widgets/meal_detail_sheet.dart';
 import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 
@@ -1614,13 +1614,11 @@ class _MealCard extends StatelessWidget {
                   border: Border.all(color: LuminaHealthColors.innerHighlight),
                 ),
                 clipBehavior: Clip.antiAlias,
+                // FoodImage adds the loading placeholder + retry-on-error the
+                // raw Image.network lacked, and decodes at the 64px slot size
+                // instead of the photo's native resolution (KAN-60).
                 child: imageUrl != null
-                    ? Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            fallbackIcon,
-                      )
+                    ? FoodImage(url: imageUrl, cacheWidth: 64)
                     : fallbackIcon,
               ),
               const SizedBox(width: AppSpacing.md),

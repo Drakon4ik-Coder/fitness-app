@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' show min;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
@@ -913,13 +912,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        backgroundColor: scheme.surface.withValues(alpha: 0.7),
-        flexibleSpace: ClipRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: const SizedBox.expand(),
-          ),
-        ),
+        // Solid bar: the old 18-sigma BackdropFilter blurred nothing (content
+        // never scrolled under the bar) and burned GPU per frame (KAN-60).
+        backgroundColor: scheme.surface,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
@@ -942,116 +937,118 @@ class _AddFoodPageState extends State<AddFoodPage> {
           ),
         ],
       ),
-      bottomNavigationBar: _addedItems.isEmpty
-          ? null
-          : _LogBar(
-              itemCount: _addedItems.length,
-              totalKcal: totalEnergy.round(),
-              mealLabel: mealLabel,
-              isSubmitting: _isSubmitting,
-              onSubmit: canSubmit ? _submitItems : null,
-            ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.md,
+      // Sized so appearing/disappearing (first item staged, last removed)
+      // slides in over ~200 ms instead of reflowing the page in one frame.
+      bottomNavigationBar: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => SizeTransition(
+          sizeFactor: animation,
+          axisAlignment: -1,
+          child: FadeTransition(opacity: animation, child: child),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _MealTypeSelectorTile(
-              mealLabel: mealLabel,
-              onTap: _showMealSelector,
+        child: _addedItems.isEmpty
+            ? const SizedBox.shrink()
+            : _LogBar(
+                itemCount: _addedItems.length,
+                totalKcal: totalEnergy.round(),
+                mealLabel: mealLabel,
+                isSubmitting: _isSubmitting,
+                onSubmit: canSubmit ? _submitItems : null,
+              ),
+      ),
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
             ),
-            const SizedBox(height: AppSpacing.lg),
-
-            _SummaryBento(
-              totalEnergy: totalEnergy,
-              focusSpecs: _focusSpecs,
-              focusTotals: focusTotals,
-            ),
-
-            // Added Items List
-            if (_addedItems.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-                child: Text(
-                  'ADDED ITEMS',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    letterSpacing: 2.0,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 10,
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _MealTypeSelectorTile(
+                    mealLabel: mealLabel,
+                    onTap: _showMealSelector,
                   ),
-                ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _SummaryBento(
+                    totalEnergy: totalEnergy,
+                    focusSpecs: _focusSpecs,
+                    focusTotals: focusTotals,
+                  ),
+                  if (_addedItems.isNotEmpty)
+                    _AddedItemsSection(
+                      items: _addedItems,
+                      onEdit: _editAddedItem,
+                      onInspect: (item) => _openFoodDetail(item),
+                      onRemove: _removeAddedItem,
+                    ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.sm),
-              ..._addedItems.asMap().entries.map((entry) {
-                final index = entry.key;
-                final added = entry.value;
-                return _AddedItemTile(
-                  added: added,
-                  onTap: () => _editAddedItem(index),
-                  // Tap edits the logged amount; long-press inspects the
-                  // food itself (KAN-35) — same model as the results grid.
-                  onLongPress: () => _openFoodDetail(added.item),
-                  onRemove: () => _removeAddedItem(index),
-                );
-              }),
-            ],
-
-            const SizedBox(height: AppSpacing.lg),
-
-            // Search Bar
-            if (_message != null) ...[
-              InlineBanner(
-                message: _message!,
-                tone: _messageTone ?? InlineBannerTone.info,
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-            GlassSearchBar(
+            ),
+          ),
+          // Pinned so refining a query after browsing a long result list
+          // never means scrolling all the way back up (KAN-60).
+          PinnedHeaderSliver(
+            child: _SearchHeader(
               controller: _searchController,
               onScan: _isOffRateLimited ? null : _openScanPage,
+              isLoading: _isBackendLoading || _isOffLoading,
+              message: _message,
+              messageTone: _messageTone,
             ),
-            if (_isBackendLoading || _isOffLoading) ...[
-              const SizedBox(height: AppSpacing.sm),
-              LinearProgressIndicator(
-                minHeight: 2,
-                color: scheme.primary,
-                backgroundColor: scheme.surfaceContainer,
-              ),
-            ],
-
-            const SizedBox(height: AppSpacing.lg),
-
-            // Food Grid (Quick Add / Search Results)
-            _ResultsHeader(
-              heading: _resultsHeading(query),
-              // The Recent/Favorites toggle only applies to the no-query list.
-              toggleLabel: hasQuery
-                  ? null
-                  : _selectedFilter == _filterFavorites
-                  ? 'View Recent'
-                  : 'View Favorites',
-              onToggleFilter: () => _selectFilter(
-                _selectedFilter == _filterFavorites
-                    ? _filterRecent
-                    : _filterFavorites,
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.sm,
+              AppSpacing.md,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _ResultsHeader(
+                heading: _resultsHeading(query),
+                // The Recent/Favorites toggle only applies to the no-query
+                // list.
+                toggleLabel: hasQuery
+                    ? null
+                    : _selectedFilter == _filterFavorites
+                    ? 'View Recent'
+                    : 'View Favorites',
+                onToggleFilter: () => _selectFilter(
+                  _selectedFilter == _filterFavorites
+                      ? _filterRecent
+                      : _filterFavorites,
+                ),
               ),
             ),
-            const SizedBox(height: AppSpacing.sm),
-
-            if (results.isEmpty)
-              _EmptyResults(
-                query: query.trim(),
-                onCreateCustomFood: _openCustomFoodPage,
-              )
-            else
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
+          ),
+          if (results.isEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              sliver: SliverToBoxAdapter(
+                child: _EmptyResults(
+                  query: query.trim(),
+                  onCreateCustomFood: _openCustomFoodPage,
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.xl,
+              ),
+              // A real sliver grid so result cards build lazily — the old
+              // shrinkWrap GridView built every card at once (KAN-60).
+              sliver: SliverGrid.builder(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   mainAxisSpacing: AppSpacing.md,
@@ -1072,8 +1069,116 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   );
                 },
               ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
-            const SizedBox(height: AppSpacing.xl),
+/// The "ADDED ITEMS" label plus staged tiles, extracted from build() while
+/// restructuring the page into slivers (KAN-60). Tap edits the logged amount;
+/// long-press inspects the food itself (KAN-35) — same model as the results
+/// grid.
+class _AddedItemsSection extends StatelessWidget {
+  const _AddedItemsSection({
+    required this.items,
+    required this.onEdit,
+    required this.onInspect,
+    required this.onRemove,
+  });
+
+  final List<_AddedFood> items;
+  final void Function(int index) onEdit;
+  final void Function(FoodItem item) onInspect;
+  final void Function(int index) onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.lg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+          child: Text(
+            'ADDED ITEMS',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              letterSpacing: 2.0,
+              fontWeight: FontWeight.bold,
+              fontSize: 10,
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        for (final (index, added) in items.indexed)
+          _AddedItemTile(
+            added: added,
+            onTap: () => onEdit(index),
+            onLongPress: () => onInspect(added.item),
+            onRemove: () => onRemove(index),
+          ),
+      ],
+    );
+  }
+}
+
+/// The search strip that pins below the app bar while results scroll under it
+/// (KAN-60). Carries the inline banner (errors stay visible next to the field
+/// that caused them) and always reserves the 2px activity strip so the pinned
+/// extent doesn't jump when a live search starts.
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({
+    required this.controller,
+    required this.onScan,
+    required this.isLoading,
+    required this.message,
+    required this.messageTone,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback? onScan;
+  final bool isLoading;
+  final String? message;
+  final InlineBannerTone? messageTone;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: scheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (message != null) ...[
+              InlineBanner(
+                message: message!,
+                tone: messageTone ?? InlineBannerTone.info,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            GlassSearchBar(controller: controller, onScan: onScan),
+            const SizedBox(height: AppSpacing.xs),
+            SizedBox(
+              height: 2,
+              child: isLoading
+                  ? LinearProgressIndicator(
+                      minHeight: 2,
+                      color: scheme.primary,
+                      backgroundColor: scheme.surfaceContainer,
+                    )
+                  : null,
+            ),
           ],
         ),
       ),

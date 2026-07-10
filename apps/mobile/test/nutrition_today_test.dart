@@ -9,6 +9,8 @@ import 'package:fitness_app/features/nutrition/data/off_client.dart';
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
+import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart'
+    show FoodImage;
 import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
@@ -824,6 +826,85 @@ void main() {
 
       expect(find.byType(MealDetailSheet), findsOneWidget);
       expect(find.byType(AddFoodPage), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'meal-card thumbnail goes through FoodImage (placeholder + retry + '
+    'downscaled decode, KAN-60)',
+    (WidgetTester tester) async {
+      // Tall viewport so the meal cards are on screen (they sit below the
+      // summary sections at the default 600px height).
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': _todayKey(),
+                  'totals': {
+                    'kcal': 150,
+                    'protein_g': 5,
+                    'carbs_g': 27,
+                    'fat_g': 3,
+                  },
+                  'meals': {
+                    'breakfast': [],
+                    'lunch': [
+                      {
+                        'id': 1,
+                        'client_uuid': 'uuid-1',
+                        'meal_type': 'lunch',
+                        'consumed_at': '${_todayKey()}T12:00:00Z',
+                        'quantity_g': 100,
+                        'kcal': 150,
+                        'updated_at': '${_todayKey()}T12:00:00Z',
+                        'food_item': {
+                          'id': 7,
+                          'name': 'Oatmeal',
+                          'kcal_100g': 150,
+                          'image_url': 'https://example.com/oatmeal.jpg',
+                        },
+                      },
+                    ],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+            localDb: _FakeLocalDb(),
+            foodsApi: _FakeFoodsApi(),
+            offClient: _FakeOffClient(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The lunch card's 64px thumbnail renders via FoodImage — the raw
+      // Image.network (no loadingBuilder, full-size decode) is gone. The
+      // test HTTP client fails the fetch, which FoodImage absorbs into its
+      // retry state instead of an uncaught exception. Only the lunch card
+      // carries an image URL, so exactly one FoodImage is on the page.
+      expect(find.byType(FoodImage), findsOneWidget);
     },
   );
 
