@@ -289,6 +289,9 @@ class CustomFoodSerializer(serializers.Serializer):
         owner = kwargs["owner"]
         data = dict(self.validated_data)
         external_id = data.pop("external_id")
+        # Presence, not value: the client omits `overrides_food` to leave an
+        # existing override link alone and sends an explicit null to detach it.
+        overrides_provided = "overrides_food" in data
         overrides_id = data.pop("overrides_food", None)
 
         with transaction.atomic():
@@ -306,7 +309,7 @@ class CustomFoodSerializer(serializers.Serializer):
                     setattr(existing, field, value)
                 # Re-upserting a soft-deleted food revives it.
                 existing.deleted_at = None
-                if overrides_id is not None:
+                if overrides_provided:
                     existing.overrides_id = overrides_id
                 existing.save()
                 item = existing

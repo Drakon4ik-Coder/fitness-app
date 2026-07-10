@@ -92,6 +92,45 @@ def test_each_override_save_appends_a_proposal() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_explicit_null_detaches_the_override() -> None:
+    client = _auth_client("alice@example.com")
+    target = _global_mince()
+    client.post("/api/v1/foods/custom", _override_payload(target.id), format="json")
+
+    response = client.post(
+        "/api/v1/foods/custom",
+        _override_payload(target.id, overrides_food=None),
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["overrides_food"] is None
+    override = FoodItem.objects.get(external_id="cf-override-1")
+    assert override.overrides_id is None
+    # Detached foods stop feeding convergence evidence to the old target.
+    assert FoodEditProposal.objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_omitting_overrides_food_keeps_the_link() -> None:
+    client = _auth_client("alice@example.com")
+    target = _global_mince()
+    client.post("/api/v1/foods/custom", _override_payload(target.id), format="json")
+
+    payload = _override_payload(target.id, kcal_100g="126")
+    del payload["overrides_food"]
+    response = client.post("/api/v1/foods/custom", payload, format="json")
+
+    assert response.status_code == 200
+    assert response.data["overrides_food"] == target.id
+    override = FoodItem.objects.get(external_id="cf-override-1")
+    assert override.overrides_id == target.id
+    assert FoodEditProposal.objects.count() == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_override_target_must_be_global() -> None:
     alice = _auth_client("alice@example.com")
     own = alice.post(
