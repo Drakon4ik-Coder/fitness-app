@@ -351,20 +351,44 @@ class _AddFoodPageState extends State<AddFoodPage> {
       onViewDetails: _openFoodDetail,
     );
     if (result == null || !mounted) return;
+    // While the sheet was open, its View Details flow may have removed the
+    // staged entry (custom-food delete / override revert) or swapped it for
+    // a fresh override under a different key — the integer index is stale.
+    // Re-resolve by identity; if the entry is gone, there is nothing to edit.
+    final liveIndex = _stagedIndexOf(entry.item);
+    if (liveIndex < 0) return;
     if (result.removed) {
-      _removeAddedItem(index);
+      _removeAddedItem(liveIndex);
       return;
     }
     setState(() {
       if (result.grams != null) {
-        // Re-read the staged item: viewing details from the sheet may have
-        // replaced it (an edit or a fresh override) while the sheet was open.
-        _addedItems[index] = _AddedFood(
-          item: _addedItems[index].item,
+        _addedItems[liveIndex] = _AddedFood(
+          item: _addedItems[liveIndex].item,
           grams: result.grams!,
         );
       }
     });
+  }
+
+  /// Where [item]'s staged entry lives *now*: under its own key, or — when a
+  /// detail-page edit forked it into a personal override — under the custom
+  /// food that _applyCustomFoodUpdate swapped into its slot.
+  int _stagedIndexOf(FoodItem item) {
+    final direct = _indexOfAdded(item);
+    if (direct >= 0) return direct;
+    for (var i = 0; i < _addedItems.length; i++) {
+      final candidate = _addedItems[i].item;
+      final overridesSameFood =
+          candidate.isCustom &&
+          ((item.backendId != null &&
+                  candidate.overridesBackendId == item.backendId) ||
+              (item.barcode != null &&
+                  item.barcode!.isNotEmpty &&
+                  candidate.overridesBarcode == item.barcode));
+      if (overridesSameFood) return i;
+    }
+    return -1;
   }
 
   /// Drops the staged item at [index] and offers Undo (KAN-39). Staged items

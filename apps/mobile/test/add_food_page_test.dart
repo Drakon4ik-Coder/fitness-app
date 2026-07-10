@@ -28,6 +28,7 @@ class _FakeLocalDb extends FoodLocalDb {
   final List<FoodItem> recents;
   final List<FoodItem> upserted = [];
   final List<int> lastUsedTouches = [];
+  final List<int> deletedLocalIds = [];
   int _nextLocalId = 1;
 
   @override
@@ -57,6 +58,11 @@ class _FakeLocalDb extends FoodLocalDb {
   @override
   Future<void> updateLastUsed(int localId, DateTime usedAt) async {
     lastUsedTouches.add(localId);
+  }
+
+  @override
+  Future<void> deleteFood(int localId) async {
+    deletedLocalIds.add(localId);
   }
 }
 
@@ -320,6 +326,91 @@ void main() {
     expect(find.text('ADDED ITEMS'), findsOneWidget);
     expect(find.text('Log to Breakfast'), findsOneWidget);
   });
+
+  testWidgets(
+    'amount-sheet actions survive the staged entry being removed via the '
+    'View Details flow while the sheet is open',
+    (WidgetTester tester) async {
+      // An offline-created override (no backendId → revert skips the API and
+      // only touches the local DB) staged *after* another item, so its index
+      // is the last slot — the slot that vanishes when the revert removes it.
+      final override = FoodItem(
+        localId: 1,
+        source: customSource,
+        externalId: 'cf-1',
+        name: 'My Fixed Oatmeal',
+        brands: '',
+        kcal100g: 380,
+        proteinG100g: 12,
+        rawSourceJson: '{}',
+        overridesBackendId: 99,
+      );
+      final localDb = _FakeLocalDb(
+        recents: [
+          makeTestFood(name: 'Banana'),
+          override,
+        ],
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: localDb,
+        repository: _offlineRepository(InMemoryNutritionStore()),
+      );
+
+      // Stage both, then open the editor on the override (staged index 1).
+      await tester.ensureVisible(find.text('Banana', skipOffstage: false));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Banana'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.text('My Fixed Oatmeal', skipOffstage: false).last,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('My Fixed Oatmeal').last);
+      await tester.pumpAndSettle();
+      // Edit the staged tile (first of the two texts — staged column first,
+      // result card last).
+      await tester.ensureVisible(
+        find.text('My Fixed Oatmeal', skipOffstage: false).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('My Fixed Oatmeal').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Save changes'), findsOneWidget);
+
+      // Sheet header → detail page → revert the override. onItemReverted
+      // fires while the sheet is still open and drops the staged entry.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text('My Fixed Oatmeal'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(FoodDetailPage), findsOneWidget);
+      await tester.ensureVisible(
+        find.text('Revert to original', skipOffstage: false),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Revert to original'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Revert'));
+      await tester.pumpAndSettle();
+      expect(localDb.deletedLocalIds, [1]);
+
+      // Back on the sheet, ask to remove: the stored index (1) now points
+      // past the end of the one-item list — this must be a no-op, not a
+      // RangeError, and Banana must survive untouched.
+      expect(find.text('Save changes'), findsOneWidget);
+      await tester.tap(find.text('Remove from meal'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('ADDED ITEMS', skipOffstage: false), findsOneWidget);
+      expect(find.text('1 item', skipOffstage: false), findsOneWidget);
+      expect(find.text('Banana', skipOffstage: false), findsWidgets);
+    },
+  );
 
   testWidgets('swiping a staged item removes it with Undo (KAN-39)', (
     WidgetTester tester,
