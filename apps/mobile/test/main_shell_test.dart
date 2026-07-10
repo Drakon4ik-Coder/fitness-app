@@ -62,6 +62,18 @@ FinderBase<SemanticsNode> _navItem(String label) => find.semantics.byPredicate(
   describeMatch: (plurality) => 'nav item "$label"',
 );
 
+/// The nav item's visible label, scoped to its Semantics wrapper so an
+/// identically-worded page title elsewhere can't match.
+Finder _navLabelText(String label) => find.descendant(
+  of: find.byWidgetPredicate(
+    (w) =>
+        w is Semantics &&
+        w.properties.label == label &&
+        (w.properties.button ?? false),
+  ),
+  matching: find.text(label),
+);
+
 void main() {
   testWidgets('renders both nav tabs and defaults to Nutrition selected', (
     tester,
@@ -105,5 +117,42 @@ void main() {
       containsSemantics(isSelected: false),
     );
     handle.dispose();
+  });
+
+  // KAN-62: the labels are real Text widgets (scalable, localizable), not
+  // glyphs baked into the SVG assets.
+  testWidgets('nav labels render as Text widgets', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: LuminaHealthTheme.dark(), home: _shell()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_navLabelText('Nutrition'), findsOneWidget);
+    expect(_navLabelText('Settings'), findsOneWidget);
+  });
+
+  testWidgets('nav bar grows past its 64px floor at max text scale', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+    await tester.pumpWidget(
+      MaterialApp(theme: LuminaHealthTheme.dark(), home: _shell()),
+    );
+    // Any RenderFlex overflow anywhere in the shell fails this pump.
+    await tester.pumpAndSettle();
+
+    final item = find
+        .ancestor(
+          of: _navLabelText('Nutrition'),
+          matching: find.byType(InkWell),
+        )
+        .first;
+    expect(tester.getSize(item).height, greaterThan(64));
   });
 }

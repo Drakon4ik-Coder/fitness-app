@@ -191,24 +191,23 @@ class _ShellNavBar extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: 64,
-          child: Row(
-            children: [
-              _ShellNavItem(
-                asset: 'assets/bar/track.svg',
-                label: 'Nutrition',
-                selected: index == 0,
-                onTap: () => onSelect(0),
-              ),
-              _ShellNavItem(
-                asset: 'assets/bar/settings.svg',
-                label: 'Settings',
-                selected: index == 1,
-                onTap: () => onSelect(1),
-              ),
-            ],
-          ),
+        // No fixed bar height: each item enforces a 64px minimum but grows
+        // with the label at large system font sizes (KAN-62).
+        child: Row(
+          children: [
+            _ShellNavItem(
+              asset: 'assets/bar/track.svg',
+              label: 'Nutrition',
+              selected: index == 0,
+              onTap: () => onSelect(0),
+            ),
+            _ShellNavItem(
+              asset: 'assets/bar/settings.svg',
+              label: 'Settings',
+              selected: index == 1,
+              onTap: () => onSelect(1),
+            ),
+          ],
         ),
       ),
     );
@@ -230,11 +229,10 @@ class _ShellNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // The SVGs bake in their own label; tint the whole glyph by selection state.
+    final theme = Theme.of(context);
     final color = selected
         ? LuminaHealthColors.primary
-        : scheme.onSurfaceVariant;
+        : theme.colorScheme.onSurfaceVariant;
     return Expanded(
       child: Semantics(
         button: true,
@@ -242,13 +240,31 @@ class _ShellNavItem extends StatelessWidget {
         label: label,
         child: InkWell(
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            child: Center(
-              child: SvgPicture.asset(
-                asset,
-                height: 30,
-                colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+          // The Semantics wrapper above carries the label; excluding the
+          // child keeps TalkBack from announcing it twice.
+          child: ExcludeSemantics(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 64),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SvgPicture.asset(
+                      asset,
+                      height: 24,
+                      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(color: color),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
