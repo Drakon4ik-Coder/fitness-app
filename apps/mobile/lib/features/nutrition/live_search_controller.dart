@@ -101,6 +101,15 @@ class LiveSearchController {
       return;
     }
 
+    // Supersede the previous query's in-flight request at keystroke time, not
+    // when the debounce fires (D-08 / SRCH-02): otherwise a late response for
+    // the old query can land inside the 300ms window, still match
+    // `_activeToken`/`_activeQuery`, pass the stale guard, and repopulate the
+    // page under a newer visible query.
+    _activeToken?.cancel('superseded by "$query"');
+    _activeToken = null;
+    _activeQuery = query;
+
     _debounce = Timer(_debounceDuration, () => _runOnlineSearch(query));
   }
 

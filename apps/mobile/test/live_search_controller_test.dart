@@ -223,6 +223,73 @@ void main() {
     },
   );
 
+  test('a newer keystroke cancels the in-flight request immediately — a late '
+      'result arriving inside the new debounce window is dropped (D-08)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final backendResultsReceived = <List<FoodItem>>[];
+      final offResultsReceived = <List<FoodItem>>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        onBackend: (results) {
+          backendResultsReceived.add(results);
+          return results;
+        },
+        onOff: (results) {
+          offResultsReceived.add(results);
+          return results;
+        },
+      );
+
+      controller.onQueryChanged('apple');
+      async.elapse(const Duration(milliseconds: 300));
+      final firstToken = off.tokens[0]!;
+      final firstOffPending = off.pending!;
+      final firstBackendPending = backend.pending!;
+
+      // Supersede WITHOUT elapsing the new debounce: the keystroke itself
+      // must cancel the in-flight token, not the debounce firing 300ms
+      // later.
+      controller.onQueryChanged('apples');
+      expect(
+        firstToken.isCancelled,
+        isTrue,
+        reason: 'keystroke must cancel the in-flight token instantly',
+      );
+
+      // Both old-query responses resolve inside the debounce window; the
+      // stale guard must drop them.
+      firstOffPending.complete([
+        OffProductResponse(
+          product: <String, dynamic>{
+            'code': '111',
+            'product_name': 'Stale Apple',
+            'lang': 'en',
+          },
+          rawJson: '{}',
+        ),
+      ]);
+      firstBackendPending.complete(const []);
+      async.flushMicrotasks();
+
+      expect(
+        offResultsReceived,
+        isEmpty,
+        reason: 'late OFF result inside the debounce window must be dropped',
+      );
+      expect(
+        backendResultsReceived,
+        isEmpty,
+        reason:
+            'late backend result inside the debounce window must be dropped',
+      );
+
+      controller.dispose();
+    });
+  });
+
   test(
     'budget-exhausted: a debounced query skips the OFF call entirely, emits no '
     'error, and keeps prior OFF results intact (pre-flight skip, D-01)',
