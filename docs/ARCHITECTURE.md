@@ -68,6 +68,8 @@ Root URLconf: `config/urls.py`
 - `MeView` — GET profile / PATCH (e.g. timezone)
 - `ResendVerificationView`, `PasswordResetRequestView`
 - `verify_email`, `reset_password` — emailed-link endpoints (plain views)
+- `request_account_deletion`, `confirm_account_deletion` — logged-out web deletion flow (Play requirement, KAN-42)
+- `privacy_policy` — static privacy-policy page (Play requirement, KAN-43)
 
 `foods/views.py`
 - `FoodTypeaheadView` — name-based search
@@ -98,6 +100,8 @@ Root URLconf: `config/urls.py`
 | `/admin/` | Django admin |
 | `/health/` | JSON healthcheck |
 | `/.well-known/assetlinks.json` | Android app-link / shared-credential affiliation |
+| `/delete-account` | Logged-out web account-deletion request + emailed confirm link |
+| `/privacy` | Hosted privacy policy (linked from Settings → About and the store listing) |
 
 ---
 
@@ -127,7 +131,7 @@ lib/
 │       ├── account_page.dart            # Account tab + settings hub
 │       ├── live_search_controller.dart  # Debounce + cancel for the search flow
 │       ├── meal_suggestion.dart         # Meal-type guess from learned meal times
-│       ├── settings/                    # Profile / Units / Goals / Focus-nutrients / Warnings sub-pages
+│       ├── settings/                    # Profile / Units / Goals / Focus-nutrients / Warnings / About sub-pages
 │       ├── widgets/                     # amount_sheet, meal_detail_sheet, nutrient views
 │       └── data/
 │           ├── nutrition_repository.dart    # Offline-first read/write + outbox + delta sync

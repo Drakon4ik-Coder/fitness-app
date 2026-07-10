@@ -430,6 +430,17 @@ def _deletion_result(request: HttpRequest, result: str) -> HttpResponse:
     return render(request, "accounts/delete_account_result.html", {"result": result})
 
 
+@require_http_methods(["GET"])
+def privacy_policy(request: HttpRequest) -> HttpResponse:
+    """Public privacy policy page (Play Store requirement).
+
+    Google Play requires a hosted privacy policy for every app — linked from
+    the store listing and from inside the app (Settings → About). Static
+    content; the template is the single source of truth for the policy text.
+    """
+    return render(request, "accounts/privacy_policy.html")
+
+
 def _reauth_failed() -> Response:
     # One vague message for every re-auth failure mode: the caller already
     # holds a valid access token, but if that token is stolen the error must

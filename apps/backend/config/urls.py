@@ -5,7 +5,11 @@ from django.http import HttpRequest, JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from accounts.views import confirm_account_deletion, request_account_deletion
+from accounts.views import (
+    confirm_account_deletion,
+    privacy_policy,
+    request_account_deletion,
+)
 from config.well_known import assetlinks
 
 
@@ -27,6 +31,9 @@ urlpatterns = [
         confirm_account_deletion,
         name="delete-account-confirm",
     ),
+    # Domain-root privacy policy — Play requires one hosted outside the app,
+    # linked from the store listing and Settings → About.
+    path("privacy", privacy_policy, name="privacy-policy"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",

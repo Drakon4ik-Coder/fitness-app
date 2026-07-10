@@ -56,15 +56,15 @@ The 14-day closed test is the longest fixed delay; everything here starts it soo
     emailed, single-use confirmation link (Play requires a web path too).
   - Mobile: "Delete account" in Settings → Profile with confirm dialog,
     then local wipe (secure storage + both SQLite DBs) and sign-out.
-- [ ] **Privacy policy**: write and host at `symbio.drakon4ik.uk/privacy`
-  (static Django template is fine). Must cover: email/account data, health &
-  nutrition data, device timezone, Google Sign-In, camera/barcode usage
-  (on-device only), crash logs/diagnostics (Sentry), retention, deletion,
-  contact address. Link it in-app
-  (Settings → About) and later in the store listing.
-- [ ] **About/Licenses screen** in Settings: app version, "Powered by Open
-  Food Facts" (ODbL) attribution, link to privacy policy, Flutter
-  `showLicensePage`, Apache-2.0/NOTICE.
+- [x] **Privacy policy** (KAN-43): hosted at `symbio.drakon4ik.uk/privacy`
+  (static Django template, `accounts/templates/accounts/privacy_policy.html`).
+  Covers: email/account data, health & nutrition data, device timezone,
+  Google Sign-In, camera/barcode usage (on-device only), crash
+  logs/diagnostics (Sentry), retention, deletion, contact address. Linked
+  in-app (Settings → About); still to link in the store listing (Phase 3).
+- [x] **About/Licenses screen** (KAN-43) in Settings: app version via
+  `package_info_plus`, "Powered by Open Food Facts" (ODbL) attribution,
+  link to privacy policy, Flutter `showLicensePage`, Apache-2.0/NOTICE.
 - [ ] Add `<uses-permission android:name="android.permission.INTERNET"/>` to
   the main manifest explicitly.
 - [x] **Crash reporting** (KAN-44): `sentry_flutter` wired to
