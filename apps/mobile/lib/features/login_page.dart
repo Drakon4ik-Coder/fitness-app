@@ -241,8 +241,10 @@ class _LoginPageState extends State<LoginPage> {
                               keyboardType: TextInputType.emailAddress,
                               textInputAction: TextInputAction.next,
                               autofillHints: const [AutofillHints.email],
+                              // The uppercase micro-label above the field is
+                              // the visible label; a labelText here would
+                              // render a second, floating one (KAN-58).
                               decoration: InputDecoration(
-                                labelText: "E-mail",
                                 hintText: 'Enter your e-mail',
                                 prefixIcon: Icon(
                                   Icons.alternate_email,
@@ -273,8 +275,14 @@ class _LoginPageState extends State<LoginPage> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                GestureDetector(
-                                  onTap: _isLoading
+                                LinkButton(
+                                  label: 'FORGOT PASSWORD?',
+                                  textStyle: theme.textTheme.labelSmall
+                                      ?.copyWith(
+                                        letterSpacing: 1,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                  onPressed: _isLoading
                                       ? null
                                       : () {
                                           Navigator.of(context).push(
@@ -290,14 +298,6 @@ class _LoginPageState extends State<LoginPage> {
                                             ),
                                           );
                                         },
-                                  child: Text(
-                                    'FORGOT PASSWORD?',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: colorScheme.primary,
-                                      letterSpacing: 1,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
                                 ),
                               ],
                             ),
@@ -309,7 +309,6 @@ class _LoginPageState extends State<LoginPage> {
                               onFieldSubmitted: (_) => _submit(),
                               autofillHints: const [AutofillHints.password],
                               decoration: InputDecoration(
-                                labelText: "Password",
                                 hintText: 'Enter your password',
                                 prefixIcon: Icon(
                                   Icons.lock_outline,
@@ -460,8 +459,9 @@ class _LoginPageState extends State<LoginPage> {
                                     color: colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                                GestureDetector(
-                                  onTap: _isLoading
+                                LinkButton(
+                                  label: 'Create account',
+                                  onPressed: _isLoading
                                       ? null
                                       : () {
                                           Navigator.of(context).push(
@@ -472,13 +472,6 @@ class _LoginPageState extends State<LoginPage> {
                                             ),
                                           );
                                         },
-                                  child: Text(
-                                    'Create account',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: colorScheme.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
                                 ),
                               ],
                             ),

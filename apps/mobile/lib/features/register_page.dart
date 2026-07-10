@@ -189,8 +189,10 @@ class _RegisterPageState extends State<RegisterPage> {
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.email],
+                      // The uppercase micro-label above the field is the
+                      // visible label; a labelText here would render a
+                      // second, floating one (KAN-58).
                       decoration: InputDecoration(
-                        labelText: "E-mail",
                         hintText: 'Enter your E-mail',
                         prefixIcon: Icon(
                           Icons.alternate_email,
@@ -227,7 +229,6 @@ class _RegisterPageState extends State<RegisterPage> {
                       onChanged: (_) => setState(() {}),
                       autofillHints: const [AutofillHints.newPassword],
                       decoration: InputDecoration(
-                        labelText: "Password",
                         hintText: 'Enter your password',
                         prefixIcon: Icon(
                           Icons.lock_outline,
@@ -288,6 +289,17 @@ class _RegisterPageState extends State<RegisterPage> {
                             )
                           : const Text('CREATE ACCOUNT'),
                     ),
+
+                    // Error feedback shown directly below the action that
+                    // triggered it, so it stays visible without scrolling
+                    // (mirrors the login page).
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      InlineBanner(
+                        message: _errorMessage!,
+                        tone: InlineBannerTone.error,
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.xxl),
 
                     // Footer: Already have an account?
@@ -300,26 +312,14 @@ class _RegisterPageState extends State<RegisterPage> {
                             color: colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(context).pop(),
-                          child: Text(
-                            'Log In',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                        LinkButton(
+                          label: 'Log In',
+                          onPressed: _isLoading
+                              ? null
+                              : () => Navigator.of(context).pop(),
                         ),
                       ],
                     ),
-
-                    if (_errorMessage != null) ...[
-                      const SizedBox(height: AppSpacing.xl),
-                      InlineBanner(
-                        message: _errorMessage!,
-                        tone: InlineBannerTone.error,
-                      ),
-                    ],
 
                     const SizedBox(height: AppSpacing.xl),
                   ],

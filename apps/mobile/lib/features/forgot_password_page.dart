@@ -246,8 +246,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.email],
             onFieldSubmitted: (_) => _submit(),
+            // The uppercase micro-label above the field is the visible
+            // label; a labelText here would render a second, floating one
+            // (KAN-58).
             decoration: InputDecoration(
-              labelText: 'E-mail',
               hintText: 'Enter your e-mail',
               prefixIcon: Icon(
                 Icons.alternate_email,
@@ -421,15 +423,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             color: colorScheme.onSurfaceVariant,
           ),
         ),
-        GestureDetector(
-          onTap: () => Navigator.of(context).maybePop(),
-          child: Text(
-            'Back to login',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colorScheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        LinkButton(
+          label: 'Back to login',
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
       ],
     );
