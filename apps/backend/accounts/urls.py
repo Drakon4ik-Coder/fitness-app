@@ -5,6 +5,7 @@ from accounts.views import (
     EmailVerifiedTokenObtainPairView,
     GoogleLoginView,
     MeView,
+    PasswordChangeView,
     PasswordResetRequestView,
     RegisterView,
     ResendVerificationView,
@@ -21,5 +22,6 @@ urlpatterns = [
     path("verify/<str:token>", verify_email, name="verify-email"),
     path("resend-verification", ResendVerificationView.as_view()),
     path("password-reset", PasswordResetRequestView.as_view()),
+    path("change-password", PasswordChangeView.as_view()),
     path("reset-password/<str:token>", reset_password, name="reset-password"),
 ]

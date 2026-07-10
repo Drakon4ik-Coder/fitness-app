@@ -146,6 +146,9 @@ REST_FRAMEWORK: dict[str, Any] = {
         # password / Google token, so cap attempts against a stolen access
         # token being used to brute-force the deletion re-auth.
         "account_delete": "5/hour",
+        # Same posture as account_delete: the current-password re-auth check
+        # must not be brute-forceable with a stolen access token.
+        "password_change": "5/hour",
     },
 }
 

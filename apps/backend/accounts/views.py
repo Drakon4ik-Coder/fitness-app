@@ -34,6 +34,7 @@ from accounts.serializers import (
     AccountDeleteSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
+    PasswordChangeSerializer,
     PasswordResetRequestSerializer,
     ResendVerificationSerializer,
     TokenPairSerializer,
@@ -477,6 +478,52 @@ def _google_reauth_error(raw_token: str, user: User) -> Response | None:
     if (claims.get("email") or "").lower() != user.email.lower():
         return _reauth_failed()
     return None
+
+
+class PasswordChangeView(APIView):
+    """Authenticated password change (KAN-50).
+
+    Like DELETE /auth/me, a live access token isn't proof enough to take over
+    the credential — the request must re-prove the current password. Wrong
+    current password (or an OAuth-only account with no password at all)
+    collapses into the same vague 403 so a stolen token can't probe which it
+    was; only new-password strength errors are specific.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # Keyed by user id: caps re-auth attempts against a stolen access token
+    # brute-forcing the current-password check.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_change"
+
+    @extend_schema(request=PasswordChangeSerializer, responses={204: None})
+    def post(self, request: Request) -> Response:
+        body = PasswordChangeSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+
+        current = body.validated_data["current_password"]
+        if not (user.has_usable_password() and user.check_password(current)):
+            return _reauth_failed()
+
+        new_password = body.validated_data["new_password"]
+        try:
+            validate_password(new_password, user=user)
+        except ValidationError as exc:
+            return Response(
+                {"new_password": exc.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        # A reset link emailed before the change belongs to the old
+        # credential; don't leave it as a live second way in.
+        PasswordResetToken.objects.filter(user=user, used_at__isnull=True).update(
+            used_at=timezone.now()
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MeView(APIView):

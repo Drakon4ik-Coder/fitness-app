@@ -148,6 +148,36 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/auth/change-password:
+    post:
+      operationId: v1_auth_change_password_create
+      description: |-
+        Authenticated password change (KAN-50).
+
+        Like DELETE /auth/me, a live access token isn't proof enough to take over
+        the credential — the request must re-prove the current password. Wrong
+        current password (or an OAuth-only account with no password at all)
+        collapses into the same vague 403 so a stolen token can't probe which it
+        was; only new-password strength errors are specific.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/auth/google:
     post:
       operationId: v1_auth_google_create
@@ -1394,6 +1424,21 @@ components:
       - fat_g
       - kcal
       - protein_g
+    PasswordChange:
+      type: object
+      description: |-
+        Logged-in password change: re-prove the current password, set a new one.
+
+        The new password is validated in the view (Django's validators need the
+        user object for the similarity check).
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+      required:
+      - current_password
+      - new_password
     PasswordResetRequest:
       type: object
       properties:

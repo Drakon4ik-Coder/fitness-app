@@ -6,6 +6,7 @@ import '../../../core/google_auth_service.dart';
 import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/lumina_health_theme.dart';
 import '../../../ui_system/tokens.dart';
+import 'change_password_page.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for account identity: editable display name and
@@ -318,6 +319,29 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
                 isLoading: _saving,
                 child: const Text('Save changes'),
               ),
+              // Password change (KAN-50) — only password accounts have a
+              // credential to change; OAuth-only accounts sign in via Google.
+              if (_hasPassword) ...[
+                const SizedBox(height: AppSpacing.lg),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ChangePasswordPage(
+                          accessToken: widget.accessToken,
+                          authService: widget.authService,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.lock_outline),
+                  label: const Text('Change password'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    alignment: Alignment.centerLeft,
+                  ),
+                ),
+              ],
               // Danger zone — kept well clear of the routine actions above,
               // mirroring the logout placement on the settings hub. Play
               // requires in-app account deletion (KAN-42).

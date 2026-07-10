@@ -213,6 +213,7 @@ are noise).
 | `DELETE /api/v1/auth/me` | `MeView` (account deletion; re-auth via password or fresh Google ID token, KAN-42) |
 | `POST /api/v1/auth/resend-verification` | `ResendVerificationView` |
 | `POST /api/v1/auth/password-reset` | `PasswordResetRequestView` |
+| `POST /api/v1/auth/change-password` | `PasswordChangeView` (logged-in change; current password as re-auth, KAN-50) |
 | `GET /api/v1/foods/typeahead` | `FoodTypeaheadView` |
 | `POST /api/v1/foods/ingest` | `FoodIngestView` |
 | `POST /api/v1/foods/custom`, `PATCH/DELETE /api/v1/foods/custom/<id>` | `CustomFoodView` / `CustomFoodDetailView` |

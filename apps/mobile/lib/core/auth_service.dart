@@ -287,6 +287,38 @@ class AuthService {
     }
   }
 
+  /// Changes the signed-in account's password (POST /auth/change-password).
+  ///
+  /// The server requires the current password as re-auth proof; a wrong one
+  /// gets the backend's deliberately vague 403 message, while new-password
+  /// strength rejections carry a specific reason. Throws [AuthException].
+  Future<void> changePassword({
+    required String accessToken,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      await _dio.post(
+        '/api/v1/auth/change-password',
+        data: {
+          'current_password': currentPassword,
+          'new_password': newPassword,
+        },
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+    } on DioException catch (error) {
+      final message = _firstErrorMessage(error.response?.data);
+      throw AuthException(
+        message ?? 'Could not change the password. Please try again later.',
+      );
+    } catch (error, stackTrace) {
+      logError('changePassword', error, stackTrace);
+      throw AuthException(
+        'Could not change the password. Please try again later.',
+      );
+    }
+  }
+
   /// Permanently deletes the signed-in account (DELETE /auth/me).
   ///
   /// The server requires re-auth proof beyond the access token: [password]

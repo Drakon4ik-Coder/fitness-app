@@ -127,6 +127,17 @@ class AccountDeleteSerializer(serializers.Serializer):
         return attrs
 
 
+class PasswordChangeSerializer(serializers.Serializer):
+    """Logged-in password change: re-prove the current password, set a new one.
+
+    The new password is validated in the view (Django's validators need the
+    user object for the similarity check).
+    """
+
+    current_password = serializers.CharField(allow_blank=False)
+    new_password = serializers.CharField(allow_blank=False)
+
+
 class ResendVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
