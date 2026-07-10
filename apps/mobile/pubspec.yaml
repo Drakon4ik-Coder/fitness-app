@@ -52,6 +52,9 @@ dependencies:
   package_info_plus: ^8.3.0
   # About screen: opens privacy policy / Open Food Facts links in the browser.
   url_launcher: ^6.3.1
+  # Barcode scanner: "Open settings" recovery when camera permission was
+  # permanently denied (the OS won't re-show the prompt).
+  app_settings: ^6.1.1
 
 dev_dependencies:
   flutter_test:
