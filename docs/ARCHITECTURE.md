@@ -14,8 +14,10 @@ fitness-app/
 │   └── mobile/         # Flutter app
 ├── contracts/
 │   └── openapi.yaml    # Exported API schema; CI fails on drift
-├── docs/               # This file, DEVELOPMENT, RELEASE, ROADMAP, CODE_HEALTH
+├── docs/               # This file, DEVELOPMENT, RELEASE, ROADMAP, CODE_HEALTH, OPERATIONS
 ├── scripts/            # Dev tooling (githooks, ciqual generator, dev-phone)
+├── ops/
+│   └── db-backup/      # Nightly pg_dump→rclone sidecar for prod (docs/OPERATIONS.md)
 ├── .github/workflows/  # backend.yml, mobile.yml, mobile-release.yml, deploy-server.yml
 ├── Makefile            # Local CI entry points (make check)
 ├── docker-compose.yml

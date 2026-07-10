@@ -116,10 +116,13 @@ The 14-day closed test is the longest fixed delay; everything here starts it soo
 - [ ] Use the window to burn down real-usage bugs (offline sync across
   devices, OFF rate limiting under multiple users, email deliverability to
   Gmail/Outlook — check SPF/DKIM on the sending domain).
-- [ ] Backend hardening during the window:
-  - Nightly `pg_dump` off the host (even a cron to object storage/rclone).
-  - Uptime monitoring on `/health/` (UptimeRobot/healthchecks.io).
-  - Confirm `docker-compose.prod.yml` survives host reboot (restart policies ✅).
+- [ ] Backend hardening during the window (KAN-46 — see `docs/OPERATIONS.md`):
+  - Nightly `pg_dump` off the host ✅ (`ops/db-backup/` sidecar; needs one-time
+    rclone + healthchecks.io setup in prod `.env`).
+  - Uptime monitoring on `/health/` (UptimeRobot — manual setup, steps in
+    OPERATIONS.md).
+  - Confirm `docker-compose.prod.yml` survives host reboot (restart policies ✅;
+    verify `docker` + runner services are systemd-enabled — OPERATIONS.md).
 
 ### Phase 5 — Production
 - [ ] Apply for production access (answer Google's questions about testing
