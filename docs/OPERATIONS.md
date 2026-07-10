@@ -27,8 +27,12 @@ is fast.
 
 All config lives in `/home/deployer/symbio/.env` (gitignored, survives the
 deploy workflow's `git clean -fd`). rclone is configured purely through
-`RCLONE_CONFIG_<NAME>_*` env vars — no rclone.conf to mount. Example for an
-S3-compatible bucket (Backblaze B2, Cloudflare R2, etc.):
+`RCLONE_CONFIG_<NAME>_*` env vars — no rclone.conf to mount. The chosen
+destination is **Cloudflare R2** (10 GB free, zero egress, same account as
+DNS): enable R2 in the Cloudflare dashboard, create a private bucket
+`symbio-db-backups`, and create an R2 API token scoped to **that bucket
+only** with Object Read & Write — the prod host holds this key, so limit
+the blast radius.
 
 ```bash
 # .env additions
@@ -38,11 +42,15 @@ BACKUP_HEALTHCHECK_URL=https://hc-ping.com/<uuid>   # from healthchecks.io
 # BACKUP_HOUR_UTC=3                                 # default
 
 RCLONE_CONFIG_OFFSITE_TYPE=s3
-RCLONE_CONFIG_OFFSITE_PROVIDER=Other     # or: Cloudflare
-RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID=...
+RCLONE_CONFIG_OFFSITE_PROVIDER=Cloudflare
+RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID=...             # from the R2 API token
 RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY=...
-RCLONE_CONFIG_OFFSITE_ENDPOINT=https://...
+RCLONE_CONFIG_OFFSITE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 ```
+
+(Any S3-compatible provider works the same way — swap `PROVIDER`/`ENDPOINT`;
+Backblaze B2 alternatively supports the native `TYPE=b2` backend with
+`ACCOUNT`/`KEY` vars.)
 
 The remote name in `BACKUP_RCLONE_REMOTE` (before the `:`) must match the
 `<NAME>` in the `RCLONE_CONFIG_<NAME>_*` vars, uppercased.
