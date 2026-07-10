@@ -282,8 +282,11 @@ which means regressions won't be caught.
   (food catalog cache, schema v7) and `nutrition_local_store.dart` (entries +
   outbox + day payloads, schema v2). They have independent migration
   histories. Don't merge them casually, and don't add a third store without
-  documenting why. Neither is namespaced per user — `clear()` on logout is
-  mandatory (already handled; keep it).
+  documenting why. Since KAN-64 both are namespaced per server user id
+  (`_u<id>` suffix, `local_db_paths.dart`), so logout keeps the files — an
+  unsynced outbox survives re-login and can never replay into another
+  account. Do not reintroduce a wipe-on-logout; only account deletion (KAN-42)
+  calls `clear()`.
 - ~~`assert isinstance(request.user, User)` in `nutrition/views.py` exists
   for mypy narrowing~~ — replaced with `typing.cast` (July 2026), so nothing
   changes under `python -O`. Keep using `cast` (not `assert`) for
