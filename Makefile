@@ -37,11 +37,12 @@ clean-db:
 	docker compose exec backend python manage.py flush --no-input
 	@echo "Database data cleared."
 
-# Delete the on-device local food cache (sqflite foods.db + journal/wal).
+# Delete the on-device local food cache: legacy shared foods.db plus the
+# per-user foods_u<id>.db files (KAN-64), each with journal/wal sidecars.
 # Needs a debug build installed on a connected device/emulator and adb on PATH.
 # The app recreates an empty DB on next launch.
 clean-mobile-db:
-	adb shell "run-as $(APP_ID) sh -c 'rm -f app_flutter/foods.db*'"
+	adb shell "run-as $(APP_ID) sh -c 'rm -f app_flutter/foods.db* app_flutter/foods_u*.db*'"
 	@echo "Local food DB cleared. Restart the app to recreate it."
 
 check:
