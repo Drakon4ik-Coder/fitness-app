@@ -72,6 +72,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   // The locally known day before the selected one, feeding the empty-meal
   // "copy yesterday" shortcut (KAN-51). Null hides the shortcut.
   NutritionDayLog? _previousDayLog;
+  // Meals with a copy currently in flight. Every copy mints fresh client
+  // uuids (KAN-28: a copy must never reuse identity), so the repository has
+  // nothing to dedupe on — a second tap mid-copy would double the whole
+  // meal. Membership hides the shortcut and blocks re-entry until the copy
+  // (and the reload after it) finishes.
+  final Set<MealType> _copyingMeals = {};
   // Per-meal windows learned from the user's own history; null until loaded (or
   // if the fetch fails), in which case the smart guess uses population defaults.
   Map<MealType, MealWindow>? _mealWindows;
@@ -292,42 +298,56 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   /// and amount) created through the normal offline-first path, so it queues
   /// via the outbox like any other write.
   Future<void> _copyMealFromPreviousDay(MealType meal) async {
+    // A stale frame can still deliver a tap after the copy started (the
+    // rebuild that hides the shortcut hasn't rendered yet) — ignore it.
+    if (_copyingMeals.contains(meal)) return;
     final source = _copyableFromPreviousDay(meal);
     if (source.isEmpty) return;
     final date = _selectedDate;
     final messenger = ScaffoldMessenger.of(context);
     final created = <NutritionEntry>[];
+    setState(() => _copyingMeals.add(meal));
     try {
-      for (final entry in source) {
-        final at = entry.consumedAt.toLocal();
-        created.add(
-          await _repository.createEntry(
-            food: entry.foodItem,
-            mealType: meal.wireName,
-            quantityG: entry.quantityG,
-            // Same wall-clock time on the target day, so the copy stays in
-            // the meal window it came from.
-            consumedAt: DateTime(
-              date.year,
-              date.month,
-              date.day,
-              at.hour,
-              at.minute,
+      try {
+        for (final entry in source) {
+          final at = entry.consumedAt.toLocal();
+          created.add(
+            await _repository.createEntry(
+              food: entry.foodItem,
+              mealType: meal.wireName,
+              quantityG: entry.quantityG,
+              // Same wall-clock time on the target day, so the copy stays in
+              // the meal window it came from.
+              consumedAt: DateTime(
+                date.year,
+                date.month,
+                date.day,
+                at.hour,
+                at.minute,
+              ),
             ),
-          ),
-        );
+          );
+        }
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await _handleLogout();
+          return;
+        }
+        // Entries copied before the failure stay logged; the reload below
+        // shows exactly what made it.
       }
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await _handleLogout();
-        return;
+      unawaited(_refreshPendingSync());
+      if (!mounted) return;
+      await _loadDay();
+    } finally {
+      // Only after the reload: until _dayLog reflects the copies the meal
+      // still looks empty, and releasing earlier would re-arm the shortcut.
+      if (mounted) {
+        setState(() => _copyingMeals.remove(meal));
+      } else {
+        _copyingMeals.remove(meal);
       }
-      // Entries copied before the failure stay logged; the reload below
-      // shows exactly what made it.
     }
-    unawaited(_refreshPendingSync());
-    if (!mounted) return;
-    await _loadDay();
     if (!mounted || created.isEmpty) return;
     messenger.showSnackBar(
       SnackBar(
@@ -833,6 +853,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                         final meal = mealSummaries[index];
                         final canCopy =
                             meal.entries.isEmpty &&
+                            !_copyingMeals.contains(meal.mealType) &&
                             _copyableFromPreviousDay(meal.mealType).isNotEmpty;
                         return Padding(
                           padding: EdgeInsets.fromLTRB(

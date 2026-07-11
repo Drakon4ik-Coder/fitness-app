@@ -1019,8 +1019,12 @@ void main() {
   group('copy previous day (KAN-51)', () {
     /// Routes the three calls the copy flow makes: entry creates echo the
     /// request as a server entry, deletes ack with 204, everything else gets
-    /// an empty day/sync payload.
-    Dio copyDio(List<Map<String, dynamic>> createBodies) {
+    /// an empty day/sync payload. [createDelay] holds the create response
+    /// open so a test can act while a copy is still in flight.
+    Dio copyDio(
+      List<Map<String, dynamic>> createBodies, {
+      Duration? createDelay,
+    }) {
       var nextId = 100;
       final dio = Dio();
       dio.interceptors.add(
@@ -1030,7 +1034,7 @@ void main() {
                 options.path.endsWith('/nutrition/entries')) {
               final body = (options.data as Map).cast<String, dynamic>();
               createBodies.add(body);
-              handler.resolve(
+              void respond() => handler.resolve(
                 Response(
                   requestOptions: options,
                   statusCode: 201,
@@ -1050,6 +1054,11 @@ void main() {
                   },
                 ),
               );
+              if (createDelay != null) {
+                Future<void>.delayed(createDelay, respond);
+              } else {
+                respond();
+              }
               return;
             }
             if (options.method == 'DELETE') {
@@ -1176,6 +1185,43 @@ void main() {
 
       expect(find.text('Test Food'), findsNothing);
       expect(find.byKey(const Key('copyPrevious-breakfast')), findsOneWidget);
+    });
+
+    testWidgets('rapid double tap copies the meal only once', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final createBodies = <Map<String, dynamic>>[];
+      await tester.pumpWidget(
+        app(
+          // Hold the create open so the second tap lands mid-copy — the
+          // real-world double-tap window.
+          copyDio(createBodies, createDelay: const Duration(milliseconds: 300)),
+          storeWithYesterdayBreakfast(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('copyPrevious-breakfast')));
+      // No pump between taps: the stale frame still shows the button, so
+      // this exercises the in-flight guard rather than the rebuild.
+      await tester.tap(find.byKey(const Key('copyPrevious-breakfast')));
+
+      // Once the rebuild lands the shortcut is hidden for the whole copy.
+      await tester.pump();
+      expect(find.byKey(const Key('copyPrevious-breakfast')), findsNothing);
+
+      // Release the held create (pumpAndSettle alone never advances the
+      // clock while no frame is scheduled) and let the copy finish.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      // A copy mints fresh uuids, so a duplicate request would double the
+      // meal — only the first tap may reach the repository.
+      expect(createBodies, hasLength(1));
+      expect(find.text('Copied 1 food'), findsOneWidget);
     });
   });
 
