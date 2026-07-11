@@ -409,11 +409,15 @@ double? nutrientPer100g(NutrientSpec spec, Map<String, dynamic>? nutriments) {
 }
 
 /// Per-100g value for [spec] from [item], in [spec.unit]. Prefers the stored
-/// OFF nutriments blob; for the classic macros it falls back to the flat
+/// OFF nutriments blob; for the flat-column macros it falls back to the flat
 /// per-100g columns, which older local rows carry even when no blob was saved.
+/// Every per-item lookup (single-food totals, day aggregation, contributor
+/// ranking) must go through here, not [nutrientPer100g], or blob-less foods
+/// silently drop out of the totals.
 double? nutrientPer100gForItem(NutrientSpec spec, FoodItem item) {
   final fromBlob = nutrientPer100g(spec, item.nutrimentsJson);
   if (fromBlob != null) return fromBlob;
+  // All flat columns are stored in grams, matching these specs' catalog units.
   switch (spec.key) {
     case 'protein':
       return item.proteinG100g;
@@ -421,6 +425,12 @@ double? nutrientPer100gForItem(NutrientSpec spec, FoodItem item) {
       return item.carbsG100g;
     case 'fat':
       return item.fatG100g;
+    case 'sugars':
+      return item.sugarsG100g;
+    case 'fiber':
+      return item.fiberG100g;
+    case 'salt':
+      return item.saltG100g;
   }
   return null;
 }
@@ -501,20 +511,19 @@ List<NutrientTotal> nutrientTotalsFromServer(
   ];
 }
 
-/// Catalog-aligned totals for a single food at a given [grams] amount, read from
-/// its stored OFF nutriments blob. Powers the "check the nutrition before adding"
-/// preview in the amount sheet. Nutrients the food lacks become `null` totals.
+/// Catalog-aligned totals for a single food at a given [grams] amount. Powers
+/// the "check the nutrition before adding" preview in the amount sheet.
+/// Nutrients the food lacks become `null` totals.
 List<NutrientTotal> nutrientTotalsForItem(
   FoodItem item,
   double grams, {
   List<NutrientSpec> catalog = kNutrientCatalog,
 }) {
-  final nutriments = item.nutrimentsJson;
   final factor = grams / 100.0;
   return [
     for (final spec in catalog)
       () {
-        final per100 = nutrientPer100g(spec, nutriments);
+        final per100 = nutrientPer100gForItem(spec, item);
         final has = per100 != null;
         return NutrientTotal(
           spec: spec,
@@ -586,7 +595,7 @@ NutrientContributionBreakdown nutrientContributors(
   var entryCount = 0;
   for (final entry in entries) {
     entryCount++;
-    final per100 = nutrientPer100g(spec, entry.foodItem.nutrimentsJson);
+    final per100 = nutrientPer100gForItem(spec, entry.foodItem);
     if (per100 == null) continue;
     final amount = per100 * entry.quantityG / 100.0;
     if (amount <= 0) continue;
@@ -628,17 +637,15 @@ List<NutrientTotal> aggregateNutrients(
   List<NutrientSpec> catalog = kNutrientCatalog,
 }) {
   final sums = <String, double>{};
-  // Foods that reported each nutrient. A food with no blob at all still counts
+  // Foods that reported each nutrient. A food with no data at all still counts
   // toward the denominator (its macros are unknown -> the day total is a floor).
   final reported = <String, int>{};
   var entryCount = 0;
   for (final entry in entries) {
     entryCount++;
-    final nutriments = entry.foodItem.nutrimentsJson;
-    if (nutriments == null) continue;
     final factor = entry.quantityG / 100.0;
     for (final spec in catalog) {
-      final per100 = nutrientPer100g(spec, nutriments);
+      final per100 = nutrientPer100gForItem(spec, entry.foodItem);
       if (per100 == null) continue;
       sums[spec.key] = (sums[spec.key] ?? 0) + per100 * factor;
       reported[spec.key] = (reported[spec.key] ?? 0) + 1;

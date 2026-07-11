@@ -74,8 +74,32 @@ void main() {
   testWidgets('no disclosure when the food carries no nutrient detail', (
     tester,
   ) async {
-    await _pumpSheet(tester, _food(nutriments: null));
+    // Neither a nutriments blob nor flat macro columns — nothing to disclose.
+    final barren = FoodItem(
+      source: offSource,
+      externalId: 'x',
+      name: 'Mystery food',
+      brands: '',
+      rawSourceJson: '{}',
+      kcal100g: 45,
+    );
+    await _pumpSheet(tester, barren);
     expect(find.text('View nutrition facts'), findsNothing);
+  });
+
+  testWidgets('flat macro columns alone still offer the nutrition facts', (
+    tester,
+  ) async {
+    // No blob, but the flat per-100g columns carry data (older local rows,
+    // search results) — the breakdown must not read as empty.
+    await _pumpSheet(tester, _food(nutriments: null));
+
+    await tester.tap(find.text('View nutrition facts'));
+    await tester.pumpAndSettle();
+
+    // 100 g of the 10 g/100g flat carbs column against the 260 g target.
+    expect(find.text('Carbs'), findsOneWidget);
+    expect(find.textContaining('10 / 260 g'), findsOneWidget);
   });
 
   testWidgets('preview pills default to the macro trio from column data', (

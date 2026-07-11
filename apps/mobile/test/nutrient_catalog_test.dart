@@ -6,25 +6,36 @@ import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-FoodItem _food(Map<String, dynamic>? nutriments) => FoodItem(
+FoodItem _food(
+  Map<String, dynamic>? nutriments, {
+  double? proteinG100g,
+  double? sugarsG100g,
+  double? fiberG100g,
+  double? saltG100g,
+}) => FoodItem(
   source: offSource,
   externalId: 'x',
   name: 'Test food',
   brands: '',
   rawSourceJson: '{}',
+  proteinG100g: proteinG100g,
+  sugarsG100g: sugarsG100g,
+  fiberG100g: fiberG100g,
+  saltG100g: saltG100g,
   nutrimentsJson: nutriments,
 );
 
 NutritionEntry _entry({
   required double quantityG,
   Map<String, dynamic>? nutriments,
+  double? proteinG100g,
 }) => NutritionEntry(
   id: 1,
   mealType: 'breakfast',
   consumedAt: DateTime(2024, 1, 1),
   quantityG: quantityG,
   kcal: 0,
-  foodItem: _food(nutriments),
+  foodItem: _food(nutriments, proteinG100g: proteinG100g),
 );
 
 NutrientTotal _find(List<NutrientTotal> totals, String key) =>
@@ -72,6 +83,65 @@ void main() {
     test('returns null when the nutrient is absent', () {
       final specIron = kNutrientCatalog.firstWhere((s) => s.key == 'iron');
       expect(nutrientPer100g(specIron, {'proteins_100g': 10}), isNull);
+    });
+  });
+
+  group('flat-column fallback (blob-less foods)', () {
+    NutrientSpec spec(String key) =>
+        kNutrientCatalog.firstWhere((s) => s.key == key);
+
+    test('nutrientPer100gForItem reads every flat macro column', () {
+      final item = _food(
+        null,
+        proteinG100g: 12,
+        sugarsG100g: 5,
+        fiberG100g: 3,
+        saltG100g: 0.4,
+      );
+      expect(nutrientPer100gForItem(spec('protein'), item), 12);
+      expect(nutrientPer100gForItem(spec('sugars'), item), 5);
+      expect(nutrientPer100gForItem(spec('fiber'), item), 3);
+      expect(nutrientPer100gForItem(spec('salt'), item), 0.4);
+      // Columns the food doesn't carry stay no-data.
+      expect(nutrientPer100gForItem(spec('carbs'), item), isNull);
+      expect(nutrientPer100gForItem(spec('iron'), item), isNull);
+    });
+
+    test('the blob wins over the flat column when both exist', () {
+      final item = _food({'proteins_100g': 20}, proteinG100g: 12);
+      expect(nutrientPer100gForItem(spec('protein'), item), closeTo(20, 1e-9));
+    });
+
+    test('nutrientTotalsForItem scales flat columns like blob values', () {
+      final totals = nutrientTotalsForItem(
+        _food(null, proteinG100g: 10, saltG100g: 2),
+        200,
+      );
+      expect(_find(totals, 'protein').amount, closeTo(20, 1e-9));
+      expect(_find(totals, 'salt').amount, closeTo(4, 1e-9));
+      expect(_find(totals, 'carbs').hasData, isFalse);
+    });
+
+    test('aggregateNutrients counts a blob-less food with flat macros', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 200, proteinG100g: 10), // no blob: flat column only
+      ]);
+      final protein = _find(totals, 'protein');
+      expect(protein.amount, closeTo(30, 1e-9));
+      expect(protein.reportedCount, 2);
+      expect(protein.isIncomplete, isFalse);
+    });
+
+    test('nutrientContributors ranks blob-less foods with flat macros', () {
+      final specProtein = spec('protein');
+      final breakdown = nutrientContributors([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 300, proteinG100g: 10), // 30 g — the top source
+      ], specProtein);
+      expect(breakdown.total, closeTo(40, 1e-9));
+      expect(breakdown.missingCount, 0);
+      expect(breakdown.contributors.first.amount, closeTo(30, 1e-9));
     });
   });
 

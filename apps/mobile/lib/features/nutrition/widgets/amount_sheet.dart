@@ -811,13 +811,18 @@ class _AmountSheetState extends State<AmountSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          _showAllNutrients
-                              ? 'Hide nutrition facts'
-                              : 'View nutrition facts',
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: scheme.primary,
-                            fontWeight: FontWeight.w600,
+                        // Flexible so the label wraps instead of overflowing at
+                        // large accessibility text scales (KAN-40).
+                        Flexible(
+                          child: Text(
+                            _showAllNutrients
+                                ? 'Hide nutrition facts'
+                                : 'View nutrition facts',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         const SizedBox(width: AppSpacing.xs),
