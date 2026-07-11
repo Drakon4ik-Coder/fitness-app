@@ -22,6 +22,7 @@ Future<void> _pumpSheet(
   WidgetTester tester,
   FoodItem item, {
   List<NutrientSpec>? focusSpecs,
+  List<NutrientSpec> catalog = kNutrientCatalog,
 }) async {
   tester.view.physicalSize = const Size(1200, 3200);
   tester.view.devicePixelRatio = 1.0;
@@ -36,6 +37,7 @@ Future<void> _pumpSheet(
           initialGrams: 100,
           isEditing: false,
           focusSpecs: focusSpecs,
+          catalog: catalog,
         ),
       ),
     ),
@@ -69,6 +71,30 @@ void main() {
     expect(find.text('Vitamin C'), findsOneWidget);
     // 100 g * 50 mg/100g = 50 mg against an 80 mg target.
     expect(find.textContaining('50 / 80 mg'), findsOneWidget);
+  });
+
+  testWidgets('breakdown targets follow the goal-resolved catalog', (
+    tester,
+  ) async {
+    // A personalized vitamin C goal must show in the sheet's breakdown just
+    // like on the today page — not the 80 mg reference default (KAN-38).
+    await _pumpSheet(
+      tester,
+      _food(
+        nutriments: {
+          'proteins_100g': 1,
+          'vitamin-c_100g': 50,
+          'vitamin-c_unit': 'mg',
+        },
+      ),
+      catalog: resolveCatalog(const {'vitamin_c': 200}),
+    );
+
+    await tester.tap(find.text('View nutrition facts'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('50 / 200 mg'), findsOneWidget);
+    expect(find.textContaining('50 / 80 mg'), findsNothing);
   });
 
   testWidgets('no disclosure when the food carries no nutrient detail', (

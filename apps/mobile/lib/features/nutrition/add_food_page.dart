@@ -347,6 +347,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       initialGrams: entry.grams,
       isEditing: true,
       focusSpecs: _focusSpecs,
+      catalog: widget.catalog ?? kNutrientCatalog,
       warnNutrients: widget.warnNutrients,
       onViewDetails: _openFoodDetail,
     );

@@ -185,6 +185,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
       isEditing: true,
       initialMealType: entry.mealType,
       focusSpecs: widget.focusSpecs,
+      catalog: widget.catalog,
       warnNutrients: widget.warnNutrients,
       onViewDetails: widget.onViewFoodDetails,
     );

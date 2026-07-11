@@ -218,6 +218,7 @@ Future<AmountResult?> showAmountSheet({
   required bool isEditing,
   String? initialMealType,
   List<NutrientSpec>? focusSpecs,
+  List<NutrientSpec> catalog = kNutrientCatalog,
   Set<String> warnNutrients = const {},
   Future<FoodItem?> Function(FoodItem item)? onViewDetails,
 }) {
@@ -232,6 +233,7 @@ Future<AmountResult?> showAmountSheet({
       isEditing: isEditing,
       initialMealType: initialMealType,
       focusSpecs: focusSpecs,
+      catalog: catalog,
       warnNutrients: warnNutrients,
       onViewDetails: onViewDetails,
     ),
@@ -246,6 +248,7 @@ class AmountSheet extends StatefulWidget {
     required this.isEditing,
     this.initialMealType,
     this.focusSpecs,
+    this.catalog = kNutrientCatalog,
     this.warnNutrients = const {},
     this.onViewDetails,
   });
@@ -260,6 +263,11 @@ class AmountSheet extends StatefulWidget {
   /// The user's focus nutrients (goal-resolved, in display order), shown as the
   /// live-preview pills. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
+
+  /// The goal-resolved catalog (see [resolveCatalog]) the expandable
+  /// nutrition-facts breakdown scales its targets against, so they match the
+  /// today page rather than reverting to the reference defaults.
+  final List<NutrientSpec> catalog;
 
   /// Catalog keys the user opted into over-goal warnings for (KAN-38),
   /// forwarded to the expandable nutrition-facts breakdown.
@@ -471,7 +479,7 @@ class _AmountSheetState extends State<AmountSheet> {
     // detail beyond the macro pills already shown.
     final nutrientTotals = grams == null
         ? const <NutrientTotal>[]
-        : nutrientTotalsForItem(_item, grams);
+        : nutrientTotalsForItem(_item, grams, catalog: widget.catalog);
     final hasNutrientDetail = nutrientTotals.any((t) => t.hasData);
 
     final unitLabel = _unitNoun(_value ?? 0);
