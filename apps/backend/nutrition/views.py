@@ -246,6 +246,10 @@ class MealEntryDetailView(APIView):
         entry.deleted_at = timezone.now()
         entry.updated_at = _clamp_mutation_time(client_updated_at)
         entry.save(update_fields=["deleted_at", "updated_at", "synced_at"])
+        # Removing a sample shifts the learned meal times just like adding one;
+        # drop the cached stats so the next fetch recomputes (mirrors the
+        # create/resurrect/meal-move paths).
+        cache.delete(meal_times_cache_key(entry.user_id, str(_user_zone(request.user))))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

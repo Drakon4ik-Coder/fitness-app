@@ -92,3 +92,27 @@ def test_meal_times_cached_until_entry_created() -> None:
     # ...so the next fetch recomputes (5 ORM + 1 ORM + 1 API = 7).
     fresh = client.get("/api/v1/nutrition/meal-times")
     assert fresh.data["meal_times"]["lunch"]["sample_count"] == 7
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_meal_times_cache_busted_on_delete() -> None:
+    client, user = _auth_client()
+    food = _food()
+    base = datetime(2026, 6, 1, 13, 0, tzinfo=dt_timezone.utc)
+
+    for day in range(5):
+        _log_lunch(user, food, base + timedelta(days=day))
+    victim = MealEntry.objects.filter(user=user).latest("consumed_at")
+
+    # First fetch computes and caches (5 samples).
+    first = client.get("/api/v1/nutrition/meal-times")
+    assert first.data["meal_times"]["lunch"]["sample_count"] == 5
+
+    # Deleting through the API removes a histogram sample, so it must bust the
+    # cache like create does — otherwise stale stats survive up to the TTL.
+    deleted = client.delete(f"/api/v1/nutrition/entries/{victim.pk}")
+    assert deleted.status_code == 204
+
+    fresh = client.get("/api/v1/nutrition/meal-times")
+    assert fresh.data["meal_times"]["lunch"]["sample_count"] == 4
