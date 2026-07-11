@@ -25,6 +25,10 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "rest_framework_simplejwt",
+    # Records every issued refresh token (OutstandingToken) and rejects
+    # blacklisted ones on /auth/refresh — this is what lets a password
+    # change/reset revoke sessions opened under the old credential.
+    "rest_framework_simplejwt.token_blacklist",
     "accounts",
     "preferences",
     "foods",

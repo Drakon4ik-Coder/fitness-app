@@ -7,6 +7,7 @@ from accounts.services import create_user_with_defaults
 
 URL = "/api/v1/auth/change-password"
 TOKEN_URL = "/api/v1/auth/token"
+REFRESH_URL = "/api/v1/auth/refresh"
 
 PASSWORD = "Str0ngPass!word"
 NEW_PASSWORD = "An0ther!Passw0rd"
@@ -125,6 +126,51 @@ def test_change_password_requires_both_fields() -> None:
 
     assert response.status_code == 400
     assert "current_password" in response.data
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_change_password_revokes_existing_refresh_tokens() -> None:
+    # A refresh token stolen before the change must not keep minting access
+    # tokens for the rest of its 30-day lifetime.
+    client, user = _auth_client()
+    old_refresh = (
+        APIClient()
+        .post(TOKEN_URL, {"email": user.email, "password": PASSWORD}, format="json")
+        .data["refresh"]
+    )
+    assert (
+        APIClient()
+        .post(REFRESH_URL, {"refresh": old_refresh}, format="json")
+        .status_code
+        == 200
+    )
+
+    response = client.post(
+        URL,
+        {"current_password": PASSWORD, "new_password": NEW_PASSWORD},
+        format="json",
+    )
+
+    assert response.status_code == 204
+    assert (
+        APIClient()
+        .post(REFRESH_URL, {"refresh": old_refresh}, format="json")
+        .status_code
+        == 401
+    )
+    # A fresh login under the new password works and its refresh token is live.
+    new_refresh = (
+        APIClient()
+        .post(TOKEN_URL, {"email": user.email, "password": NEW_PASSWORD}, format="json")
+        .data["refresh"]
+    )
+    assert (
+        APIClient()
+        .post(REFRESH_URL, {"refresh": new_refresh}, format="json")
+        .status_code
+        == 200
+    )
 
 
 @pytest.mark.django_db

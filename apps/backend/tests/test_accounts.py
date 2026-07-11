@@ -606,6 +606,38 @@ def test_password_reset_confirm_changes_password() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_password_reset_confirm_revokes_existing_refresh_tokens() -> None:
+    # The reset flow is the "I lost control of my account" path: a refresh
+    # token stolen before the reset must stop working immediately.
+    user = get_user_model().objects.create_user(
+        email="revoke@example.com", password="OldPass!word1"
+    )
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
+    old_refresh = (
+        APIClient()
+        .post(
+            "/api/v1/auth/token",
+            {"email": user.email, "password": "OldPass!word1"},
+            format="json",
+        )
+        .data["refresh"]
+    )
+
+    raw_token = PasswordResetToken.issue(user)
+    client = Client()
+    url = f"/api/v1/auth/reset-password/{raw_token}"
+    confirm_response = client.post(url, {"password": "Br4ndNew!pass"})
+    assert confirm_response.context["result"] == "success"
+
+    refresh_response = APIClient().post(
+        "/api/v1/auth/refresh", {"refresh": old_refresh}, format="json"
+    )
+    assert refresh_response.status_code == 401
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_password_reset_get_does_not_consume_token() -> None:
     # Email scanners pre-fetch links with GET; that must not burn the token.
     user = get_user_model().objects.create_user(

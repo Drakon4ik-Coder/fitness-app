@@ -21,6 +21,10 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.token_blacklist.models import (
+    BlacklistedToken,
+    OutstandingToken,
+)
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
@@ -267,6 +271,23 @@ class PasswordResetRequestView(APIView):
         )
 
 
+def _revoke_refresh_tokens(user: User) -> None:
+    """Blacklist every refresh token issued to ``user``.
+
+    A new password must cut off sessions opened under the old one: without
+    this, a refresh token lifted before the change keeps minting access
+    tokens for the rest of its 30-day lifetime. Access tokens aren't
+    blacklist-checked, so a live one only survives its final ≤5 minutes.
+    """
+    BlacklistedToken.objects.bulk_create(
+        (
+            BlacklistedToken(token=outstanding)
+            for outstanding in OutstandingToken.objects.filter(user=user)
+        ),
+        ignore_conflicts=True,
+    )
+
+
 @require_http_methods(["GET", "POST"])
 def reset_password(request: HttpRequest, token: str) -> HttpResponse:
     """Landing page the password-reset link points to.
@@ -322,10 +343,13 @@ def reset_password(request: HttpRequest, token: str) -> HttpResponse:
         fields.append("email_verified")
     user.save(update_fields=fields)
 
-    # Invalidate any other outstanding reset links for this user.
+    # Invalidate any other outstanding reset links for this user, and revoke
+    # every session the old password opened — a reset is the "I lost control
+    # of my account" path, so a stolen refresh token must die here too.
     PasswordResetToken.objects.filter(user=user, used_at__isnull=True).update(
         used_at=timezone.now()
     )
+    _revoke_refresh_tokens(user)
 
     return _reset_result(request, "success")
 
@@ -533,6 +557,11 @@ class PasswordChangeView(APIView):
         PasswordResetToken.objects.filter(user=user, used_at__isnull=True).update(
             used_at=timezone.now()
         )
+        # Revoking includes the caller's own refresh token: the app re-logins
+        # when its next refresh 401s (AuthInterceptor -> onSessionExpired),
+        # which is the standard "changing the password signs out every
+        # session" contract.
+        _revoke_refresh_tokens(user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
