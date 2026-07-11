@@ -349,9 +349,16 @@ void main() {
       async.flushMicrotasks();
 
       // The OFF loading flag must have settled back to false — a skipped query
-      // can never leave the thin progress line stuck on.
+      // can never leave the thin progress line stuck on. Asserted in two steps
+      // so an empty list (loading callback never fired) fails instead of
+      // passing vacuously.
       expect(
-        offLoadingStates.isNotEmpty && offLoadingStates.last,
+        offLoadingStates,
+        isNotEmpty,
+        reason: 'loading callback must fire for a debounced query',
+      );
+      expect(
+        offLoadingStates.last,
         isFalse,
         reason: 'OFF loading flag must reset to false after a silent skip',
       );
@@ -439,7 +446,12 @@ void main() {
         reason: 'live-path OffException must be swallowed, not surfaced',
       );
       expect(
-        offLoadingStates.isNotEmpty && offLoadingStates.last,
+        offLoadingStates,
+        isNotEmpty,
+        reason: 'loading callback must fire for a debounced query',
+      );
+      expect(
+        offLoadingStates.last,
         isFalse,
         reason: 'OFF loading flag must reset to false after a swallowed error',
       );
