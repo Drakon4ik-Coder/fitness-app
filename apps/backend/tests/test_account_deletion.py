@@ -214,6 +214,54 @@ def test_web_deletion_request_rate_limited_per_ip() -> None:
     assert len(mail.outbox) == 3
 
 
+def test_deletion_rate_limit_add_race_loser_reads_real_count() -> None:
+    """A request that loses the first-request race must not claim count == 1.
+
+    Both racers see incr() raise ValueError; only one add() stores the key.
+    The loser has to fall back to incr() on the winner's key — here that
+    yields a count over the cap, so it must be denied.
+    """
+    from django.test import RequestFactory
+
+    from accounts import views
+
+    class _LosingRaceCache:
+        def __init__(self) -> None:
+            self.incr_calls = 0
+
+        def incr(self, key: str) -> int:
+            self.incr_calls += 1
+            if self.incr_calls == 1:
+                raise ValueError(key)
+            return views._DELETION_REQUESTS_PER_HOUR + 1
+
+        def add(self, key: str, value: int, timeout: int | None = None) -> bool:
+            return False  # another request stored the key first
+
+    request = RequestFactory().post(WEB_URL, REMOTE_ADDR="10.9.9.42")
+    with patch.object(views, "cache", _LosingRaceCache()):
+        assert views._deletion_request_allowed(request) is False
+
+
+def test_deletion_rate_limit_denies_when_key_keeps_vanishing() -> None:
+    """If the key disappears again after a lost add() (cache eviction), deny
+    instead of granting a fresh window or crashing with ValueError."""
+    from django.test import RequestFactory
+
+    from accounts import views
+
+    class _EvictingCache:
+        def incr(self, key: str) -> int:
+            raise ValueError(key)
+
+        def add(self, key: str, value: int, timeout: int | None = None) -> bool:
+            return False
+
+    request = RequestFactory().post(WEB_URL, REMOTE_ADDR="10.9.9.43")
+    with patch.object(views, "cache", _EvictingCache()):
+        assert views._deletion_request_allowed(request) is False
+
+
 @pytest.mark.django_db
 @pytest.mark.integration
 def test_web_deletion_request_page_renders() -> None:

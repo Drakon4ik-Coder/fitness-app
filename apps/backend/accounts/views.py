@@ -345,9 +345,19 @@ def _deletion_request_allowed(request: HttpRequest) -> bool:
     try:
         count = cache.incr(key)
     except ValueError:
-        # First request from this IP this hour (or the key expired).
-        cache.add(key, 1, timeout=3600)
-        count = 1
+        # First request from this IP this hour (or the key expired). add() is
+        # atomic and returns True only when it stored the value, so a burst of
+        # concurrent first requests can't each claim count == 1 — the losers
+        # increment the counter the winner just created.
+        if cache.add(key, 1, timeout=3600):
+            count = 1
+        else:
+            try:
+                count = cache.incr(key)
+            except ValueError:
+                # Key vanished again between add and incr (eviction) — deny
+                # rather than hand a burst a fresh window.
+                return False
     return count <= _DELETION_REQUESTS_PER_HOUR
 
 
