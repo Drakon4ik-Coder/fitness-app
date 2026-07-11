@@ -141,6 +141,48 @@ void main() {
     expect(saltValueColor(), LuminaHealthColors.warning);
   });
 
+  testWidgets(
+    'breakdown rows survive max system text scale without overflow (KAN-40)',
+    (tester) async {
+      // Phone-sized viewport at the largest Android text scale; any RenderFlex
+      // overflow fails the test via the reported FlutterError. Values are
+      // over-target so the amount strings are at their longest form.
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      final totals = aggregateNutrients([
+        _entry({
+          'proteins_100g': 90,
+          'carbohydrates_100g': 160,
+          'saturated-fat_100g': 14,
+          'potassium_100g': 1900,
+          'potassium_unit': 'mg',
+          'magnesium_100g': 230,
+          'magnesium_unit': 'mg',
+          'cholesterol_100g': 180,
+          'cholesterol_unit': 'mg',
+        }),
+      ]);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: NutrientBreakdownView(totals: totals),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saturated fat'), findsOneWidget);
+      expect(find.text('Potassium'), findsOneWidget);
+    },
+  );
+
   testWidgets('meal-detail row expands to reveal the food breakdown', (
     tester,
   ) async {

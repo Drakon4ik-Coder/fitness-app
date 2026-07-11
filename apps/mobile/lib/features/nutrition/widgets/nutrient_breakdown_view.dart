@@ -215,42 +215,56 @@ class NutrientRow extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                spec.label,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: hasData ? scheme.onSurface : scheme.onSurfaceVariant,
+              Flexible(
+                child: Text(
+                  spec.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: hasData ? scheme.onSurface : scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    amountText,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: valueColor,
-                      fontWeight: FontWeight.w600,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  if (trailingText != null) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    SizedBox(
-                      width: 52,
-                      child: Text(
-                        trailingText,
-                        textAlign: TextAlign.right,
+              const SizedBox(width: AppSpacing.sm),
+              // scaleDown keeps the full figures visible at large text
+              // scales; an ellipsized amount would be useless (KAN-40).
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        amountText,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: trailingColor,
-                          fontWeight: FontWeight.bold,
-                          fontStyle: incomplete ? FontStyle.italic : null,
+                          color: valueColor,
+                          fontWeight: FontWeight.w600,
                           fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
-                    ),
-                  ],
-                ],
+                      if (trailingText != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        SizedBox(
+                          width: 52,
+                          child: Text(
+                            trailingText,
+                            textAlign: TextAlign.right,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: trailingColor,
+                              fontWeight: FontWeight.bold,
+                              fontStyle: incomplete ? FontStyle.italic : null,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
