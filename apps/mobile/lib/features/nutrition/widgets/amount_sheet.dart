@@ -422,9 +422,28 @@ class _AmountSheetState extends State<AmountSheet> {
 
   Future<void> _openDetails() async {
     final updated = await widget.onViewDetails!(_item);
-    if (updated != null && mounted) {
-      setState(() => _item = updated);
-    }
+    if (updated == null || !mounted) return;
+    // The edit can strip the metadata the selected unit converts through
+    // (the custom-food editor carries no piece fields and its serving field
+    // is clearable), leaving _unit dangling — _gramsPerUnit would then hit a
+    // null assertion on the very next build. Capture the canonical grams
+    // under the old item first, then re-anchor unit and raw/cooked basis
+    // against the new one, keeping the grams amount stable like _setUnit.
+    final grams = _grams ?? widget.initialGrams;
+    setState(() {
+      final wasCookedBasis = _item.isCookedBasis;
+      _item = updated;
+      var rebase = false;
+      if (_item.isCookedBasis != wasCookedBasis) {
+        _rawWeight = _item.isCookedBasis;
+        rebase = true;
+      }
+      if (!_units.contains(_unit)) {
+        _unit = _units.first;
+        rebase = true;
+      }
+      if (rebase) _setText(grams / _gramsPerUnit(_unit));
+    });
   }
 
   @override
