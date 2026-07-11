@@ -586,7 +586,17 @@ class MeView(APIView):
     def patch(self, request: Request) -> Response:
         serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        try:
+            user = serializer.save()
+        except IntegrityError:
+            # UniqueValidator passed, but a concurrent request claimed the
+            # username between validation and save; uniq_username_ci is the
+            # only constraint this serializer can trip, so surface the same
+            # 400 the validator would have produced.
+            return Response(
+                {"username": ["This username is already taken."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(UserSerializer(user).data)
 
     @extend_schema(request=AccountDeleteSerializer, responses={204: None})

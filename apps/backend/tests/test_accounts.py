@@ -795,3 +795,34 @@ def test_me_clears_username_with_null() -> None:
     assert response.data["username"] is None
     user.refresh_from_db()
     assert user.username is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_username_race_lost_returns_400(monkeypatch) -> None:
+    # The test DB can't reproduce real concurrency, so inject the race
+    # deterministically: a rival claims the username AFTER UniqueValidator
+    # passed but BEFORE save() writes. uniq_username_ci then raises
+    # IntegrityError, which must surface as the validator's 400, not a 500.
+    from accounts.serializers import UserUpdateSerializer
+
+    user = get_user_model().objects.create_user(
+        email="racer@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    real_update = UserUpdateSerializer.update
+
+    def rival_claims_mid_flight(self, instance, validated_data):
+        get_user_model().objects.create_user(
+            email="rival@example.com", password="Str0ngPass!word", username="Casey"
+        )
+        return real_update(self, instance, validated_data)
+
+    monkeypatch.setattr(UserUpdateSerializer, "update", rival_claims_mid_flight)
+
+    response = client.patch("/api/v1/auth/me", {"username": "casey"}, format="json")
+
+    assert response.status_code == 400
+    assert response.data["username"] == ["This username is already taken."]
