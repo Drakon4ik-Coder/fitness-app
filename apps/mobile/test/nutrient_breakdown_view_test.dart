@@ -225,4 +225,44 @@ void main() {
 
     expect(find.text('Vitamin C'), findsOneWidget);
   });
+
+  testWidgets('meal-detail breakdown uses the goal-resolved catalog', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: Scaffold(
+          body: MealDetailSheet(
+            mealLabel: 'Breakfast',
+            mealTypeName: 'breakfast',
+            mealIcon: Icons.breakfast_dining,
+            mealColor: LuminaHealthColors.tertiary,
+            catalog: resolveCatalog(const {'protein': 180}),
+            entries: [
+              _entry({'proteins_100g': 1}),
+            ],
+            onUpdateEntry: (_, {quantityG, mealType}) async => null,
+            onDeleteEntry: (_) async => true,
+            onRestoreEntry: (entry) async => entry,
+            onAddMore: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Orange juice'));
+    await tester.pumpAndSettle();
+
+    // 200 g at 1 g/100 g = 2 g, shown against the personalized 180 g goal —
+    // not the catalog's 150 g default.
+    expect(find.textContaining('2 / 180 g'), findsOneWidget);
+    expect(find.textContaining('2 / 150 g'), findsNothing);
+  });
 }

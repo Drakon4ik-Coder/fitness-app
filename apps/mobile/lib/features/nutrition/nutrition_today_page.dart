@@ -504,6 +504,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         mealColor: meal.color,
         entries: meal.entries,
         focusSpecs: _focusSpecs,
+        catalog: _catalog,
         warnNutrients: _warnNutrients,
         onUpdateEntry: (entry, {quantityG, mealType}) =>
             _updateEntry(entry, quantityG: quantityG, mealType: mealType),

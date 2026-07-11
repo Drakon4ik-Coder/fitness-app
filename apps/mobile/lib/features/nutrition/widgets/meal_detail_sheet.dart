@@ -31,6 +31,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.onRestoreEntry,
     required this.onAddMore,
     this.focusSpecs,
+    this.catalog = kNutrientCatalog,
     this.warnNutrients = const {},
     this.onViewFoodDetails,
   });
@@ -70,6 +71,11 @@ class MealDetailSheet extends StatefulWidget {
   /// The user's focus nutrients, forwarded to the amount sheet so its preview
   /// pills match the today page. Null falls back to the default trio.
   final List<NutrientSpec>? focusSpecs;
+
+  /// The goal-resolved catalog (see [resolveCatalog]) each expanded row's
+  /// breakdown aggregates against, so its targets match the today page rather
+  /// than reverting to the reference defaults.
+  final List<NutrientSpec> catalog;
 
   /// Catalog keys the user opted into over-goal warnings for (KAN-38),
   /// forwarded into every nutrient breakdown this sheet shows.
@@ -360,6 +366,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                                 child: _EntryRow(
                                   entry: entry,
                                   busy: busy,
+                                  catalog: widget.catalog,
                                   warnNutrients: widget.warnNutrients,
                                   onEdit: () => _editAmount(entry),
                                   onDelete: () => _delete(entry),
@@ -529,6 +536,7 @@ class _EntryRow extends StatefulWidget {
     required this.busy,
     required this.onEdit,
     required this.onDelete,
+    this.catalog = kNutrientCatalog,
     this.warnNutrients = const {},
     this.onViewDetails,
   });
@@ -537,6 +545,7 @@ class _EntryRow extends StatefulWidget {
   final bool busy;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final List<NutrientSpec> catalog;
   final Set<String> warnNutrients;
 
   /// Opens the food detail page for this entry's food. Shown as a "Food
@@ -556,9 +565,10 @@ class _EntryRowState extends State<_EntryRow> {
     final scheme = theme.colorScheme;
     final entry = widget.entry;
     final imageUrl = entry.foodItem.imageUrl?.trim();
-    // Per-food breakdown scaled to this entry's logged amount. Data-only (no
+    // Per-food breakdown scaled to this entry's logged amount, against the
+    // goal-resolved catalog so targets match the today page. Data-only (no
     // "no data" rows) keeps the inline expansion compact.
-    final totals = aggregateNutrients([entry]);
+    final totals = aggregateNutrients([entry], catalog: widget.catalog);
 
     return Column(
       children: [
