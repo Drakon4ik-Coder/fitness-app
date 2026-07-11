@@ -198,7 +198,7 @@ are noise).
 1. **Login** — `AuthService.login()` posts to `/api/v1/auth/token` and stores the returned `access` + `refresh` tokens via `AuthStorage` (`flutter_secure_storage`). Google Sign-In exchanges an ID token at `/api/v1/auth/google` for the same pair.
 2. **Every request** — `AuthInterceptor.onRequest` reads the access token and attaches `Authorization: Bearer <token>`.
 3. **On 401** — the interceptor calls `/api/v1/auth/refresh` (deduplicated — concurrent 401s share one refresh future), stores the new token, updates all attached `Dio` instances, then replays the original request transparently.
-4. **Refresh failure** — fires `onSessionExpired`, which calls `_AuthGateState._handleLogout` in `main.dart`, returning the user to `LoginPage`. Logout also clears the local nutrition store (the outbox must never replay into another account).
+4. **Refresh failure** — fires `onSessionExpired`, which calls `_AuthGateState._handleLogout` in `main.dart`, returning the user to `LoginPage`. Logout clears only the stored tokens; the local DBs are kept (they are namespaced per server user id since KAN-64, so an unsynced outbox survives re-login and can never replay into another account).
 5. **Backend side** — `EmailVerifiedTokenObtainPairView` / SimpleJWT's `TokenRefreshView`, mounted in `accounts/urls.py`. Token lifetimes in `config/settings/base.py`.
 
 ### Endpoint map
