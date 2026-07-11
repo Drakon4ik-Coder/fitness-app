@@ -33,9 +33,11 @@ class GoalsSettingsPage extends StatefulWidget {
 class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
   final _formKey = GlobalKey<FormState>();
 
+  // For every controller (calories included) empty means "use the recommended
+  // default"; a number is a personalized goal. Pre-filling the default would
+  // silently persist it as an override on save, freezing the user out of
+  // future changes to the recommendation.
   final _calorieController = TextEditingController();
-  // One controller per catalog nutrient, keyed by spec.key. Empty means "use the
-  // recommended default"; a number is a personalized goal.
   final Map<String, TextEditingController> _goalControllers = {};
 
   late final String _initialCalorieText;
@@ -49,8 +51,7 @@ class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
   void initState() {
     super.initState();
     final prefs = widget.initialPreferences;
-    _calorieController.text = (prefs.calorieGoal ?? kDefaultCalorieGoal)
-        .toString();
+    _calorieController.text = prefs.calorieGoal?.toString() ?? '';
     for (final spec in kNutrientCatalog) {
       final override = prefs.nutrientGoals[spec.key];
       _goalControllers[spec.key] = TextEditingController(
@@ -89,7 +90,7 @@ class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
   /// until the user taps Save, so this is a non-destructive form reset.
   void _resetToRecommended() {
     setState(() {
-      _calorieController.text = kDefaultCalorieGoal.toString();
+      _calorieController.clear();
       for (final controller in _goalControllers.values) {
         controller.clear();
       }
@@ -117,8 +118,13 @@ class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
       _errorMessage = null;
     });
     try {
+      // A blank field reverts to the recommended default, which needs an
+      // explicit null in the PATCH — omitting the key would leave a previously
+      // saved override in place server-side.
+      final calorieText = _calorieController.text.trim();
       final updated = await widget.preferencesApi.update(
-        calorieGoal: int.tryParse(_calorieController.text.trim()),
+        calorieGoal: int.tryParse(calorieText),
+        clearCalorieGoal: calorieText.isEmpty,
         nutrientGoals: _collectGoals(),
       );
       if (!mounted) return;

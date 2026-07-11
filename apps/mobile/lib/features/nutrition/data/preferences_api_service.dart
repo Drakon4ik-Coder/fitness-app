@@ -44,11 +44,17 @@ class PreferencesApiService {
 
   /// Persists a partial update. Only the provided fields are sent, so untouched
   /// preferences are left as-is. Returns the server's updated snapshot.
+  ///
+  /// Nutrient goals clear by omission (the map is sent wholesale), but the
+  /// calorie goal is a scalar the PATCH leaves alone when absent — so
+  /// reverting to the recommended default needs [clearCalorieGoal], which
+  /// sends an explicit null.
   Future<UserPreferences> update({
     String? weightUnit,
     String? heightUnit,
     String? energyUnit,
     int? calorieGoal,
+    bool clearCalorieGoal = false,
     Map<String, double>? nutrientGoals,
     List<String>? focusNutrients,
     List<String>? warnNutrients,
@@ -57,7 +63,10 @@ class PreferencesApiService {
       if (weightUnit != null) 'weight_unit': weightUnit,
       if (heightUnit != null) 'height_unit': heightUnit,
       if (energyUnit != null) 'energy_unit': energyUnit,
-      if (calorieGoal != null) 'daily_calorie_goal': calorieGoal,
+      if (clearCalorieGoal)
+        'daily_calorie_goal': null
+      else if (calorieGoal != null)
+        'daily_calorie_goal': calorieGoal,
       if (nutrientGoals != null) 'nutrient_goals': nutrientGoals,
       if (focusNutrients != null) 'focus_nutrients': focusNutrients,
       if (warnNutrients != null) 'warn_nutrients': warnNutrients,

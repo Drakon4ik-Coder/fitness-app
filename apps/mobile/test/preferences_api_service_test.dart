@@ -73,4 +73,42 @@ void main() {
     expect(body['nutrient_goals'], {'protein': 120});
     expect(result.calorieGoal, 2000);
   });
+
+  test(
+    'clearCalorieGoal sends an explicit null; omission leaves it alone',
+    () async {
+      final bodies = <Map<String, dynamic>>[];
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            bodies.add(options.data as Map<String, dynamic>);
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'weight_unit': 'kg',
+                  'height_unit': 'cm',
+                  'energy_unit': 'kcal',
+                  'daily_calorie_goal': null,
+                  'nutrient_goals': <String, double>{},
+                },
+              ),
+            );
+          },
+        ),
+      );
+      final service = PreferencesApiService(accessToken: 'token', dio: dio);
+
+      await service.update(clearCalorieGoal: true);
+      await service.update(energyUnit: 'kj');
+
+      // Clearing must be an explicit null — the backend treats an absent key as
+      // "leave untouched", which would strand a stale override.
+      expect(bodies[0].containsKey('daily_calorie_goal'), isTrue);
+      expect(bodies[0]['daily_calorie_goal'], isNull);
+      expect(bodies[1].containsKey('daily_calorie_goal'), isFalse);
+    },
+  );
 }

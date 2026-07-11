@@ -112,7 +112,10 @@ void main() {
 
     expect(patchedPrefsBody, isNotNull);
     expect(patchedPrefsBody!['nutrient_goals'], {'protein': 100.0});
-    expect(patchedPrefsBody!['daily_calorie_goal'], 2200);
+    // No calorie override was set, so the untouched field must not persist
+    // the recommended default — it stays "use default" via an explicit null.
+    expect(patchedPrefsBody!.containsKey('daily_calorie_goal'), isTrue);
+    expect(patchedPrefsBody!['daily_calorie_goal'], isNull);
     // Units weren't touched, so the partial PATCH must not include them.
     expect(patchedPrefsBody!.containsKey('weight_unit'), isFalse);
     // As a pushed route (onSaved null) the hub pops with the server snapshot.
