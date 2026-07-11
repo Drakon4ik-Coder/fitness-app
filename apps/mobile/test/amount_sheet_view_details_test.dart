@@ -44,32 +44,31 @@ Future<void> _pumpSheet(
 }
 
 void main() {
-  testWidgets(
-    'unit falls back to grams when a detail edit strips piece data',
-    (tester) async {
-      // A piece-based food (2 × 50 g eggs)…
-      await _pumpSheet(
-        tester,
-        item: _eggs(gramsPerPiece: 50, pieceUnit: 'egg'),
-        // …whose detail edit returns an override without piece metadata,
-        // exactly what the custom-food editor produces.
-        onViewDetails: (_) async => _eggs(),
-      );
-      expect(find.text('2'), findsOneWidget);
-      expect(find.textContaining('eggs'), findsOneWidget);
+  testWidgets('unit falls back to grams when a detail edit strips piece data', (
+    tester,
+  ) async {
+    // A piece-based food (2 × 50 g eggs)…
+    await _pumpSheet(
+      tester,
+      item: _eggs(gramsPerPiece: 50, pieceUnit: 'egg'),
+      // …whose detail edit returns an override without piece metadata,
+      // exactly what the custom-food editor produces.
+      onViewDetails: (_) async => _eggs(),
+    );
+    expect(find.text('2'), findsOneWidget);
+    expect(find.textContaining('eggs'), findsOneWidget);
 
-      // The chevron only renders inside the tappable view-details header.
-      await tester.tap(find.byIcon(Icons.chevron_right));
-      await tester.pumpAndSettle();
+    // The chevron only renders inside the tappable view-details header.
+    await tester.tap(find.byIcon(Icons.chevron_right));
+    await tester.pumpAndSettle();
 
-      // No dangling pieces unit: the toggle disappears (grams only) and the
-      // amount re-anchors to the same 100 g rather than crashing.
-      expect(tester.takeException(), isNull);
-      expect(find.byType(SegmentedButton<AmountUnit>), findsNothing);
-      expect(find.text('100'), findsOneWidget);
-      expect(find.textContaining('grams'), findsOneWidget);
-    },
-  );
+    // No dangling pieces unit: the toggle disappears (grams only) and the
+    // amount re-anchors to the same 100 g rather than crashing.
+    expect(tester.takeException(), isNull);
+    expect(find.byType(SegmentedButton<AmountUnit>), findsNothing);
+    expect(find.text('100'), findsOneWidget);
+    expect(find.textContaining('grams'), findsOneWidget);
+  });
 
   testWidgets('unit survives a detail edit that keeps piece data', (
     tester,
