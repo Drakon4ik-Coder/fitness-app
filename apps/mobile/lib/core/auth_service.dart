@@ -62,11 +62,25 @@ class AuthService {
               sendTimeout: _sendTimeout,
               receiveTimeout: _receiveTimeout,
             ),
-          ) {
+          ),
+      _interceptorOwnsAuth = authInterceptor != null {
     authInterceptor?.attachTo(_dio);
   }
 
   final Dio _dio;
+  final bool _interceptorOwnsAuth;
+
+  /// Authorization for authenticated calls. When an [AuthInterceptor] is
+  /// attached it owns the header: it sets `_dio.options.headers` at attach and
+  /// rewrites it after every refresh, whereas the caller-supplied token was
+  /// captured by AuthGate at launch/login and goes stale once the (5-minute)
+  /// access lifetime passes. A per-request header would override the fresh
+  /// base header (Dio's Options.compose lets request headers win), forcing a
+  /// 401 → refresh → retry round trip on every call — so only pass the
+  /// explicit token when no interceptor manages this client.
+  Options _authorized(String accessToken) => _interceptorOwnsAuth
+      ? Options()
+      : Options(headers: {'Authorization': 'Bearer $accessToken'});
 
   Future<AuthTokens> login({
     required String email,
@@ -229,7 +243,7 @@ class AuthService {
       await _dio.patch(
         '/api/v1/auth/me',
         data: {'timezone': timezone},
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        options: _authorized(accessToken),
       );
     } on DioException {
       // Ignore — non-critical and retried on the next launch.
@@ -242,7 +256,7 @@ class AuthService {
     try {
       final response = await _dio.get(
         '/api/v1/auth/me',
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        options: _authorized(accessToken),
       );
       final data = response.data;
       if (data is Map) {
@@ -278,7 +292,7 @@ class AuthService {
           else if (username != null)
             'username': username,
         },
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        options: _authorized(accessToken),
       );
     } on DioException catch (error) {
       throw AuthException(
@@ -304,7 +318,7 @@ class AuthService {
           'current_password': currentPassword,
           'new_password': newPassword,
         },
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        options: _authorized(accessToken),
       );
     } on DioException catch (error) {
       final message = _firstErrorMessage(error.response?.data);
@@ -340,7 +354,7 @@ class AuthService {
           if (password != null) 'password': password,
           if (googleIdToken != null) 'id_token': googleIdToken,
         },
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        options: _authorized(accessToken),
       );
     } on DioException catch (error) {
       final message = _firstErrorMessage(error.response?.data);
