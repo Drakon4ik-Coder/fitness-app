@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -116,6 +117,38 @@ def test_disputed_values_block_promotion() -> None:
     assert promote_pending_edits(food) is False
     food.refresh_from_db()
     assert food.community_verified_at is None
+
+
+@pytest.mark.django_db
+def test_proposal_landing_mid_promotion_stays_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    food = _global_mince()
+    _proposal(food, "a@example.com", kcal_100g=124.0)
+    _proposal(food, "b@example.com", kcal_100g=126.0)
+    _proposal(food, "c@example.com", kcal_100g=122.0)
+
+    # A concurrent request can commit a proposal between the convergence
+    # check's snapshot read and its closing status update. That proposal was
+    # never evaluated (it may dissent), so promotion must not consume it.
+    # food.save() runs inside that window — piggyback on it to interleave.
+    original_save = FoodItem.save
+
+    def save_then_land_dissent(self: FoodItem, *args: Any, **kwargs: Any) -> None:
+        original_save(self, *args, **kwargs)
+        monkeypatch.setattr(FoodItem, "save", original_save)
+        _proposal(food, "d@example.com", kcal_100g=180.0)
+
+    monkeypatch.setattr(FoodItem, "save", save_then_land_dissent)
+
+    assert promote_pending_edits(food) is True
+
+    late = FoodEditProposal.objects.get(user__email="d@example.com")
+    assert late.status == FoodEditProposal.STATUS_PENDING
+    assert (
+        FoodEditProposal.objects.filter(status=FoodEditProposal.STATUS_PROMOTED).count()
+        == 3
+    )
 
 
 @pytest.mark.django_db

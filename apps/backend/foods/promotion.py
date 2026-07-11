@@ -47,11 +47,10 @@ _OFF_KEYS = {
 }
 
 
-def _latest_proposal_per_user(food: FoodItem) -> list[FoodEditProposal]:
+def _latest_proposal_per_user(
+    pending: list[FoodEditProposal],
+) -> list[FoodEditProposal]:
     latest: dict[int, FoodEditProposal] = {}
-    pending = FoodEditProposal.objects.filter(
-        food_item=food, status=FoodEditProposal.STATUS_PENDING
-    ).order_by("id")
     for proposal in pending:
         # Later rows win: a user's newest correction supersedes their earlier
         # ones, so quorum counts users, not saves.
@@ -63,7 +62,12 @@ def promote_pending_edits(food: FoodItem) -> bool:
     """Promotes the pending edits on [food] when they converge; returns
     whether a promotion happened. Safe to call opportunistically — it is a
     no-op below quorum."""
-    proposals = _latest_proposal_per_user(food)
+    pending = list(
+        FoodEditProposal.objects.filter(
+            food_item=food, status=FoodEditProposal.STATUS_PENDING
+        ).order_by("id")
+    )
+    proposals = _latest_proposal_per_user(pending)
     if len(proposals) < MIN_INDEPENDENT_EDITORS:
         return False
 
@@ -120,9 +124,14 @@ def promote_pending_edits(food: FoodItem) -> bool:
         # are frozen against the re-ingest itself).
         food.content_hash = None
         food.save()
-        FoodEditProposal.objects.filter(
-            food_item=food, status=FoodEditProposal.STATUS_PENDING
-        ).update(status=FoodEditProposal.STATUS_PROMOTED)
+        # Consume exactly the rows this evaluation read (same-user superseded
+        # ones included — they were outvoted within this snapshot). A proposal
+        # committed since the read was never checked and may dissent; a
+        # status-based UPDATE would see it (READ COMMITTED) and silently
+        # swallow it, so it must stay pending for the next round instead.
+        FoodEditProposal.objects.filter(id__in=[p.id for p in pending]).update(
+            status=FoodEditProposal.STATUS_PROMOTED
+        )
     return True
 
 
