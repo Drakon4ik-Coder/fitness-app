@@ -129,7 +129,11 @@ class MealEntryCreateView(APIView):
                     return Response(output.data, status=status.HTTP_200_OK)
                 output = MealEntrySerializer(existing, context={"request": request})
                 return Response(output.data, status=status.HTTP_200_OK)
-        entry = serializer.save()
+        # Stamp the fresh row with the create's own mutation time, not server
+        # "now" (KAN-28): an offline edit queued behind this create carries the
+        # edit's time, and stamping "now" here would out-rank it — patch() would
+        # silently drop the edit as stale. Mirrors the resurrection path above.
+        entry = serializer.save(updated_at=_clamp_mutation_time(client_updated_at))
         # A new entry can shift the learned meal times; drop the cached value so
         # the next fetch recomputes (esp. important while a new user's habits form).
         cache.delete(meal_times_cache_key(entry.user_id, str(_user_zone(request.user))))

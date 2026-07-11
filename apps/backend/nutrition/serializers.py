@@ -18,9 +18,11 @@ class MealEntryCreateSerializer(serializers.Serializer):
     # Client-generated stable id (KAN-28). When an offline create replays, the
     # view dedupes on it instead of inserting a second row.
     client_uuid = serializers.UUIDField(required=False)
-    # LWW mutation time of the create (KAN-39 undo): a re-create minted *after*
-    # an entry's tombstone resurrects it in place of duplicating or bouncing
-    # off the dedupe. Write-only input; the view pops it before save.
+    # LWW mutation time of the create. A re-create minted *after* an entry's
+    # tombstone resurrects it in place of duplicating or bouncing off the
+    # dedupe (KAN-39 undo); on a fresh row it becomes the stored updated_at so
+    # edits queued behind the create keep their LWW order (KAN-28). Write-only
+    # input; the view pops it and passes the clamped time to save().
     client_updated_at = serializers.DateTimeField(required=False, write_only=True)
 
     def create(self, validated_data: dict[str, Any]) -> MealEntry:

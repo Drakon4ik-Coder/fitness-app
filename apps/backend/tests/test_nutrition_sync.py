@@ -98,6 +98,71 @@ def test_create_without_client_uuid_still_works() -> None:
     assert response.data["client_uuid"]
 
 
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_fresh_create_keeps_client_mutation_time_so_queued_edit_wins() -> None:
+    """A replayed offline create must be stamped with its own mutation time,
+    not the replay's arrival time — otherwise an edit queued behind it (older
+    than "now" but newer than the create) loses LWW and is silently dropped."""
+    client, _ = _auth_client()
+    food = _food()
+    entry_uuid = str(uuid.uuid4())
+    create_time = timezone.now() - timedelta(minutes=10)
+    edit_time = create_time + timedelta(minutes=3)
+
+    created = client.post(
+        "/api/v1/nutrition/entries",
+        {
+            "food_item_id": food.id,
+            "meal_type": "lunch",
+            "quantity_g": "150",
+            "client_uuid": entry_uuid,
+            "client_updated_at": create_time.isoformat(),
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+    entry = MealEntry.objects.get(client_uuid=entry_uuid)
+    assert entry.updated_at == create_time
+
+    edit = client.patch(
+        f"/api/v1/nutrition/entries/by-uuid/{entry_uuid}",
+        {"quantity_g": "50", "client_updated_at": edit_time.isoformat()},
+        format="json",
+    )
+    assert edit.status_code == 200
+    entry.refresh_from_db()
+    assert entry.quantity_g == Decimal("50")
+    assert entry.updated_at == edit_time
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_fresh_create_clamps_future_client_mutation_time() -> None:
+    """A fast client clock must not mint an updated_at that out-ranks future
+    server-side writes."""
+    client, _ = _auth_client()
+    food = _food()
+    entry_uuid = str(uuid.uuid4())
+    future_time = timezone.now() + timedelta(hours=1)
+
+    response = client.post(
+        "/api/v1/nutrition/entries",
+        {
+            "food_item_id": food.id,
+            "meal_type": "dinner",
+            "quantity_g": "80",
+            "client_uuid": entry_uuid,
+            "client_updated_at": future_time.isoformat(),
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    entry = MealEntry.objects.get(client_uuid=entry_uuid)
+    assert entry.updated_at <= timezone.now()
+
+
 # --- undo resurrect (KAN-39) ---
 
 

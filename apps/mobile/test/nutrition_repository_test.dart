@@ -77,7 +77,10 @@ class _FakeNutritionApi implements NutritionApiService {
       quantityG: quantityG,
       kcal: quantityG * 1.5,
       foodItem: makeTestFood(backendId: foodItemId),
-      updatedAt: DateTime.now().toUtc(),
+      // Like the real server, a create is stamped with the client's mutation
+      // time (clamped there, taken as-is here) — not the replay's arrival
+      // time — so edits queued behind it keep their LWW order.
+      updatedAt: clientUpdatedAt ?? DateTime.now().toUtc(),
     );
     if (clientUuid != null) {
       serverEntries[clientUuid] = entry;
@@ -285,6 +288,29 @@ void main() {
         expect(api.createUuids, contains(first.uuid));
       },
     );
+
+    test('edit queued behind an offline create survives the replay', () async {
+      // The create op must carry its own mutation time: were the server to
+      // stamp the replay's arrival time instead, the edit queued behind it
+      // (older than the replay, newer than the create) would lose LWW and
+      // silently revert.
+      api.offline = true;
+      final entry = await repo.createEntry(
+        food: makeTestFood(backendId: 7),
+        mealType: 'lunch',
+        quantityG: 200,
+        consumedAt: DateTime(today.year, today.month, today.day, 13),
+      );
+      final day = await repo.readCachedDay(today);
+      await repo.updateEntry(day!.meals['lunch']!.single, quantityG: 250);
+
+      api.offline = false;
+      await seedToday();
+      await repo.refreshDay(today);
+
+      expect(store.outbox, isEmpty);
+      expect(api.serverEntries[entry.uuid]!.quantityG, 250);
+    });
 
     test('requires a backend-resolved food', () async {
       expect(

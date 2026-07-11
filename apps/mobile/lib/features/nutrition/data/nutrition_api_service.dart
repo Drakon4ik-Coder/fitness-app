@@ -196,8 +196,10 @@ class NutritionApiService {
           // Stable client identity (KAN-28): replaying this exact create after
           // a lost ack returns the existing entry instead of a duplicate.
           if (clientUuid != null) 'client_uuid': clientUuid,
-          // LWW mutation time of an undo re-create (KAN-39): newer than the
-          // entry's tombstone, it resurrects the row under the same uuid.
+          // LWW mutation time of the create (KAN-28): keeps a replayed create
+          // from out-ranking edits queued behind it; when newer than the
+          // entry's tombstone it resurrects the row under the same uuid
+          // (KAN-39 undo).
           if (clientUpdatedAt != null)
             'client_updated_at': clientUpdatedAt.toUtc().toIso8601String(),
         },

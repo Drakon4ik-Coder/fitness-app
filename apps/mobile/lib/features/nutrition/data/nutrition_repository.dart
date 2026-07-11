@@ -145,6 +145,10 @@ class NutritionRepository {
         'meal_type': mealType,
         'quantity_g': quantityG,
         'consumed_at': consumedAt.toUtc().toIso8601String(),
+        // The create's LWW mutation time (KAN-28). Without it the server
+        // stamps the replay's arrival time, which out-ranks — and silently
+        // kills — any edit queued behind this create while offline.
+        'client_updated_at': nowUtc.toIso8601String(),
       },
       queuedAt: nowUtc,
     );
@@ -322,8 +326,10 @@ class NutritionRepository {
             op.payload['consumed_at'] as String? ?? '',
           ),
           clientUuid: op.entryUuid,
-          // Present only on undo re-creates (KAN-39); lets the server
-          // resurrect a tombstoned row instead of bouncing off the dedupe.
+          // The create's LWW mutation time; on an undo re-create (KAN-39) it
+          // also lets the server resurrect a tombstoned row instead of
+          // bouncing off the dedupe. Absent only on ops queued by older app
+          // versions — the server falls back to its own clock then.
           clientUpdatedAt: DateTime.tryParse(
             op.payload['client_updated_at'] as String? ?? '',
           ),
