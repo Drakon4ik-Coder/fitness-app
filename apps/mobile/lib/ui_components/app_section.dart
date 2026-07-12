@@ -22,12 +22,7 @@ class AppSection extends StatelessWidget {
     final header = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(
-          child: Text(
-            title,
-            style: theme.textTheme.titleMedium,
-          ),
-        ),
+        Expanded(child: Text(title, style: theme.textTheme.titleMedium)),
         if (trailing != null) trailing!,
       ],
     );
@@ -38,10 +33,7 @@ class AppSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           header,
-          if (child != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            child!,
-          ],
+          if (child != null) ...[const SizedBox(height: AppSpacing.sm), child!],
         ],
       ),
     );

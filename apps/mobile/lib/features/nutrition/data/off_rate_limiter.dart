@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 class OffRateLimitException implements Exception {
   OffRateLimitException(this.retryAfter);
 
@@ -64,7 +66,7 @@ class OffRateLimiter {
     try {
       return await future;
     } finally {
-      _inFlight.remove(key);
+      unawaited(_inFlight.remove(key));
     }
   }
 

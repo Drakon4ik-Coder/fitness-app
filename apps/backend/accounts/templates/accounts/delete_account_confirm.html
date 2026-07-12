@@ -1,0 +1,26 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Confirm account deletion{% endblock %}
+
+{% block main %}
+  <div class="chip chip--error" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3 2.8 19a1 1 0 0 0 .9 1.5h16.6a1 1 0 0 0 .9-1.5L12 3z"></path>
+      <path d="M12 9.5v5"></path>
+      <path d="M12 17.5h.01"></path>
+    </svg>
+  </div>
+
+  <h1 class="center">Delete this account?</h1>
+  <p class="lead center">You are about to permanently delete the Symbio account
+    for <strong>{{ email }}</strong>. Your food log, goals, preferences and
+    custom foods will all be erased. This cannot be undone.</p>
+
+  <form method="post" style="margin-top:28px;">
+    {% csrf_token %}
+    <button type="submit" class="btn"
+            style="background:var(--error);color:#2A1109;box-shadow:0 10px 24px rgba(255,115,81,0.28);">
+      Permanently delete my account
+    </button>
+  </form>
+{% endblock %}

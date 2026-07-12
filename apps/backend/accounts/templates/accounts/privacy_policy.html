@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0E0E0E">
+  <title>Privacy Policy — Symbio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  {# Long-form document layout — accounts/base.html is a centered card for #}
+  {# short status pages and doesn't fit a policy, so this page stands alone #}
+  {# but reuses the same design tokens. #}
+  <style>
+    :root {
+      --bg: #0E0E0E;
+      --surface: #161616;
+      --on-surface: #FFFFFF;
+      --on-surface-variant: #ADAAAA;
+      --outline: #484847;
+      --primary: #6BFF8F;
+      --display: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+      --body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--body);
+      font-size: 16px;
+      line-height: 1.7;
+      color: var(--on-surface-variant);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .doc {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 40px;
+    }
+
+    .ring {
+      width: 40px;
+      height: 40px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      border: 3px solid var(--primary);
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(107, 255, 143, 0.45),
+                  inset 0 0 8px rgba(107, 255, 143, 0.22);
+    }
+
+    .ring span {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 20px;
+      line-height: 1;
+      color: var(--primary);
+      text-shadow: 0 0 10px rgba(107, 255, 143, 0.6);
+    }
+
+    .wordmark {
+      margin: 0;
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 4px;
+      color: var(--primary);
+    }
+
+    h1 {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 32px;
+      line-height: 1.2;
+      margin: 0 0 8px;
+      color: var(--on-surface);
+    }
+
+    .updated {
+      font-size: 14px;
+      margin: 0 0 36px;
+    }
+
+    h2 {
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 20px;
+      margin: 40px 0 12px;
+      color: var(--on-surface);
+    }
+
+    h3 {
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 16px;
+      margin: 24px 0 8px;
+      color: var(--on-surface);
+    }
+
+    p, li { margin: 0 0 12px; }
+
+    ul { margin: 0 0 12px; padding-left: 22px; }
+
+    li { margin-bottom: 8px; }
+
+    strong { color: var(--on-surface); font-weight: 600; }
+
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .foot {
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--outline);
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      color: #6f6c6c;
+    }
+  </style>
+</head>
+<body>
+  <main class="doc">
+    <div class="brand">
+      <span class="ring"><span>S</span></span>
+      <p class="wordmark">SYMBIO</p>
+    </div>
+
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: 10 July 2026</p>
+
+    <p>
+      Symbio is a nutrition-tracking app operated by Illia Dovhoshliubyi
+      (&ldquo;we&rdquo;, &ldquo;us&rdquo;). This policy explains what data the
+      Symbio app and the <code>symbio.drakon4ik.uk</code> service collect, why,
+      how long we keep it, and how you can delete it. It applies to the mobile
+      app and to this website.
+    </p>
+
+    <h2>Data we collect</h2>
+
+    <h3>Account data</h3>
+    <p>
+      When you create an account we store your <strong>email address</strong>
+      (your login identity), an optional <strong>display name</strong> and
+      <strong>username</strong>, and your <strong>password</strong> — stored
+      only as a salted cryptographic hash, never in plain text. We use your
+      email address solely to operate your account: verification, password
+      reset, and account-deletion confirmation emails. We do not send
+      marketing email.
+    </p>
+
+    <h3>Google Sign-In</h3>
+    <p>
+      If you sign in with Google, Google shares your email address and name
+      with us to create or match your account. We never see your Google
+      password, and we do not request access to anything else in your Google
+      account. Google's own handling of your data is covered by the
+      <a href="https://policies.google.com/privacy" rel="noopener">Google
+      Privacy Policy</a>.
+    </p>
+
+    <h3>Health and nutrition data</h3>
+    <p>
+      The core of Symbio is the food diary you keep: the foods you log, their
+      amounts and nutritional values, meal types, the times you log them, your
+      daily calorie and nutrient goals, and any custom foods you create
+      (including photos you choose to upload for them). This is health-related
+      data and we treat it accordingly: it is used only to show you your own
+      history and statistics, it is never shared with third parties, never
+      used for advertising, and never sold.
+    </p>
+
+    <h3>Device timezone</h3>
+    <p>
+      The app reports your device's timezone (for example
+      &ldquo;Europe/Kyiv&rdquo;) so that meals you log group into the correct
+      calendar days on your wall clock. We store only the timezone name, not
+      your location — we collect no GPS or location data.
+    </p>
+
+    <h3>Camera and barcode scanning</h3>
+    <p>
+      The app uses your camera only to scan food barcodes.
+      <strong>Scanning happens entirely on your device</strong>: camera images
+      are processed locally and never leave your phone, are never uploaded,
+      and are never stored. Only the decoded barcode number is sent to our
+      server and to Open Food Facts to look up the product.
+    </p>
+
+    <h3>Crash reports and diagnostics</h3>
+    <p>
+      To find and fix bugs, the app reports crashes and errors to
+      <a href="https://sentry.io/privacy/" rel="noopener">Sentry</a>. A crash
+      report contains technical details such as your device model, operating
+      system version, app version, and the technical trace of the error. Crash
+      reports do not include the contents of your food diary or your goals.
+    </p>
+
+    <h2>Third-party services</h2>
+    <p>
+      Symbio uses three third-party services, listed below. Beyond these, your
+      data is not shared with anyone. We show no ads and we do not sell or
+      rent data to anyone.
+    </p>
+    <ul>
+      <li>
+        <strong>Open Food Facts</strong> — food and nutrition data comes from
+        the <a href="https://world.openfoodfacts.org" rel="noopener">Open Food
+        Facts</a> database. Product lookups send the barcode number or your
+        search text to Open Food Facts; they include nothing that identifies
+        you or your account.
+      </li>
+      <li>
+        <strong>Google Sign-In</strong> — only if you choose it as your login
+        method, as described above.
+      </li>
+      <li>
+        <strong>Sentry</strong> — crash reporting, as described above.
+      </li>
+    </ul>
+
+    <h2>Storage and security</h2>
+    <p>
+      Your data is stored on our servers and is encrypted in transit: the app
+      talks to the server exclusively over HTTPS. Passwords are stored as
+      salted hashes. Access to production data is limited to the operator.
+    </p>
+
+    <h2>Retention</h2>
+    <p>
+      We keep your data for as long as your account exists. When your account
+      is deleted, all data associated with it — your profile, food diary,
+      goals, preferences, and custom foods — is permanently deleted from our
+      systems at the same time. Crash reports in Sentry expire automatically
+      per Sentry's standard retention period (90 days).
+    </p>
+
+    <h2>Deleting your account and data</h2>
+    <p>You can delete your account and all of its data at any time:</p>
+    <ul>
+      <li>
+        <strong>In the app</strong>: Settings → Profile → Delete account. You
+        will be asked to re-enter your password (or re-confirm with Google)
+        before deletion.
+      </li>
+      <li>
+        <strong>On the web</strong>, without the app:
+        <a href="/delete-account">symbio.drakon4ik.uk/delete-account</a> —
+        enter your account email and we send a single-use confirmation link.
+      </li>
+    </ul>
+    <p>Deletion is immediate and irreversible.</p>
+
+    <h2>Your rights</h2>
+    <p>
+      You can view and edit your profile and preferences in the app, and
+      delete everything as described above. For access or data-export
+      requests, or any question about this policy, contact us at the address
+      below and we will respond within 30 days.
+    </p>
+
+    <h2>Children</h2>
+    <p>
+      Symbio is not directed at children and is intended for users aged 13
+      and over.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      If this policy changes, the new version will be posted at this address
+      with an updated date at the top. Material changes will be announced in
+      the app.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Illia Dovhoshliubyi<br>
+      Email: <a href="mailto:illiadovho@gmail.com">illiadovho@gmail.com</a>
+    </p>
+
+    <p class="foot">Symbio — high-performance biometric tracking</p>
+  </main>
+</body>
+</html>

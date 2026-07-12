@@ -1,33 +1,37 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Symbio email verification</title>
-</head>
-<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f5f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;">
-  <div style="max-width:420px;margin:24px;padding:32px;background:#ffffff;border-radius:12px;text-align:center;">
-    {% if result == "success" or result == "already" %}
-      <div aria-hidden="true" style="font-size:48px;line-height:1;">&#9989;</div>
-      <h1 style="font-size:22px;margin:16px 0 8px;">Email verified</h1>
-      <p style="font-size:15px;line-height:1.5;color:#3a3a3c;margin:0;">
-        Your email is confirmed. You can return to the Symbio app and sign in.
-      </p>
-    {% elif result == "expired" %}
-      <div aria-hidden="true" style="font-size:48px;line-height:1;">&#9203;</div>
-      <h1 style="font-size:22px;margin:16px 0 8px;">Link expired</h1>
-      <p style="font-size:15px;line-height:1.5;color:#3a3a3c;margin:0;">
-        This verification link has expired. Open the Symbio app and request a
-        new verification email.
-      </p>
-    {% else %}
-      <div aria-hidden="true" style="font-size:48px;line-height:1;">&#10060;</div>
-      <h1 style="font-size:22px;margin:16px 0 8px;">Invalid link</h1>
-      <p style="font-size:15px;line-height:1.5;color:#3a3a3c;margin:0;">
-        We couldn't verify this link. Open the Symbio app and request a new
-        verification email.
-      </p>
-    {% endif %}
-  </div>
-</body>
-</html>
+{% extends "accounts/base.html" %}
+
+{% block title %}Symbio email verification{% endblock %}
+
+{% block main %}
+  {% if result == "success" or result == "already" %}
+    <div class="chip chip--success" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="m8.5 12 2.3 2.3L15.5 9.7"></path>
+      </svg>
+    </div>
+    <h1 class="center">Email verified</h1>
+    <p class="lead center">Your email is confirmed. Head back to the Symbio app and sign in.</p>
+
+  {% elif result == "expired" %}
+    <div class="chip chip--warning" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 7.5v5l3 2"></path>
+      </svg>
+    </div>
+    <h1 class="center">Link expired</h1>
+    <p class="lead center">This verification link has expired. Open the Symbio app and request a new verification email.</p>
+
+  {% else %}
+    <div class="chip chip--error" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 7.5v5"></path>
+        <path d="M12 16h.01"></path>
+      </svg>
+    </div>
+    <h1 class="center">Invalid link</h1>
+    <p class="lead center">We couldn't verify this link. Open the Symbio app and request a new verification email.</p>
+  {% endif %}
+{% endblock %}

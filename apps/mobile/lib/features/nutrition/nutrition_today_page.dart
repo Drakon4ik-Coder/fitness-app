@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -10,9 +9,20 @@ import '../../ui_system/tokens.dart';
 import 'add_food_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
+import 'data/food_models.dart';
 import 'data/foods_api_service.dart';
+import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
+import 'data/nutrition_local_store.dart';
+import 'data/nutrition_repository.dart';
 import 'data/off_client.dart';
+import 'data/user_preferences.dart';
+import 'food_detail_page.dart';
+import 'meal_suggestion.dart';
+import 'nutrition_detail_page.dart';
+import 'widgets/amount_sheet.dart' show FoodImage, mealTypeAccent, mealTypeIcon;
+import 'widgets/meal_detail_sheet.dart';
+import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 
 class NutritionTodayPage extends StatefulWidget {
   const NutritionTodayPage({
@@ -23,7 +33,9 @@ class NutritionTodayPage extends StatefulWidget {
     this.localDb,
     this.foodsApi,
     this.nutritionApi,
+    this.localStore,
     this.offClient,
+    this.preferences,
   });
 
   final String accessToken;
@@ -32,7 +44,14 @@ class NutritionTodayPage extends StatefulWidget {
   final FoodLocalDb? localDb;
   final FoodsApiService? foodsApi;
   final NutritionApiService? nutritionApi;
+  final NutritionLocalStore? localStore;
   final OffClient? offClient;
+
+  /// The user's saved goals/units, owned by the shell and passed down so the
+  /// day's macros/calories reflect edits made on the account tab. Null while
+  /// still loading (or when shown standalone) → macros/calories fall back to the
+  /// catalog defaults.
+  final UserPreferences? preferences;
 
   @override
   State<NutritionTodayPage> createState() => _NutritionTodayPageState();
@@ -44,12 +63,32 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final bool _ownsLocalDb;
   late final FoodsApiService _foodsApi;
   late final NutritionApiService _nutritionApi;
+  late final NutritionLocalStore _localStore;
+  late final bool _ownsLocalStore;
+  late final NutritionRepository _repository;
   late final OffClient _offClient;
 
   NutritionDayLog? _dayLog;
+  // The locally known day before the selected one, feeding the empty-meal
+  // "copy yesterday" shortcut (KAN-51). Null hides the shortcut.
+  NutritionDayLog? _previousDayLog;
+  // Meals with a copy currently in flight. Every copy mints fresh client
+  // uuids (KAN-28: a copy must never reuse identity), so the repository has
+  // nothing to dedupe on — a second tap mid-copy would double the whole
+  // meal. Membership hides the shortcut and blocks re-entry until the copy
+  // (and the reload after it) finishes.
+  final Set<MealType> _copyingMeals = {};
+  // Per-meal windows learned from the user's own history; null until loaded (or
+  // if the fetch fails), in which case the smart guess uses population defaults.
+  Map<MealType, MealWindow>? _mealWindows;
   Timer? _spinnerTimer;
   bool _showSpinner = false;
   String? _errorMessage;
+
+  // Entries with offline writes still queued in the outbox (KAN-56). Non-zero
+  // shows the "waiting to sync" chip; refreshed after every load and write
+  // since those are the only moments the outbox changes shape.
+  int _pendingSyncCount = 0;
 
   @override
   void initState() {
@@ -57,18 +96,61 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _selectedDate = DateUtils.dateOnly(DateTime.now());
     _ownsLocalDb = widget.localDb == null;
     _localDb = widget.localDb ?? FoodLocalDb();
-    _foodsApi = widget.foodsApi ??
+    _foodsApi =
+        widget.foodsApi ??
         FoodsApiService(
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
-    _nutritionApi = widget.nutritionApi ??
+    _nutritionApi =
+        widget.nutritionApi ??
         NutritionApiService(
           accessToken: widget.accessToken,
           authInterceptor: widget.authInterceptor,
         );
+    _ownsLocalStore = widget.localStore == null;
+    _localStore = widget.localStore ?? NutritionLocalStore();
+    _repository = NutritionRepository(api: _nutritionApi, store: _localStore);
     _offClient = widget.offClient ?? OffClient();
     _loadDay();
+    _loadMealTimes();
+  }
+
+  /// The catalog with the user's saved goals layered on. The single source of
+  /// truth for every nutrient target the today and detail pages show.
+  List<NutrientSpec> get _catalog =>
+      resolveCatalog(widget.preferences?.nutrientGoals);
+
+  int get _calorieGoal =>
+      widget.preferences?.calorieGoal ?? kDefaultCalorieGoal;
+
+  /// The user's focus nutrients resolved against the goal-adjusted catalog, so
+  /// each tile's target already reflects any personalized goal.
+  List<NutrientSpec> get _focusSpecs =>
+      resolveFocusSpecs(widget.preferences?.focusNutrients, base: _catalog);
+
+  /// The nutrients the user opted into over-goal warnings for (KAN-38). Empty
+  /// by default — only the calorie ring warns until the user picks more.
+  Set<String> get _warnNutrients => {
+    ...widget.preferences?.warnNutrients ?? const <String>[],
+  };
+
+  /// Logs out. The local store is deliberately kept (KAN-64): it's namespaced
+  /// per user id, so an unsynced offline outbox survives a re-login instead
+  /// of being lost, and can never replay into another account.
+  Future<void> _handleLogout() async {
+    await widget.onLogout();
+  }
+
+  // Best-effort: a failure just leaves the smart meal guess on its defaults.
+  Future<void> _loadMealTimes() async {
+    try {
+      final learned = await _nutritionApi.fetchMealTimes();
+      if (!mounted) return;
+      setState(() => _mealWindows = buildMealWindows(learned));
+    } on ApiException {
+      // Ignore — defaults are a fine fallback.
+    }
   }
 
   @override
@@ -86,45 +168,220 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (_ownsLocalDb) {
       _localDb.close();
     }
+    if (_ownsLocalStore) {
+      _localStore.close();
+    }
     super.dispose();
   }
 
   Future<void> _loadDay() async {
     _spinnerTimer?.cancel();
+    // Snapshot the date: the local read and network sync are async, so the user
+    // may switch days before they return. We discard results for a stale date.
+    final date = _selectedDate;
     setState(() {
       _showSpinner = false;
       _errorMessage = null;
     });
-    _spinnerTimer = Timer(const Duration(seconds: 1), () {
-      if (!mounted) return;
-      setState(() => _showSpinner = true);
-    });
+
+    // 1. Stale: render the locally known day instantly so there's no blank
+    //    screen; offline opens (and offline-logged meals) show right away.
+    //    Best-effort — a store miss or failure just falls through to the
+    //    spinner + network path below.
+    final bool hadLocal = await _showLocalDay(date);
+    unawaited(_loadPreviousDay(date));
+
+    // Only show the loading bar if we have nothing on screen yet; with a local
+    // hit the sync happens silently underneath the already-rendered day.
+    if (!hadLocal) {
+      _spinnerTimer = Timer(const Duration(seconds: 1), () {
+        if (!mounted || date != _selectedDate) return;
+        setState(() => _showSpinner = true);
+      });
+    }
+
+    // 2. Converge with the server: replay any queued offline writes, pull
+    //    deltas (or the day's first full fetch) and re-render.
     try {
-      final dayLog = await _nutritionApi.fetchDay(_selectedDate);
-      if (!mounted) {
+      final fresh = await _repository.refreshDay(date);
+      if (!mounted || date != _selectedDate) {
         return;
       }
       setState(() {
-        _dayLog = dayLog;
+        _dayLog = fresh;
         _showSpinner = false;
+        _errorMessage = null;
       });
     } on ApiException catch (error) {
       if (error.isUnauthorized) {
-        await widget.onLogout();
+        await _handleLogout();
         if (!mounted) return;
         setState(() => _showSpinner = false);
         return;
       }
-      if (!mounted) {
+      if (!mounted || date != _selectedDate) {
         return;
       }
       setState(() {
         _showSpinner = false;
-        _errorMessage = error.message;
+        // Don't bury a usable local view under an error banner — offline reads
+        // should keep working. Only surface the error when there's nothing to
+        // show for this day.
+        if (!hadLocal) {
+          _errorMessage = error.message;
+        }
       });
     } finally {
       _spinnerTimer?.cancel();
+      await _refreshPendingSync();
     }
+  }
+
+  /// Re-reads the outbox-pending count and updates the chip. Best-effort:
+  /// a store failure just leaves the last known value.
+  Future<void> _refreshPendingSync() async {
+    try {
+      final count = await _repository.pendingSyncCount();
+      if (!mounted || count == _pendingSyncCount) return;
+      setState(() => _pendingSyncCount = count);
+    } catch (_) {
+      // Non-critical indicator — never let it break the page.
+    }
+  }
+
+  /// Renders the locally known state for [date] if any and still the selected
+  /// day. Returns whether a usable local day was shown. Best-effort: any store
+  /// or parse failure is swallowed so the network path takes over.
+  Future<bool> _showLocalDay(DateTime date) async {
+    try {
+      final local = await _repository.readCachedDay(date);
+      if (local == null || !mounted || date != _selectedDate) {
+        return false;
+      }
+      setState(() {
+        _dayLog = local;
+        _errorMessage = null;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Reads the locally known state of the day before [date] so empty meal
+  /// sections can offer the one-tap repeat shortcut (KAN-51). Local-only and
+  /// best-effort: a store miss just hides the shortcut.
+  Future<void> _loadPreviousDay(DateTime date) async {
+    final prev = DateTime(date.year, date.month, date.day - 1);
+    try {
+      final log = await _repository.readCachedDay(prev);
+      if (!mounted || date != _selectedDate) return;
+      setState(() => _previousDayLog = log);
+    } catch (_) {
+      // Non-critical shortcut — never let it break the page.
+    }
+  }
+
+  /// The previous day's entries for [meal] that can be re-logged as-is. The
+  /// offline-first create path needs a server-resolved food id, so entries
+  /// without one (never-synced foods) are skipped.
+  List<NutritionEntry> _copyableFromPreviousDay(MealType meal) {
+    final entries = _previousDayLog?.meals[meal.wireName] ?? const [];
+    return [
+      for (final entry in entries)
+        if (entry.foodItem.backendId != null) entry,
+    ];
+  }
+
+  /// One-tap repeat of the previous day's [meal] into the selected day
+  /// (KAN-51). Each copy is a brand-new entry (fresh client uuid, same food
+  /// and amount) created through the normal offline-first path, so it queues
+  /// via the outbox like any other write.
+  Future<void> _copyMealFromPreviousDay(MealType meal) async {
+    // A stale frame can still deliver a tap after the copy started (the
+    // rebuild that hides the shortcut hasn't rendered yet) — ignore it.
+    if (_copyingMeals.contains(meal)) return;
+    final source = _copyableFromPreviousDay(meal);
+    if (source.isEmpty) return;
+    final date = _selectedDate;
+    final messenger = ScaffoldMessenger.of(context);
+    final created = <NutritionEntry>[];
+    setState(() => _copyingMeals.add(meal));
+    try {
+      try {
+        for (final entry in source) {
+          final at = entry.consumedAt.toLocal();
+          created.add(
+            await _repository.createEntry(
+              food: entry.foodItem,
+              mealType: meal.wireName,
+              quantityG: entry.quantityG,
+              // Same wall-clock time on the target day, so the copy stays in
+              // the meal window it came from.
+              consumedAt: DateTime(
+                date.year,
+                date.month,
+                date.day,
+                at.hour,
+                at.minute,
+              ),
+            ),
+          );
+        }
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await _handleLogout();
+          return;
+        }
+        // Entries copied before the failure stay logged; the reload below
+        // shows exactly what made it.
+      }
+      unawaited(_refreshPendingSync());
+      if (!mounted) return;
+      await _loadDay();
+    } finally {
+      // Only after the reload: until _dayLog reflects the copies the meal
+      // still looks empty, and releasing earlier would re-arm the shortcut.
+      if (mounted) {
+        setState(() => _copyingMeals.remove(meal));
+      } else {
+        _copyingMeals.remove(meal);
+      }
+    }
+    if (!mounted || created.isEmpty) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          created.length == 1
+              ? 'Copied 1 food'
+              : 'Copied ${created.length} foods',
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => _undoCopy(created),
+        ),
+      ),
+    );
+  }
+
+  /// Undo of a meal copy: deletes the freshly created entries. Copies whose
+  /// create is still queued are simply forgotten; synced ones get tombstoned
+  /// like any other delete.
+  Future<void> _undoCopy(List<NutritionEntry> created) async {
+    try {
+      for (final entry in created) {
+        await _repository.deleteEntry(entry);
+      }
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return;
+      }
+    }
+    unawaited(_refreshPendingSync());
+    if (mounted) await _loadDay();
   }
 
   void _changeDate(int deltaDays) {
@@ -149,7 +406,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
-      lastDate: today, 
+      lastDate: today,
     );
     if (picker == null) return;
     if (picker == _selectedDate) return;
@@ -160,7 +417,9 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   }
 
   void _setTodayDate() {
-    _selectedDate = DateUtils.dateOnly(DateTime.now());
+    setState(() {
+      _selectedDate = DateUtils.dateOnly(DateTime.now());
+    });
     _loadDay();
   }
 
@@ -170,118 +429,271 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Yesterday';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[_selectedDate.month - 1]} ${_selectedDate.day}';
   }
 
-  Future<void> _openAddFoodSheet(BuildContext context) async {
+  Future<void> _openAddFoodSheet(
+    BuildContext context, {
+    MealType? initialMeal,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    // When opened from the generic "+" (no explicit meal), guess the meal from
+    // the time of day and what's already been logged today.
+    final meal =
+        initialMeal ??
+        suggestMealType(
+          now: DateTime.now(),
+          mealsLogged: _dayLog?.meals ?? const {},
+          windows: _mealWindows,
+        );
     final didAdd = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AddFoodPage(
           localDb: _localDb,
           foodsApi: _foodsApi,
-          nutritionApi: _nutritionApi,
+          repository: _repository,
           offClient: _offClient,
-          onLogout: widget.onLogout,
+          onLogout: _handleLogout,
           selectedDate: _selectedDate,
+          initialMeal: meal,
+          focusSpecs: _focusSpecs,
+          catalog: _catalog,
+          warnNutrients: _warnNutrients,
         ),
       ),
     );
-    if (!mounted || didAdd != true) {
-      return;
-    }
+    // Reload even when the page reports no clean submit: a partially failed
+    // submit (KAN-53) has already logged some items, and backing out must not
+    // leave them off the day view. A no-op refetch when nothing changed.
+    if (!mounted) return;
+    await _loadDay();
+    if (!mounted || didAdd != true) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Meal logged'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _openMealDetails(BuildContext context, _MealSummary meal) async {
+    if (meal.entries.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MealDetailSheet(
+        mealLabel: meal.name,
+        mealTypeName: meal.mealType.name,
+        mealIcon: meal.icon,
+        mealColor: meal.color,
+        entries: meal.entries,
+        focusSpecs: _focusSpecs,
+        catalog: _catalog,
+        warnNutrients: _warnNutrients,
+        onUpdateEntry: (entry, {quantityG, mealType}) =>
+            _updateEntry(entry, quantityG: quantityG, mealType: mealType),
+        onDeleteEntry: (entry) => _deleteEntry(entry),
+        onRestoreEntry: (entry) => _restoreEntry(entry),
+        onViewFoodDetails: _openFoodDetail,
+        onAddMore: () {
+          Navigator.of(context).pop();
+          _openAddFoodSheet(context, initialMeal: meal.mealType);
+        },
+      ),
+    );
+    // Reload after the sheet closes so the calorie ring and macro bars reflect
+    // any edits or deletes made inside it. A no-op refetch when nothing changed.
+    if (!mounted) return;
     await _loadDay();
   }
 
-  void _showItemDetails(BuildContext context, _MealItem item) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${item.name} details coming soon.'),
+  /// Pushes the read-first food page (KAN-33) for a logged food. Resolves
+  /// with the item as edited there (null = unchanged); the day itself is
+  /// refreshed by the meal sheet's dismissal reload.
+  Future<FoodItem?> _openFoodDetail(FoodItem item) {
+    return pushFoodDetailPage(
+      context,
+      item: item,
+      foodsApi: _foodsApi,
+      localDb: _localDb,
+      onLogout: _handleLogout,
+      catalog: _catalog,
+    );
+  }
+
+  void _openNutrientDetail(BuildContext context) {
+    final entries =
+        _dayLog?.meals.values.expand((list) => list).toList() ??
+        const <NutritionEntry>[];
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NutritionDetailPage(
+          dateLabel: _dateLabel(),
+          eatenKcal: _dayLog?.totals.kcal.round() ?? 0,
+          entries: entries,
+          serverNutrients: _dayLog?.nutrients,
+          nutrientGoals: widget.preferences?.nutrientGoals,
+          warnNutrients: _warnNutrients,
+        ),
       ),
     );
   }
 
-  List<_MacroSummary> _buildMacroSummaries(NutritionTotals? totals) {
-    final carbs = totals?.carbsG.round() ?? 0;
-    final fat = totals?.fatG.round() ?? 0;
-    final protein = totals?.proteinG.round() ?? 0;
+  Future<NutritionEntry?> _updateEntry(
+    NutritionEntry entry, {
+    double? quantityG,
+    String? mealType,
+  }) async {
+    try {
+      // Applies locally right away and queues the server write when offline
+      // (KAN-28) — so the edit sticks even with no connectivity.
+      final updated = await _repository.updateEntry(
+        entry,
+        quantityG: quantityG,
+        mealType: mealType,
+      );
+      unawaited(_refreshPendingSync());
+      return updated;
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return null;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return null;
+    }
+  }
+
+  Future<bool> _deleteEntry(NutritionEntry entry) async {
+    try {
+      final deleted = await _repository.deleteEntry(entry);
+      unawaited(_refreshPendingSync());
+      return deleted;
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return false;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return false;
+    }
+  }
+
+  /// Undo of a swipe-delete (KAN-39): re-creates the entry through the
+  /// offline-first path, keeping its uuid identity. Null means it failed.
+  Future<NutritionEntry?> _restoreEntry(NutritionEntry entry) async {
+    try {
+      final restored = await _repository.restoreEntry(entry);
+      unawaited(_refreshPendingSync());
+      return restored;
+    } on ApiException catch (error) {
+      if (error.isUnauthorized) {
+        await _handleLogout();
+        return null;
+      }
+      return null;
+    }
+  }
+
+  /// One summary per focus nutrient, in the user's chosen order. Amounts come
+  /// from the server's per-day nutrients map; the classic macros fall back to
+  /// the totals block (older cached payloads lack the map), and anything else
+  /// falls back to a client-side aggregate over the day's entries. A null
+  /// amount means foods were logged but none reported the nutrient ("no data");
+  /// an empty day reads as a plain 0 so a fresh morning isn't full of dashes.
+  List<_FocusSummary> _buildFocusSummaries(NutritionTotals? totals) {
+    final specs = _focusSpecs;
+    final entries =
+        _dayLog?.meals.values.expand((list) => list).toList() ??
+        const <NutritionEntry>[];
+
+    Map<String, NutrientTotal>? aggregated;
+    if (_dayLog?.nutrients == null && entries.isNotEmpty) {
+      aggregated = {
+        for (final total in aggregateNutrients(entries, catalog: specs))
+          total.spec.key: total,
+      };
+    }
+
     return [
-      _MacroSummary(
-        type: MacroType.protein,
-        label: 'Protein',
-        current: protein,
-        goal: _proteinGoalG,
-      ),
-      _MacroSummary(
-        type: MacroType.carbs,
-        label: 'Carbs',
-        current: carbs,
-        goal: _carbGoalG,
-      ),
-      _MacroSummary(
-        type: MacroType.fat,
-        label: 'Fat',
-        current: fat,
-        goal: _fatGoalG,
-      ),
+      for (final spec in specs)
+        () {
+          double? amount = _serverAmount(spec.key);
+          amount ??= switch (spec.key) {
+            'protein' => totals?.proteinG,
+            'carbs' => totals?.carbsG,
+            'fat' => totals?.fatG,
+            _ => aggregated?[spec.key]?.amount,
+          };
+          if (amount == null && entries.isEmpty) amount = 0;
+          final incomplete =
+              _nutrientIncomplete(spec.key) ||
+              (aggregated?[spec.key]?.isIncomplete ?? false);
+          return _FocusSummary(
+            spec: spec,
+            amount: amount,
+            incomplete: incomplete,
+          );
+        }(),
     ];
   }
 
-  List<_MealSummary> _buildMealSummaries(BuildContext context) {
-    final Map<String, List<NutritionEntry>> meals = _dayLog?.meals ?? {};
-    final localizations = MaterialLocalizations.of(context);
-    final order = <String, IconData>{
-      'breakfast': Icons.breakfast_dining,
-      'lunch': Icons.lunch_dining,
-      'dinner': Icons.dinner_dining,
-      'snacks': Icons.emoji_food_beverage,
-    };
-    final labels = <String, String>{
-      'breakfast': 'Breakfast',
-      'lunch': 'Lunch',
-      'dinner': 'Dinner',
-      'snacks': 'Snacks',
-    };
-
-    final summaries = <_MealSummary>[];
-    for (final entry in order.entries) {
-      final mealType = entry.key;
-      final icon = entry.value;
-      final entries = meals[mealType] ?? [];
-      final items = entries
-          .map(
-            (mealEntry) => _MealItem(
-              name: mealEntry.foodItem.name,
-              kcal: mealEntry.kcal.round(),
-              amount: _formatQuantity(mealEntry.quantityG),
-              icon: icon,
-              image: mealEntry.foodItem.imageUrl,
-            ),
-          )
-          .toList();
-      final timeLabel = entries.isEmpty
-          ? 'No entries'
-          : localizations.formatTimeOfDay(
-              TimeOfDay.fromDateTime(entries.first.consumedAt),
-            );
-      summaries.add(
-        _MealSummary(
-          name: labels[mealType] ?? mealType,
-          time: timeLabel,
-          items: items,
-        ),
-      );
-    }
-    return summaries;
+  /// The day amount for [key] from the server's per-day nutrients map, or null
+  /// when the map is absent or carries no data for it.
+  double? _serverAmount(String key) {
+    final raw = _dayLog?.nutrients?[key];
+    if (raw is! Map) return null;
+    return (raw['amount'] as num?)?.toDouble();
   }
 
-  String _formatQuantity(double quantityG) {
-    if (quantityG == quantityG.roundToDouble()) {
-      return '${quantityG.toInt()} g';
-    }
-    return '${quantityG.toStringAsFixed(1)} g';
+  /// Whether a nutrient's day total is a floor: some — but not all — of the
+  /// day's foods reported it, so the total silently omits the rest. Read from
+  /// the server's per-nutrient reported/total counts; false when unavailable.
+  bool _nutrientIncomplete(String key) {
+    final raw = _dayLog?.nutrients?[key];
+    if (raw is! Map) return false;
+    final total = (raw['total'] as num?)?.toInt();
+    final reported = (raw['reported'] as num?)?.toInt();
+    if (total == null || reported == null) return false;
+    return reported > 0 && reported < total;
+  }
+
+  List<_MealSummary> _buildMealSummaries() {
+    final Map<String, List<NutritionEntry>> meals = _dayLog?.meals ?? {};
+    return [
+      for (final meal in MealType.values)
+        _MealSummary(
+          name: meal.label,
+          mealType: meal,
+          icon: mealTypeIcon(meal),
+          color: mealTypeAccent(meal),
+          entries: meals[meal.wireName] ?? const [],
+        ),
+    ];
   }
 
   @override
@@ -290,34 +702,33 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final scheme = theme.colorScheme;
     final totals = _dayLog?.totals;
     final eatenKcal = totals?.kcal.round() ?? 0;
-    final burnedKcal = _burnedKcal;
-    final int kcalLeft = math.max(0, _dailyGoalKcal - eatenKcal + burnedKcal);
-    final double ringProgress =
-        math.min(1.0, eatenKcal / _dailyGoalKcal.toDouble()).toDouble();
-    final macroSummaries = _buildMacroSummaries(totals);
-    final mealSummaries = _buildMealSummaries(context);
+    final int? burnedKcal = _burnedKcal;
+    // Exercise adds to the day's budget; "remaining" can go negative, which
+    // we surface as an over-budget amount rather than clamping to zero.
+    final int kcalBudget = _calorieGoal + (burnedKcal ?? 0);
+    final int kcalRemaining = kcalBudget - eatenKcal;
+    final bool kcalOver = kcalRemaining < 0;
+    final int kcalCenterValue = kcalRemaining.abs();
+    final double ringProgress = kcalBudget > 0
+        ? (eatenKcal / kcalBudget).clamp(0.0, 1.0).toDouble()
+        : 0.0;
+    final Color ringColor = kcalOver
+        ? LuminaHealthColors.warning
+        : scheme.primary;
+    final focusSummaries = _buildFocusSummaries(totals);
+    final mealSummaries = _buildMealSummaries();
     final isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
 
     // Calculate total entries
-    final totalEntries = _dayLog?.meals.values
-            .fold<int>(0, (sum, list) => sum + list.length) ??
+    final totalEntries =
+        _dayLog?.meals.values.fold<int>(0, (sum, list) => sum + list.length) ??
         0;
 
     return AppScaffold(
       safeArea: false,
       padding: EdgeInsets.zero,
-      appBar: AppBar(
-        actions: [
-          IconButton(
-            onPressed: () => widget.onLogout(), 
-            icon: const Icon(Icons.logout) 
-          ),
-        ],
-      ),
       body: Container(
-        decoration: BoxDecoration(
-          color: scheme.surface,
-        ),
+        decoration: BoxDecoration(color: scheme.surface),
         child: Stack(
           children: [
             Positioned(
@@ -340,380 +751,111 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
               ),
             ),
             SafeArea(
-              child: CustomScrollView(
-                slivers: [
-                  if (_showSpinner)
+              // Manual re-sync after connectivity returns (KAN-55). The
+              // always-scrollable physics keep the gesture available even
+              // when the day's content fits on one screen.
+              child: RefreshIndicator(
+                onRefresh: _loadDay,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    // Wordmark scrolls away with the content; only the compact
+                    // date bar below stays pinned (KAN-34).
                     SliverToBoxAdapter(
-                      key: const Key("nutritionLoadingSpinner"),
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xs),
+                        child: Center(
+                          child: Text(
+                            'SYMBIO',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: LuminaHealthColors.primary.withValues(
+                                alpha: 0.6,
+                              ),
+                              letterSpacing: 2.0,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    _DateBar(
+                      dateLabel: _dateLabel(),
+                      isToday: isToday,
+                      showSpinner: _showSpinner,
+                      onPreviousDay: () => _changeDate(-1),
+                      onNextDay: () => _changeDate(1),
+                      onPickDate: () => _pickDate(context),
+                      onSetToday: _setTodayDate,
+                    ),
+                    if (_pendingSyncCount > 0)
+                      SliverToBoxAdapter(
+                        child: _PendingSyncChip(count: _pendingSyncCount),
+                      ),
+                    if (_errorMessage != null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                          ),
+                          child: InlineBanner(
+                            message: _errorMessage!,
+                            tone: InlineBannerTone.error,
+                            actionLabel: 'Retry',
+                            onAction: _loadDay,
+                          ),
+                        ),
+                      ),
+                    // Hero Biometric Section
+                    SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.lg,
+                          vertical: AppSpacing.md,
                         ),
-                        child: LinearProgressIndicator(
-                          minHeight: 2,
-                          color: scheme.primary,
-                          backgroundColor: scheme.surfaceContainer,
+                        child: _HeroSection(
+                          ringProgress: ringProgress,
+                          ringColor: ringColor,
+                          kcalOver: kcalOver,
+                          kcalCenterValue: kcalCenterValue,
+                          eatenKcal: eatenKcal,
+                          burnedKcal: burnedKcal,
+                          onAddFood: () => _openAddFoodSheet(context),
                         ),
                       ),
                     ),
-                  if (_errorMessage != null)
+                    // Macro Breakdown
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          AppSpacing.sm,
-                          AppSpacing.lg,
-                          AppSpacing.sm,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg,
+                          vertical: AppSpacing.md,
                         ),
-                        child: InlineBanner(
-                          message: _errorMessage!,
-                          tone: InlineBannerTone.error,
+                        child: _FocusCard(
+                          summaries: focusSummaries,
+                          warnNutrients: _warnNutrients,
                         ),
                       ),
                     ),
-                  // Top Header
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.chevron_left),
-                            color: LuminaHealthColors.primary,
-                            onPressed: () => _changeDate(-1),
-                          ),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'SYMBIO',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: LuminaHealthColors.primary
-                                      .withValues(alpha: 0.6),
-                                  letterSpacing: 2.0,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
-                              InkWell(
-                                onTap:() => _pickDate(context),
-                                onDoubleTap:() => _setTodayDate(),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.sm,
-                                    vertical: AppSpacing.xs,
-                                  ), 
-                                  child: Text(
-                                    _dateLabel(),
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: LuminaHealthColors.primary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.chevron_right),
-                            color: isToday ? null : LuminaHealthColors.primary,
-                            onPressed: isToday ? null : () => _changeDate(1),
-                          ),
-                        ],
+                    // Full nutrient breakdown entry point
+                    SliverToBoxAdapter(
+                      child: _ViewFullNutrientsLink(
+                        onTap: () => _openNutrientDetail(context),
                       ),
                     ),
-                  ),
-                  // Hero Biometric Section
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-                      child: Column(
-                        children: [
-                          // Central ring
-                          SizedBox(
-                            height: 288,
-                            width: 288,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                GlowingProgressRing(
-                                  progress: ringProgress,
-                                  size: 288,
-                                  thickness: 12,
-                                  trackColor: scheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.5),
-                                  progressColor: scheme.primary,
-                                  glowColor: scheme.primary,
-                                  glowLevel: PulseGlowLevel.high,
-                                ),
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      '$kcalLeft',
-                                      style: theme.textTheme.displayLarge
-                                          ?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        height: 1,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'LEFT',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2.0,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    IconButton(
-                                      onPressed: () =>
-                                          _openAddFoodSheet(context),
-                                      icon: const Icon(Icons.add),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: scheme.primary
-                                            .withValues(alpha: 0.1),
-                                        foregroundColor: scheme.primary,
-                                        side: BorderSide(
-                                          color: scheme.primary
-                                              .withValues(alpha: 0.2),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.xl),
-                          // Kinetic Stats Grid
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'EATEN',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2.0,
-                                        color: scheme.onSurfaceVariant,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.baseline,
-                                      textBaseline: TextBaseline.alphabetic,
-                                      children: [
-                                        Text(
-                                          '$eatenKcal',
-                                          style: theme.textTheme.headlineLarge
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: scheme.primary,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'kcal',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'BURNED',
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2.0,
-                                        color: scheme.onSurfaceVariant,
-                                        fontSize: 10,
-                                      ),
-                                    ),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.baseline,
-                                      textBaseline: TextBaseline.alphabetic,
-                                      children: [
-                                        Text(
-                                          '$burnedKcal',
-                                          style: theme.textTheme.headlineLarge
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: LuminaHealthColors.tertiary,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'kcal',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                    SliverToBoxAdapter(
+                      child: _DailyLogsHeader(totalEntries: totalEntries),
                     ),
-                  ),
-                  // Macro Breakdown
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerLow
-                              .withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(AppRadius.lg),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.05)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.05),
-                              offset: const Offset(0, 2),
-                              blurRadius: 4,
-                              spreadRadius: 0,
-                              blurStyle: BlurStyle.inner,
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(AppSpacing.md),
-                        child: Row(
-                          children: macroSummaries.map((macro) {
-                            final color = _macroAccent(macro.type);
-                            final progress = macro.goal > 0
-                                ? (macro.current / macro.goal).clamp(0.0, 1.0)
-                                : 0.0;
-                            final left =
-                                math.max(0, macro.goal - macro.current);
-                            return Expanded(
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                  left: macro == macroSummaries.first
-                                      ? 0
-                                      : AppSpacing.sm,
-                                  right: macro == macroSummaries.last
-                                      ? 0
-                                      : AppSpacing.sm,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          macro.label.toUpperCase(),
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: scheme.onSurfaceVariant,
-                                            letterSpacing: -0.5,
-                                            fontSize: 10,
-                                          ),
-                                        ),
-                                        Text(
-                                          '${macro.current}g',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: color,
-                                            fontSize: 10,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: AppSpacing.xs),
-                                    LinearProgressIndicator(
-                                      value: progress.toDouble(),
-                                      backgroundColor:
-                                          scheme.surfaceContainerHighest,
-                                      color: color,
-                                      minHeight: 6,
-                                      borderRadius:
-                                          BorderRadius.circular(9999),
-                                    ),
-                                    const SizedBox(height: AppSpacing.xs),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: Text(
-                                        '${left}g left',
-                                        style: theme.textTheme.labelSmall
-                                            ?.copyWith(
-                                          color: scheme.onSurface
-                                              .withValues(alpha: 0.6),
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Daily Logs Header
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
-                          AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'Daily Logs',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: scheme.onSurface,
-                            ),
-                          ),
-                          Text(
-                            '$totalEntries entries',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate((context, index) {
                         final meal = mealSummaries[index];
+                        final canCopy =
+                            meal.entries.isEmpty &&
+                            !_copyingMeals.contains(meal.mealType) &&
+                            _copyableFromPreviousDay(meal.mealType).isNotEmpty;
                         return Padding(
                           padding: EdgeInsets.fromLTRB(
                             AppSpacing.lg,
@@ -723,18 +865,26 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
                           ),
                           child: _MealCard(
                             meal: meal,
-                            onItemTap: (item) =>
-                                _showItemDetails(context, item),
+                            onTap: () => _openMealDetails(context, meal),
+                            onAddFood: () => _openAddFoodSheet(
+                              context,
+                              initialMeal: meal.mealType,
+                            ),
+                            onCopyPreviousDay: canCopy
+                                ? () => _copyMealFromPreviousDay(meal.mealType)
+                                : null,
+                            copyPreviousDayLabel: isToday
+                                ? 'Copy from yesterday'
+                                : 'Copy from previous day',
                           ),
                         );
-                      },
-                      childCount: mealSummaries.length,
+                      }, childCount: mealSummaries.length),
                     ),
-                  ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.xxl),
-                  ),
-                ],
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: AppSpacing.xxl),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -742,57 +892,736 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       ),
     );
   }
+}
 
-  Color _macroAccent(MacroType type) {
-    switch (type) {
-      case MacroType.protein:
-        return LuminaHealthColors.primary;
-      case MacroType.carbs:
-        return LuminaHealthColors.secondary;
-      case MacroType.fat:
-        return LuminaHealthColors.tertiary;
-    }
+/// Pinned compact date bar so the viewed day is visible at any scroll
+/// position. Transparent at rest (the hero gradient shows through); opaque
+/// once meal cards scroll under it so they don't visually collide. Reserves
+/// a fixed slot for the loading bar so its appearance doesn't shift content
+/// (KAN-25).
+class _DateBar extends StatelessWidget {
+  const _DateBar({
+    required this.dateLabel,
+    required this.isToday,
+    required this.showSpinner,
+    required this.onPreviousDay,
+    required this.onNextDay,
+    required this.onPickDate,
+    required this.onSetToday,
+  });
+
+  final String dateLabel;
+  final bool isToday;
+  final bool showSpinner;
+  final VoidCallback onPreviousDay;
+  final VoidCallback onNextDay;
+  final VoidCallback onPickDate;
+  final VoidCallback onSetToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return SliverAppBar(
+      pinned: true,
+      primary: false,
+      automaticallyImplyLeading: false,
+      toolbarHeight: 52,
+      titleSpacing: AppSpacing.sm,
+      backgroundColor: WidgetStateColor.resolveWith(
+        (states) => states.contains(WidgetState.scrolledUnder)
+            ? scheme.surface
+            : Colors.transparent,
+      ),
+      title: Row(
+        children: [
+          IconButton(
+            tooltip: 'Previous day',
+            icon: const Icon(Icons.chevron_left),
+            color: LuminaHealthColors.primary,
+            onPressed: onPreviousDay,
+          ),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: InkWell(
+                    // No onDoubleTap here: a second recognizer forces every
+                    // tap to wait out the ~300ms disambiguation window
+                    // (KAN-57). The Today chip covers the jump-to-today case.
+                    onTap: onPickDate,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Text(
+                        dateLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: LuminaHealthColors.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (!isToday)
+                  Padding(
+                    padding: const EdgeInsets.only(left: AppSpacing.sm),
+                    child: ActionChip(
+                      key: const Key('todayChip'),
+                      tooltip: 'Back to today',
+                      onPressed: onSetToday,
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: scheme.primary.withValues(alpha: 0.1),
+                      side: BorderSide(
+                        color: scheme.primary.withValues(alpha: 0.3),
+                      ),
+                      label: Text(
+                        'Today',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Next day',
+            icon: const Icon(Icons.chevron_right),
+            color: isToday ? null : LuminaHealthColors.primary,
+            onPressed: isToday ? null : onNextDay,
+          ),
+        ],
+      ),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(2),
+        child: SizedBox(
+          height: 2,
+          child: showSpinner
+              ? Padding(
+                  key: const Key("nutritionLoadingSpinner"),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                  ),
+                  child: LinearProgressIndicator(
+                    minHeight: 2,
+                    color: scheme.primary,
+                    backgroundColor: scheme.surfaceContainer,
+                  ),
+                )
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// Subtle "waiting to sync" indicator under the date bar (KAN-56): offline
+/// writes land in the outbox and the day still says "Meal logged", so this is
+/// the only signal that other devices won't see the change until this one
+/// reconnects. Disappears once the outbox drains.
+class _PendingSyncChip extends StatelessWidget {
+  const _PendingSyncChip({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final label = count == 1
+        ? '1 change waiting to sync'
+        : '$count changes waiting to sync';
+    return Center(
+      child: Container(
+        key: const Key('pendingSyncChip'),
+        margin: const EdgeInsets.only(top: AppSpacing.xs),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: LuminaHealthColors.hairline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_upload_outlined,
+              size: 14,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The hero biometric block: calorie ring (remaining/over + add button) over
+/// the kcal stats row. BURNED appears only when [burnedKcal] is non-null,
+/// i.e. an activity source is configured (KAN-37); otherwise EATEN sits
+/// centered on its own.
+class _HeroSection extends StatelessWidget {
+  const _HeroSection({
+    required this.ringProgress,
+    required this.ringColor,
+    required this.kcalOver,
+    required this.kcalCenterValue,
+    required this.eatenKcal,
+    required this.burnedKcal,
+    required this.onAddFood,
+  });
+
+  final double ringProgress;
+  final Color ringColor;
+  final bool kcalOver;
+  final int kcalCenterValue;
+  final int eatenKcal;
+
+  /// Null hides the BURNED stat (no activity source configured).
+  final int? burnedKcal;
+  final VoidCallback onAddFood;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        SizedBox(
+          height: 288,
+          width: 288,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Decorative: the merged center stat below carries the same
+              // information for screen readers (KAN-54).
+              ExcludeSemantics(
+                child: GlowingProgressRing(
+                  progress: ringProgress,
+                  size: 288,
+                  thickness: 12,
+                  trackColor: scheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
+                  progressColor: ringColor,
+                  glowColor: ringColor,
+                  glowLevel: PulseGlowLevel.high,
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // One announcement ("1479 kilocalories left"), not the
+                  // disjoint "1479" / "LEFT" fragments the visuals use.
+                  // Flexible + FittedBox: at large text scales the figure
+                  // shrinks to stay inside the fixed-size ring instead of
+                  // overflowing it; the 48dp CTA below never shrinks (KAN-40).
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Semantics(
+                        label:
+                            '$kcalCenterValue kilocalories '
+                            '${kcalOver ? 'over goal' : 'left'}',
+                        value:
+                            '${(ringProgress.clamp(0.0, 1.0) * 100).round()} '
+                            'percent of calorie goal used',
+                        excludeSemantics: true,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              kcalOver
+                                  ? '+$kcalCenterValue'
+                                  : '$kcalCenterValue',
+                              style: theme.textTheme.displayLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                height: 1,
+                                color: kcalOver
+                                    ? LuminaHealthColors.warning
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              kcalOver ? 'OVER' : 'LEFT',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 2.0,
+                                color: kcalOver
+                                    ? LuminaHealthColors.warning
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // The app's primary CTA: filled, 48dp target, labelled.
+                  IconButton(
+                    onPressed: onAddFood,
+                    tooltip: 'Add food',
+                    icon: const Icon(Icons.add),
+                    iconSize: 28,
+                    style: IconButton.styleFrom(
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
+                      minimumSize: const Size(48, 48),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Row(
+          children: [
+            Expanded(
+              child: _KcalStat(
+                label: 'EATEN',
+                kcal: eatenKcal,
+                color: scheme.primary,
+                alignment: burnedKcal == null
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
+              ),
+            ),
+            if (burnedKcal != null)
+              Expanded(
+                child: _KcalStat(
+                  label: 'BURNED',
+                  kcal: burnedKcal!,
+                  color: LuminaHealthColors.tertiary,
+                  alignment: CrossAxisAlignment.end,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One labelled kcal figure in the stats row under the ring.
+class _KcalStat extends StatelessWidget {
+  const _KcalStat({
+    required this.label,
+    required this.kcal,
+    required this.color,
+    required this.alignment,
+  });
+
+  final String label;
+  final int kcal;
+  final Color color;
+  final CrossAxisAlignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: alignment,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2.0,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        Row(
+          mainAxisAlignment: switch (alignment) {
+            CrossAxisAlignment.end => MainAxisAlignment.end,
+            CrossAxisAlignment.center => MainAxisAlignment.center,
+            _ => MainAxisAlignment.start,
+          },
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              '$kcal',
+              style: theme.textTheme.headlineLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'kcal',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The bordered focus-nutrients card: a single row of tiles for up to three,
+/// a 2×2 grid for four (four labels + values in one row would be cramped).
+/// Slot accents come from [LuminaHealthColors.focusAccents] so the card
+/// matches the amount-sheet pills and add-meal summary.
+class _FocusCard extends StatelessWidget {
+  const _FocusCard({required this.summaries, required this.warnNutrients});
+
+  final List<_FocusSummary> summaries;
+  final Set<String> warnNutrients;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tiles = [
+      for (var i = 0; i < summaries.length; i++)
+        Expanded(
+          child: _FocusTile(
+            summary: summaries[i],
+            accent: LuminaHealthColors
+                .focusAccents[i % LuminaHealthColors.focusAccents.length],
+            warnNutrients: warnNutrients,
+          ),
+        ),
+    ];
+    const gap = SizedBox(width: AppSpacing.md);
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: LuminaHealthColors.hairline),
+        boxShadow: [
+          BoxShadow(
+            color: LuminaHealthColors.hairline,
+            offset: const Offset(0, 2),
+            blurRadius: 4,
+            spreadRadius: 0,
+            blurStyle: BlurStyle.inner,
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: tiles.length <= 3
+          ? Row(
+              children: [
+                for (var i = 0; i < tiles.length; i++) ...[
+                  if (i > 0) gap,
+                  tiles[i],
+                ],
+              ],
+            )
+          : Column(
+              children: [
+                Row(children: [tiles[0], gap, tiles[1]]),
+                const SizedBox(height: AppSpacing.md),
+                Row(children: [tiles[2], gap, tiles[3]]),
+              ],
+            ),
+    );
+  }
+}
+
+// How a nutrient reads once its goal is exceeded (KAN-38): amber only when the
+// user opted the nutrient into warnings; restrict-type nutrients over are
+// neutral information; target-type nutrients — protein, fiber, vitamins,
+// minerals — hit their target, which is the goal, so they celebrate.
+({Color textColor, Color barColor, String suffix}) _overTreatmentColors(
+  NutrientSpec spec,
+  Color accent,
+  Set<String> warnNutrients,
+) {
+  switch (overGoalTreatment(spec, warnNutrients)) {
+    case OverGoalTreatment.warn:
+      return (
+        textColor: LuminaHealthColors.warning,
+        barColor: LuminaHealthColors.warning,
+        suffix: 'over',
+      );
+    case OverGoalTreatment.neutral:
+      return (
+        textColor: LuminaHealthColors.onSurfaceVariant,
+        barColor: accent,
+        suffix: 'over',
+      );
+    case OverGoalTreatment.celebrate:
+      return (textColor: accent, barColor: accent, suffix: '✓');
+  }
+}
+
+/// One focus nutrient's tile: label + amount, progress toward the goal, and
+/// the left/over/incomplete/no-data status line.
+class _FocusTile extends StatelessWidget {
+  const _FocusTile({
+    required this.summary,
+    required this.accent,
+    required this.warnNutrients,
+  });
+
+  final _FocusSummary summary;
+  final Color accent;
+  final Set<String> warnNutrients;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final spec = summary.spec;
+    // Grams read as "150g"; other units keep a thin space ("320 mg").
+    final unit = spec.unit == 'g' ? 'g' : ' ${spec.unit}';
+
+    final amount = summary.amount;
+    final noData = amount == null;
+    final goal = spec.dailyTarget;
+    final over = noData ? 0.0 : amount - goal;
+    // A floor total's over/left is unreliable, so the incomplete hint takes
+    // precedence over over-limit.
+    final incomplete = !noData && summary.incomplete;
+    final isOver = !noData && !incomplete && over > 0;
+    final progress = noData || goal <= 0
+        ? 0.0
+        : (amount / goal).clamp(0.0, 1.0).toDouble();
+    final treatment = isOver
+        ? _overTreatmentColors(spec, accent, warnNutrients)
+        : null;
+    final barColor = incomplete
+        ? accent.withValues(alpha: 0.35)
+        : treatment?.barColor ?? accent;
+    final valueColor = noData || incomplete
+        ? scheme.onSurfaceVariant
+        : treatment?.textColor ?? accent;
+    final valueText = noData
+        ? '—'
+        : '${incomplete ? '~' : ''}${formatNutrientValue(amount)}$unit';
+    final statusText = noData
+        ? 'no data'
+        : incomplete
+        ? 'incomplete'
+        : isOver
+        ? '+${formatNutrientValue(over)}$unit ${treatment!.suffix}'
+        : '${formatNutrientValue(goal - amount)}$unit left';
+    final statusColor = noData || incomplete
+        ? scheme.onSurfaceVariant
+        : treatment?.textColor ?? scheme.onSurface.withValues(alpha: 0.6);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                spec.label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onSurfaceVariant,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ),
+            Text(
+              valueText,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: valueColor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        LinearProgressIndicator(
+          value: progress,
+          backgroundColor: scheme.surfaceContainerHighest,
+          color: barColor,
+          minHeight: 6,
+          borderRadius: BorderRadius.circular(9999),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            statusText,
+            // Muted color + the value's "~" prefix already mark estimates;
+            // italic at this size only hurt legibility (KAN-40).
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: statusColor,
+              fontWeight: isOver ? FontWeight.bold : null,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The tappable row leading to the full vitamins/minerals breakdown page.
+class _ViewFullNutrientsLink extends StatelessWidget {
+  const _ViewFullNutrientsLink({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.insights, size: 18, color: scheme.primary),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'View full nutrients',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: scheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Daily Logs" section heading with the day's entry count.
+class _DailyLogsHeader extends StatelessWidget {
+  const _DailyLogsHeader({required this.totalEntries});
+
+  final int totalEntries;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.lg,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Text(
+              'Daily Logs',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+          Text(
+            '$totalEntries entries',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
 class _MealCard extends StatelessWidget {
   const _MealCard({
     required this.meal,
-    required this.onItemTap,
+    required this.onTap,
+    required this.onAddFood,
+    this.onCopyPreviousDay,
+    this.copyPreviousDayLabel = 'Copy from yesterday',
   });
 
   final _MealSummary meal;
-  final ValueChanged<_MealItem> onItemTap;
+  final VoidCallback onTap;
+
+  /// An empty meal has no detail sheet to open, so its tap becomes a logging
+  /// shortcut instead: straight to add-food with this meal preselected
+  /// (KAN-36). The trailing affordance flips to a "+" to match.
+  final VoidCallback onAddFood;
+
+  /// One-tap repeat of the previous day's version of this meal (KAN-51).
+  /// Non-null only while the meal is empty and the previous day is known
+  /// locally to have entries for it.
+  final VoidCallback? onCopyPreviousDay;
+  final String copyPreviousDayLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    
-    final hasItems = meal.items.isNotEmpty;
-    final firstItemHasImage = hasItems ? (meal.items.first.image?.trim().isNotEmpty ?? false) : false;
-    final imageUrl = firstItemHasImage ? meal.items.first.image!.trim() : null;
 
+    final hasItems = meal.entries.isNotEmpty;
+    final firstImage = hasItems
+        ? meal.entries.first.foodItem.imageUrl?.trim()
+        : null;
+    final imageUrl = (firstImage != null && firstImage.isNotEmpty)
+        ? firstImage
+        : null;
+
+    // Meal-accent chip (KAN-3): each meal's icon sits on a wash of its own
+    // accent so the four cards scan apart at a glance even before reading.
     final fallbackIcon = Container(
-      color: scheme.surfaceContainerHigh,
-      child: Center(
-        child: Icon(
-          hasItems ? meal.items.first.icon ?? Icons.restaurant : Icons.restaurant,
-          color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
-        ),
-      ),
+      color: meal.color.withValues(alpha: 0.12),
+      child: Center(child: Icon(meal.icon, color: meal.color)),
     );
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: hasItems ? () => onItemTap(meal.items.first) : null,
+        onTap: hasItems ? onTap : onAddFood,
         borderRadius: BorderRadius.circular(AppRadius.lg),
         child: Container(
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow.withValues(alpha: 0.8),
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+            border: Border.all(color: LuminaHealthColors.hairline),
           ),
           clipBehavior: Clip.antiAlias,
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -803,15 +1632,14 @@ class _MealCard extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border: Border.all(color: LuminaHealthColors.innerHighlight),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: imageUrl != null 
-                    ? Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => fallbackIcon,
-                      )
+                // FoodImage adds the loading placeholder + retry-on-error the
+                // raw Image.network lacked, and decodes at the 64px slot size
+                // instead of the photo's native resolution (KAN-60).
+                child: imageUrl != null
+                    ? FoodImage(url: imageUrl, cacheWidth: 64)
                     : fallbackIcon,
               ),
               const SizedBox(width: AppSpacing.md),
@@ -822,26 +1650,38 @@ class _MealCard extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          meal.name,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: scheme.onSurface,
+                        Flexible(
+                          child: Text(
+                            meal.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: scheme.onSurface,
+                            ),
                           ),
                         ),
-                        Text(
-                          '${meal.totalKcal} kcal',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: scheme.primary,
+                        const SizedBox(width: AppSpacing.sm),
+                        // scaleDown keeps the full figure visible at large
+                        // text scales; an ellipsized kcal would be useless.
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              '${meal.totalKcal} kcal',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: scheme.primary,
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      hasItems 
-                          ? meal.items.map((e) => e.name).join(', ')
+                      hasItems
+                          ? meal.entries.map((e) => e.foodItem.name).join(', ')
                           : 'No foods logged yet.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
@@ -850,13 +1690,29 @@ class _MealCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (onCopyPreviousDay != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: Key('copyPrevious-${meal.mealType.wireName}'),
+                          onPressed: onCopyPreviousDay,
+                          icon: const Icon(Icons.history, size: 18),
+                          label: Text(copyPreviousDayLabel),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Icon(
-                Icons.chevron_right,
-                color: scheme.onSurfaceVariant,
+                hasItems ? Icons.chevron_right : Icons.add_circle_outline,
+                color: hasItems ? scheme.onSurfaceVariant : scheme.primary,
               ),
             ],
           ),
@@ -866,55 +1722,46 @@ class _MealCard extends StatelessWidget {
   }
 }
 
-const int _dailyGoalKcal = 2200;
-const int _burnedKcal = 0;
-const int _carbGoalG = 260;
-const int _fatGoalG = 70;
-const int _proteinGoalG = 150;
+/// Burned-kcal source (KAN-37). Null means no activity tracking is configured,
+/// which hides the BURNED stat entirely — a permanently-zero figure reads as
+/// broken. When an activity integration lands, supply its value here and the
+/// stat re-enables with no layout rework.
+const int? _burnedKcal = null;
 
-enum MacroType { carbs, fat, protein }
-
-class _MacroSummary {
-  const _MacroSummary({
-    required this.type,
-    required this.label,
-    required this.current,
-    required this.goal,
-  });
-
-  final MacroType type;
-  final String label;
-  final int current;
-  final int goal;
-}
-
-class _MealItem {
-  const _MealItem({
-    required this.name,
-    required this.kcal,
+/// One focus nutrient's day state. [amount] is in the spec's canonical unit;
+/// null means foods were logged but none reported this nutrient.
+class _FocusSummary {
+  const _FocusSummary({
+    required this.spec,
     required this.amount,
-    this.icon,
-    this.image,
+    this.incomplete = false,
   });
 
-  final String name;
-  final int kcal;
-  final String amount;
-  final IconData? icon;
-  final String? image;
+  final NutrientSpec spec;
+  final double? amount;
+
+  /// The total is a floor — some of the day's foods didn't report it.
+  final bool incomplete;
 }
 
 class _MealSummary {
   const _MealSummary({
     required this.name,
-    required this.time,
-    required this.items,
+    required this.mealType,
+    required this.icon,
+    required this.color,
+    required this.entries,
   });
 
   final String name;
-  final String time;
-  final List<_MealItem> items;
+  final MealType mealType;
+  final IconData icon;
+
+  /// Per-meal accent (KAN-3): tints the card's icon chip and carries into the
+  /// detail sheet header so the meal keeps its identity across surfaces.
+  final Color color;
+  final List<NutritionEntry> entries;
 
   int get totalKcal =>
-      items.fold<int>(0, (total, item) => total + item.kcal);
+      entries.fold<int>(0, (total, entry) => total + entry.kcal.round());
 }

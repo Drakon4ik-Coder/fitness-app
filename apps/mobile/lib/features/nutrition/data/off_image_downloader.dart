@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../../../core/app_log.dart';
 import '../../../core/environment.dart';
 import 'off_rate_limiter.dart';
 
@@ -13,17 +14,15 @@ class OffImageResult {
 
 class OffImageDownloader {
   OffImageDownloader({String? userAgent, OffRateLimiter? rateLimiter})
-      : _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
-        _dio = Dio(
-          BaseOptions(
-            headers: {
-              'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
-            },
-            responseType: ResponseType.bytes,
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 20),
-          ),
-        );
+    : _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
+      _dio = Dio(
+        BaseOptions(
+          headers: {'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent},
+          responseType: ResponseType.bytes,
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 20),
+        ),
+      );
 
   final Dio _dio;
   final OffRateLimiter _rateLimiter;
@@ -42,7 +41,10 @@ class OffImageDownloader {
         bytes: Uint8List.fromList(data),
         contentType: contentType,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // Best-effort by design: a failed download only means the food keeps
+      // its remote image URL. Still worth a trace.
+      logError('off.downloadImage', error, stackTrace);
       return null;
     }
   }

@@ -48,6 +48,11 @@ class User(AbstractUser):
 
     email_verified = models.BooleanField(default=False)
 
+    # IANA timezone (e.g. "Europe/Kyiv"), reported by the client. Meal entries are
+    # stored as true UTC; this is how the server recovers the user's wall-clock
+    # time for day grouping and meal-time stats. UTC until the app reports one.
+    timezone = models.CharField(max_length=64, default="UTC")
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
@@ -80,6 +85,9 @@ class EmailVerificationToken(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     used_at = models.DateTimeField(null=True, blank=True)
 
+    def __str__(self) -> str:
+        return f"verification for {self.user.email}"
+
     @staticmethod
     def hash_token(raw: str) -> str:
         return hashlib.sha256(raw.encode()).hexdigest()
@@ -95,5 +103,74 @@ class EmailVerificationToken(models.Model):
     def is_expired(self) -> bool:
         return timezone.now() > self.created_at + settings.EMAIL_VERIFICATION_TTL
 
+
+class AccountDeletionToken(models.Model):
+    """Single-use, expiring token backing the emailed account-deletion link.
+
+    Backs the logged-out web deletion path Google Play requires. Mirrors
+    :class:`PasswordResetToken`: only the SHA-256 hash is stored so a database
+    leak can't be turned into live deletion links, and the raw token travels
+    only in the emailed URL. Short-lived (``ACCOUNT_DELETION_TTL``) because it
+    authorizes an irreversible action.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="deletion_tokens"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
     def __str__(self) -> str:
-        return f"verification for {self.user.email}"
+        return f"account deletion for {self.user.email}"
+
+    @staticmethod
+    def hash_token(raw: str) -> str:
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    @classmethod
+    def issue(cls, user: "User") -> str:
+        """Create a token for ``user`` and return the raw value for the URL."""
+        raw = secrets.token_urlsafe(32)
+        cls.objects.create(user=user, token_hash=cls.hash_token(raw))
+        return raw
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.created_at + settings.ACCOUNT_DELETION_TTL
+
+
+class PasswordResetToken(models.Model):
+    """Single-use, expiring token backing the password-reset link.
+
+    Mirrors :class:`EmailVerificationToken`: only the SHA-256 hash is stored so
+    a database leak can't be turned into live reset links, and the raw token
+    travels only in the emailed URL. Reset tokens are shorter-lived than
+    verification tokens (``PASSWORD_RESET_TTL``) since they grant a credential
+    change.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="password_reset_tokens"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self) -> str:
+        return f"password reset for {self.user.email}"
+
+    @staticmethod
+    def hash_token(raw: str) -> str:
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    @classmethod
+    def issue(cls, user: "User") -> str:
+        """Create a token for ``user`` and return the raw value for the URL."""
+        raw = secrets.token_urlsafe(32)
+        cls.objects.create(user=user, token_hash=cls.hash_token(raw))
+        return raw
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.created_at + settings.PASSWORD_RESET_TTL

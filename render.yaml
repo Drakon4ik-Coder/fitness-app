@@ -15,7 +15,9 @@ services:
       - key: DJANGO_SECRET_KEY         # match your settings file
         generateValue: true
       - key: SENTRY_DSN
-        sync: false                    # set real DSN later
+        sync: false                    # backend project DSN (shared with prod)
+      - key: SENTRY_ENVIRONMENT       # this Render service tracks develop
+        value: staging
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: LOG_LEVEL

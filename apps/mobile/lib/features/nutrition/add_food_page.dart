@@ -1,18 +1,31 @@
 import 'dart:async';
+import 'dart:math' show min;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../ui_components/ui_components.dart';
+import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
+import 'custom_food_page.dart';
 import 'data/api_exceptions.dart';
 import 'data/food_local_db.dart';
 import 'data/food_models.dart';
+import 'data/food_sync.dart';
 import 'data/foods_api_service.dart';
-import 'data/nutrition_api_service.dart';
+import 'data/nutrient_catalog.dart';
+import 'data/nutrition_repository.dart';
 import 'data/off_client.dart';
 import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
+import 'food_detail_page.dart';
+import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
+import 'widgets/amount_sheet.dart';
+import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
+import 'widgets/swipe_delete_background.dart';
 
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
@@ -40,18 +53,42 @@ class AddFoodPage extends StatefulWidget {
     super.key,
     required this.localDb,
     required this.foodsApi,
-    required this.nutritionApi,
+    required this.repository,
     required this.offClient,
     required this.onLogout,
     required this.selectedDate,
+    this.initialMeal,
+    this.focusSpecs,
+    this.catalog,
+    this.warnNutrients = const {},
+    this.scanBarcode,
   });
 
   final FoodLocalDb localDb;
   final FoodsApiService foodsApi;
-  final NutritionApiService nutritionApi;
+  final NutritionRepository repository;
   final OffClient offClient;
   final Future<void> Function() onLogout;
   final DateTime selectedDate;
+  final MealType? initialMeal;
+
+  /// The user's focus nutrients (goal-resolved, in display order), driving the
+  /// summary card and the amount sheet's preview pills so this page tracks the
+  /// same nutrients as the today page. Null falls back to the default trio.
+  final List<NutrientSpec>? focusSpecs;
+
+  /// The full goal-resolved catalog, forwarded to the food detail page so its
+  /// per-100g targets match the today page. Null falls back to the defaults.
+  final List<NutrientSpec>? catalog;
+
+  /// Catalog keys the user opted into over-goal warnings for (KAN-38),
+  /// forwarded to the amount sheet's nutrition-facts breakdown.
+  final Set<String> warnNutrients;
+
+  /// Runs the barcode-scan flow and resolves with the scanned code (null =
+  /// dismissed). Defaults to pushing [NutritionScanPage]; tests inject a fake
+  /// since the camera scanner needs platform channels.
+  final Future<String?> Function(BuildContext context)? scanBarcode;
 
   @override
   State<AddFoodPage> createState() => _AddFoodPageState();
@@ -61,7 +98,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   final TextEditingController _searchController = TextEditingController();
   final OffMapper _offMapper = OffMapper();
   final OffImageDownloader _imageDownloader = OffImageDownloader();
-  Timer? _debounce;
+  late final LiveSearchController _liveSearch;
   Timer? _offBlockTimer;
 
   static const Duration _scanCooldown = Duration(seconds: 3);
@@ -69,11 +106,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
   String? _lastScannedBarcode;
   DateTime? _lastScannedAt;
 
-  MealType _selectedMeal = MealType.breakfast;
+  late MealType _selectedMeal = widget.initialMeal ?? MealType.breakfast;
+  late final List<NutrientSpec> _focusSpecs =
+      widget.focusSpecs ?? resolveFocusSpecs(null);
   String _selectedFilter = _filterRecent;
-  
-  // Track actual items instead of search result indices 
-  final List<FoodItem> _addedItems = [];
+
+  // Result key currently being enriched via an OFF fetch (shows a card spinner).
+  String? _enrichingKey;
+
+  // Track actual items (with their per-item amount) instead of search indices
+  final List<_AddedFood> _addedItems = [];
 
   bool _isBackendLoading = false;
   bool _isOffLoading = false;
@@ -90,13 +132,37 @@ class _AddFoodPageState extends State<AddFoodPage> {
   @override
   void initState() {
     super.initState();
+    // The controller owns the shared 300ms debounce + per-query CancelToken +
+    // 2-char floor (D-06/D-07/D-08). The page hands it `setState`-driven setters
+    // so debounced backend/OFF results flow back into the existing merge fields.
+    _liveSearch = LiveSearchController(
+      offClient: widget.offClient,
+      foodsApi: widget.foodsApi,
+      offMapper: _offMapper,
+      onBackendResults: (results) {
+        if (!mounted) return;
+        setState(() => _backendResults = results);
+      },
+      onOffResults: (results) {
+        if (!mounted) return;
+        setState(() => _offResults = results);
+      },
+      onLoadingChanged: ({required bool backend, required bool off}) {
+        if (!mounted) return;
+        setState(() {
+          _isBackendLoading = backend;
+          _isOffLoading = off;
+        });
+      },
+      onUnauthorized: widget.onLogout,
+    );
     _searchController.addListener(_handleSearchChange);
     _loadFilterResults();
   }
 
   @override
   void dispose() {
-    _debounce?.cancel();
+    _liveSearch.dispose();
     _offBlockTimer?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -126,7 +192,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
     if (_ignoreSearchChange) return;
     final query = _searchController.text.trim();
     if (query.isEmpty) {
-      _debounce?.cancel();
+      // Clear pending online work and reset the result fields, then fall back
+      // to the recent/favorites list.
+      _liveSearch.onQueryChanged('');
       setState(() {
         _backendResults = [];
         _offResults = [];
@@ -145,11 +213,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
       _message = null;
       _messageTone = null;
     });
+    // Local cache stays instant + un-debounced (D-06); the controller owns the
+    // shared 300ms debounce that fires backend typeahead + OFF together.
     _loadLocalSearch(query);
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
-      _loadBackendSearch(query);
-    });
+    _liveSearch.onQueryChanged(query);
   }
 
   Future<void> _loadFilterResults() async {
@@ -172,40 +239,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
-  Future<void> _loadBackendSearch(String query) async {
-    if (!mounted) return;
-    setState(() {
-      _isBackendLoading = true;
-      _message = null;
-      _messageTone = null;
-    });
-    try {
-      final results = await widget.foodsApi.typeahead(query);
-      if (!mounted) return;
-      if (_searchController.text.trim() != query) {
-        setState(() => _isBackendLoading = false);
-        return;
-      }
-      setState(() {
-        _backendResults = results;
-        _isBackendLoading = false;
-      });
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
-        if (!mounted) return;
-        setState(() => _isBackendLoading = false);
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _isBackendLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.error;
-      });
-    }
-  }
-
   void _selectMeal(MealType meal) {
     setState(() {
       _selectedMeal = meal;
@@ -220,27 +253,310 @@ class _AddFoodPageState extends State<AddFoodPage> {
     _loadFilterResults();
   }
 
-  void _appendResult(FoodItem item) {
+  int _indexOfAdded(FoodItem item) {
+    final key = _resultKey(item);
+    if (key == null) return -1;
+    for (var i = 0; i < _addedItems.length; i++) {
+      if (_resultKey(_addedItems[i].item) == key) return i;
+    }
+    return -1;
+  }
+
+  bool _isAdded(FoodItem item) => _indexOfAdded(item) >= 0;
+
+  double _defaultGramsFor(FoodItem item) {
+    // Prefer one whole piece (an egg, a burger), then one serving, then 100 g.
+    final piece = item.gramsPerPiece;
+    if (piece != null && piece > 0) return piece;
+    final serving = item.servingSizeG;
+    if (serving != null && serving > 0) return serving;
+    // For cooked-basis foods the natural default is 100 g *raw* (what the
+    // scale shows for a product sold uncooked), stored as cooked-equivalent
+    // grams like every logged amount.
+    return item.isCookedBasis ? 100.0 * kCookedYieldFactor : 100.0;
+  }
+
+  // OFF text search can't return serving data, so an OFF result starts without a
+  // serving/piece size. Fetch the full product the moment it's tapped so the
+  // amount sheet can offer pieces/servings and the quick-add default is sane.
+  bool _needsEnrich(_FoodResult result) {
+    return result.origin == _FoodResultOrigin.off &&
+        result.item.barcode != null &&
+        result.item.barcode!.isNotEmpty &&
+        result.item.servingSizeG == null &&
+        !_isOffRateLimited;
+  }
+
+  Future<FoodItem> _enrich(FoodItem item) async {
+    final barcode = item.barcode;
+    if (barcode == null || barcode.isEmpty) return item;
+    try {
+      final response = await widget.offClient.fetchProduct(barcode);
+      if (response == null || !mounted) return item;
+      final locale = Localizations.localeOf(context).languageCode;
+      return _offMapper.mapProduct(
+        product: response.product,
+        rawJson: response.rawJson,
+        localeLanguage: locale,
+      );
+    } on OffRateLimitException catch (error) {
+      if (mounted) _applyOffLimit(error);
+      return item;
+    } on OffException {
+      return item;
+    }
+  }
+
+  // One-tap quick add: tapping a result immediately logs it with a smart
+  // default (1 piece/serving when known, else 100 g). The amount can be
+  // fine-tuned later by tapping the item in the Added list. If the food is
+  // already added we open its editor instead, so it can never be added twice.
+  // OFF results are enriched first (a short fetch) so their default lands on a
+  // whole piece/serving rather than a raw 100 g.
+  Future<void> _onResultTap(_FoodResult result) async {
+    FocusScope.of(context).unfocus();
+    final existingIndex = _indexOfAdded(result.item);
+    if (existingIndex >= 0) {
+      await _editAddedItem(existingIndex);
+      return;
+    }
+
+    var item = result.item;
+    if (_needsEnrich(result)) {
+      final key = _resultKey(item);
+      if (key == null || _enrichingKey != null) return;
+      setState(() => _enrichingKey = key);
+      item = await _enrich(item);
+      if (!mounted) return;
+      setState(() => _enrichingKey = null);
+      // The user may have navigated/removed in the meantime; re-check.
+      if (_indexOfAdded(item) >= 0) return;
+    }
+
+    unawaited(HapticFeedback.selectionClick());
     setState(() {
-      _addedItems.add(item);
+      _addedItems.add(_AddedFood(item: item, grams: _defaultGramsFor(item)));
     });
   }
-  
-  void _removeItem(int index) {
+
+  Future<void> _editAddedItem(int index) async {
+    final entry = _addedItems[index];
+    final result = await showAmountSheet(
+      context: context,
+      item: entry.item,
+      initialGrams: entry.grams,
+      isEditing: true,
+      focusSpecs: _focusSpecs,
+      catalog: widget.catalog ?? kNutrientCatalog,
+      warnNutrients: widget.warnNutrients,
+      onViewDetails: _openFoodDetail,
+    );
+    if (result == null || !mounted) return;
+    // While the sheet was open, its View Details flow may have removed the
+    // staged entry (custom-food delete / override revert) or swapped it for
+    // a fresh override under a different key — the integer index is stale.
+    // Re-resolve by identity; if the entry is gone, there is nothing to edit.
+    final liveIndex = _stagedIndexOf(entry.item);
+    if (liveIndex < 0) return;
+    if (result.removed) {
+      _removeAddedItem(liveIndex);
+      return;
+    }
     setState(() {
-      _addedItems.removeAt(index);
+      if (result.grams != null) {
+        _addedItems[liveIndex] = _AddedFood(
+          item: _addedItems[liveIndex].item,
+          grams: result.grams!,
+        );
+      }
+    });
+  }
+
+  /// Where [item]'s staged entry lives *now*: under its own key, or — when a
+  /// detail-page edit forked it into a personal override — under the custom
+  /// food that _applyCustomFoodUpdate swapped into its slot.
+  int _stagedIndexOf(FoodItem item) {
+    final direct = _indexOfAdded(item);
+    if (direct >= 0) return direct;
+    for (var i = 0; i < _addedItems.length; i++) {
+      final candidate = _addedItems[i].item;
+      final overridesSameFood =
+          candidate.isCustom &&
+          ((item.backendId != null &&
+                  candidate.overridesBackendId == item.backendId) ||
+              (item.barcode != null &&
+                  item.barcode!.isNotEmpty &&
+                  candidate.overridesBarcode == item.barcode));
+      if (overridesSameFood) return i;
+    }
+    return -1;
+  }
+
+  /// Drops the staged item at [index] and offers Undo (KAN-39). Staged items
+  /// only live in this list, so undo is a plain re-insert at the old spot.
+  void _removeAddedItem(int index) {
+    final removed = _addedItems[index];
+    unawaited(HapticFeedback.mediumImpact());
+    setState(() => _addedItems.removeAt(index));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Removed ${removed.item.name}'),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              if (!mounted) return;
+              setState(() {
+                _addedItems.insert(min(index, _addedItems.length), removed);
+              });
+            },
+          ),
+        ),
+      );
+  }
+
+  // Long-press = inspect (KAN-35): always the read-first detail page, never
+  // a mutation or a direct edit form — overrides are created only via the
+  // labeled edit action inside it. Serving-less OFF results enrich first so
+  // the page doesn't open on sparse per-100g data.
+  Future<void> _onResultLongPress(_FoodResult result) async {
+    FocusScope.of(context).unfocus();
+    var item = result.item;
+    if (_needsEnrich(result)) {
+      final key = _resultKey(item);
+      if (key == null || _enrichingKey != null) return;
+      setState(() => _enrichingKey = key);
+      item = await _enrich(item);
+      if (!mounted) return;
+      setState(() => _enrichingKey = null);
+    }
+    await _openFoodDetail(item);
+  }
+
+  /// Pushes the read-first food detail page (KAN-33). Edits made there are
+  /// propagated into this page's lists as they happen; resolves with the
+  /// updated item (or null if nothing changed) so the amount sheet can
+  /// refresh its preview.
+  Future<FoodItem?> _openFoodDetail(FoodItem item) {
+    FocusScope.of(context).unfocus();
+    return pushFoodDetailPage(
+      context,
+      item: item,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onLogout: widget.onLogout,
+      catalog: widget.catalog ?? kNutrientCatalog,
+      onItemChanged: _applyCustomFoodUpdate,
+      onItemReverted: _applyCustomFoodRemoval,
+    );
+  }
+
+  /// Reflects a saved custom food everywhere it can appear: its own rows in
+  /// the results/Added lists and — for overrides — any staged copy of the
+  /// global it shadows. A fresh fork not yet in any list is surfaced in the
+  /// local results, standing in for the shadowed global that _buildResults
+  /// hides.
+  void _applyCustomFoodUpdate(FoodItem stored) {
+    bool isSelf(FoodItem candidate) =>
+        candidate.isCustom && candidate.externalId == stored.externalId;
+    bool isShadowedGlobal(FoodItem candidate) =>
+        stored.isOverride &&
+        !candidate.isCustom &&
+        ((candidate.backendId != null &&
+                candidate.backendId == stored.overridesBackendId) ||
+            (candidate.barcode != null &&
+                candidate.barcode!.isNotEmpty &&
+                candidate.barcode == stored.overridesBarcode));
+    bool matches(FoodItem candidate) =>
+        isSelf(candidate) || isShadowedGlobal(candidate);
+
+    List<FoodItem> swap(List<FoodItem> list) => [
+      for (final it in list) matches(it) ? stored : it,
+    ];
+
+    setState(() {
+      for (var i = 0; i < _addedItems.length; i++) {
+        if (matches(_addedItems[i].item)) {
+          _addedItems[i] = _AddedFood(
+            item: stored,
+            grams: _addedItems[i].grams,
+          );
+        }
+      }
+      _localResults = swap(_localResults);
+      _backendResults = swap(_backendResults);
+      if (!_localResults.any(isSelf) && !_backendResults.any(isSelf)) {
+        _localResults = [stored, ..._localResults];
+      }
+    });
+  }
+
+  /// Drops a deleted/reverted custom food from every list on this page.
+  void _applyCustomFoodRemoval(FoodItem item) {
+    bool matches(FoodItem candidate) =>
+        candidate.isCustom && candidate.externalId == item.externalId;
+    setState(() {
+      _addedItems.removeWhere((added) => matches(added.item));
+      _localResults = [
+        for (final it in _localResults)
+          if (!matches(it)) it,
+      ];
+      _backendResults = [
+        for (final it in _backendResults)
+          if (!matches(it)) it,
+      ];
+    });
+  }
+
+  // Opens the create-food form; the popped draft is synced (best effort —
+  // offline creation still works, _submitItems re-syncs any custom food
+  // missing a backendId), stored locally, and dropped into the Added list.
+  Future<void> _openCustomFoodPage() async {
+    FocusScope.of(context).unfocus();
+    final result = await Navigator.of(context).push<CustomFoodResult>(
+      MaterialPageRoute(builder: (_) => const CustomFoodPage()),
+    );
+    final draft = result?.item;
+    if (draft == null || !mounted) return;
+    final stored = await saveCustomFoodDraft(
+      draft,
+      foodsApi: widget.foodsApi,
+      localDb: widget.localDb,
+      onUnauthorized: widget.onLogout,
+    );
+    if (stored == null || !mounted) return;
+    unawaited(HapticFeedback.selectionClick());
+    setState(() {
+      _addedItems.add(
+        _AddedFood(item: stored, grams: _defaultGramsFor(stored)),
+      );
     });
   }
 
   Future<void> _openScanPage() async {
     FocusScope.of(context).unfocus();
-    final barcode = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => const NutritionScanPage(),
-      ),
-    );
+    final scan =
+        widget.scanBarcode ??
+        (context) => Navigator.of(context).push<String>(
+          MaterialPageRoute(builder: (_) => const NutritionScanPage()),
+        );
+    final barcode = await scan(context);
     if (barcode == null || barcode.trim().isEmpty) return;
     await _handleBarcodeScan(barcode.trim());
+  }
+
+  /// Puts [barcode] into the search field without triggering the live-search
+  /// listener — the scan flow supplies its own result below.
+  void _setSearchTextSilently(String barcode) {
+    _ignoreSearchChange = true;
+    _searchController.text = barcode;
+    _searchController.selection = TextSelection.collapsed(
+      offset: _searchController.text.length,
+    );
+    _ignoreSearchChange = false;
   }
 
   Future<void> _handleBarcodeScan(String barcode) async {
@@ -251,6 +567,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
       });
       return;
     }
+    // Debounce re-scans of the same package: the camera fires repeatedly
+    // while the barcode stays in frame.
     final now = DateTime.now();
     if (_lastScannedBarcode == barcode &&
         _lastScannedAt != null &&
@@ -259,6 +577,28 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
     _lastScannedBarcode = barcode;
     _lastScannedAt = now;
+    // The user's override shadows the catalog product: a scan of the
+    // original's barcode resolves straight to their corrected copy.
+    final override = await widget.localDb.fetchOverrideForBarcode(barcode);
+    if (!mounted) return;
+    if (override != null) {
+      _setSearchTextSilently(barcode);
+      setState(() {
+        _localResults = [override];
+        _backendResults = [];
+        _offResults = [];
+        _message = null;
+        _messageTone = null;
+      });
+      return;
+    }
+    await _fetchScannedProduct(barcode);
+  }
+
+  /// OFF lookup for a scanned barcode with no local override: shows the
+  /// product as the sole result (the user still taps to add), or an inline
+  /// banner on miss/throttle/error.
+  Future<void> _fetchScannedProduct(String barcode) async {
     setState(() {
       _isOffLoading = true;
       _message = null;
@@ -282,12 +622,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         localeLanguage: locale,
       );
       if (!mounted) return;
-      _ignoreSearchChange = true;
-      _searchController.text = barcode;
-      _searchController.selection = TextSelection.collapsed(
-        offset: _searchController.text.length,
-      );
-      _ignoreSearchChange = false;
+      _setSearchTextSilently(barcode);
       setState(() {
         _offResults = [item];
         _backendResults = [];
@@ -313,109 +648,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
   }
 
-  Future<void> _searchOnline() async {
-    final query = _searchController.text.trim();
-    if (query.isEmpty) return;
-    if (_isOffRateLimited) {
-      setState(() {
-        _message = 'OpenFoodFacts is temporarily rate limited. Try again soon.';
-        _messageTone = InlineBannerTone.info;
-      });
-      return;
-    }
-    final queryLower = query.toLowerCase();
-    setState(() {
-      _isOffLoading = true;
-      _message = null;
-      _messageTone = null;
-    });
-    try {
-      final locale = Localizations.localeOf(context).languageCode;
-      final baseResults = await widget.offClient.searchProducts(query);
-      List<OffProductResponse> effectiveResults = baseResults;
-      final bool hasCategoryMatch = _hasCategoryMatch(baseResults, queryLower);
-      if (baseResults.isEmpty || !hasCategoryMatch) {
-        final categoryTags = categoryTagsForQuery(queryLower);
-        for (final tag in categoryTags) {
-          try {
-            final categoryResults = await widget.offClient.searchProducts(query, categoryTag: tag);
-            if (categoryResults.isNotEmpty) {
-              effectiveResults = categoryResults;
-              break;
-            }
-          } catch (_) {}
-        }
-      }
-
-      final filteredResults = effectiveResults.where((result) => _isEnglishResult(result.product)).toList();
-      final preferredResults = filteredResults.isEmpty ? effectiveResults : filteredResults;
-      final candidates = <_OffSearchCandidate>[];
-      for (final result in preferredResults) {
-        final item = _offMapper.mapProduct(
-          product: result.product,
-          rawJson: result.rawJson,
-          localeLanguage: locale,
-        );
-        if (item.barcode == null || item.barcode!.isEmpty) continue;
-        candidates.add(_OffSearchCandidate(item: item, product: result.product));
-      }
-      final narrowedCandidates = _preferWholeFoodCandidates(candidates, queryLower);
-      final items = narrowedCandidates.map((c) => c.item).toList();
-      items.sort((a, b) => _nameMatchScore(b.name, queryLower) - _nameMatchScore(a.name, queryLower));
-      if (!mounted) return;
-      if (_searchController.text.trim() != query) {
-        setState(() => _isOffLoading = false);
-        return;
-      }
-      setState(() {
-        _offResults = items;
-        _isOffLoading = false;
-        if (items.isEmpty) {
-          _message = 'No OpenFoodFacts matches found.';
-          _messageTone = InlineBannerTone.info;
-        }
-      });
-      if (items.isEmpty) return;
-      final stored = await _ingestOffResults(items);
-      if (!mounted) return;
-      if (_searchController.text.trim() != query) return;
-      setState(() {
-        _offResults = stored;
-      });
-    } on OffRateLimitException catch (error) {
-      if (!mounted) return;
-      _applyOffLimit(error);
-      setState(() {
-        _isOffLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.info;
-      });
-    } on OffException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _isOffLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.error;
-      });
-    }
-  }
-
-  Future<List<FoodItem>> _ingestOffResults(List<FoodItem> items) async {
-    final stored = <FoodItem>[];
-    for (final item in items) {
-      try {
-        stored.add((await widget.foodsApi.ingestFood(item)).item);
-      } on ApiException catch (error) {
-        if (error.isUnauthorized) {
-          await widget.onLogout();
-          return stored.isEmpty ? items : stored;
-        }
-        stored.add(item);
-      }
-    }
-    return stored;
-  }
-
   Future<FoodItem?> _tryUploadImages(FoodItem item) async {
     final backendId = item.backendId;
     final imageUrl = item.imageUrl;
@@ -430,89 +662,102 @@ class _AddFoodPageState extends State<AddFoodPage> {
     );
   }
 
+  /// Logs one staged item, in named steps: resolve a backend id (custom
+  /// upsert vs global ingest/check), best-effort image upload, persist the
+  /// food locally, create the entry (optimistic + offline-tolerant, KAN-28),
+  /// and touch the recents ordering.
+  Future<void> _logOneItem(_AddedFood added, DateTime consumedAt) async {
+    FoodItem selected = added.item;
+    bool imagesOk = false;
+    if (selected.backendId == null) {
+      if (selected.isCustom) {
+        // Custom foods sync through their owner-scoped upsert, never the
+        // OFF ingest/check flow (which rejects the custom source).
+        final synced = await widget.foodsApi.upsertCustomFood(selected);
+        selected = selected.copyWith(backendId: synced.backendId);
+      } else {
+        final (resolved, resolvedImagesOk) = await ensureGlobalBackendId(
+          selected,
+          foodsApi: widget.foodsApi,
+        );
+        selected = resolved;
+        imagesOk = resolvedImagesOk;
+      }
+    }
+    if (selected.backendId == null) {
+      throw ApiException('Unable to resolve food item id.');
+    }
+
+    if (!imagesOk) {
+      // Nice-to-have; never block logging the meal on it (e.g. offline
+      // with an already-resolved food).
+      try {
+        final uploaded = await _tryUploadImages(selected);
+        if (uploaded != null) selected = uploaded;
+      } on ApiException {
+        // Retried the next time this food is logged.
+      }
+    }
+
+    selected = await widget.localDb.upsertFood(selected);
+
+    await widget.repository.createEntry(
+      food: selected,
+      mealType: _selectedMeal.wireName,
+      quantityG: added.grams,
+      consumedAt: consumedAt,
+    );
+
+    if (selected.localId != null) {
+      await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
+    }
+  }
+
   Future<void> _submitItems() async {
     if (_addedItems.isEmpty) return;
-    
+
     setState(() {
       _isSubmitting = true;
       _message = null;
       _messageTone = null;
     });
 
-    try {
-      final now = DateTime.now();
-      final consumedAt = DateTime(
-        widget.selectedDate.year,
-        widget.selectedDate.month,
-        widget.selectedDate.day,
-        now.hour,
-        now.minute,
-      );
+    final now = DateTime.now();
+    final consumedAt = DateTime(
+      widget.selectedDate.year,
+      widget.selectedDate.month,
+      widget.selectedDate.day,
+      now.hour,
+      now.minute,
+    );
 
-      for (FoodItem selected in _addedItems) {
-        bool imagesOk = false;
-        if (selected.backendId == null) {
-          if (selected.contentHash.isNotEmpty) {
-            final check = await widget.foodsApi.checkFood(
-              source: selected.source,
-              externalId: selected.externalId,
-              contentHash: selected.contentHash,
-              imageSignature: selected.imageSignature,
-            );
-            if (check.upToDate && check.foodItemId != null) {
-              selected = selected.copyWith(backendId: check.foodItemId);
-              imagesOk = check.imagesOk;
-            } else {
-              final result = await widget.foodsApi.ingestFood(selected);
-              selected = result.item;
-              imagesOk = result.imagesOk;
-            }
-          } else {
-            final result = await widget.foodsApi.ingestFood(selected);
-            selected = result.item;
-            imagesOk = result.imagesOk;
-          }
+    // Each success leaves _addedItems immediately: createEntry mints a fresh
+    // client uuid per call, so a retry after a mid-list failure would
+    // re-log everything still staged — dedup has to happen here (KAN-53).
+    for (final added in List.of(_addedItems)) {
+      try {
+        await _logOneItem(added, consumedAt);
+      } on ApiException catch (error) {
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+          if (!mounted) return;
+          setState(() => _isSubmitting = false);
+          return;
         }
-        if (selected.backendId == null) {
-          throw ApiException('Unable to resolve food item id.');
-        }
-
-        if (!imagesOk) {
-          final uploaded = await _tryUploadImages(selected);
-          if (uploaded != null) selected = uploaded;
-        }
-
-        final stored = await widget.localDb.upsertFood(selected);
-        selected = stored;
-
-        await widget.nutritionApi.createEntry(
-          foodItemId: selected.backendId!,
-          mealType: _selectedMeal.name,
-          quantityG: 100, // Hardcoded for now
-          consumedAt: consumedAt,
-        );
-
-        if (selected.localId != null) {
-          await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
-        }
-      }
-
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } on ApiException catch (error) {
-      if (error.isUnauthorized) {
-        await widget.onLogout();
         if (!mounted) return;
-        setState(() => _isSubmitting = false);
+        setState(() {
+          _isSubmitting = false;
+          _message = 'Could not log ${added.item.name}: ${error.message}';
+          _messageTone = InlineBannerTone.error;
+        });
         return;
       }
-      if (!mounted) return;
-      setState(() {
-        _isSubmitting = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.error;
-      });
+      _addedItems.remove(added);
     }
+
+    if (!mounted) return;
+    unawaited(HapticFeedback.mediumImpact());
+    Navigator.of(context).pop(true);
   }
 
   String _resultsHeading(String query) {
@@ -526,8 +771,28 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final results = <_FoodResult>[];
     final seenKeys = <String>{};
 
+    // Globals shadowed by one of the user's overrides are hidden — the
+    // override row (a custom food, present in local/backend results) stands
+    // in for them. OFF rows carry no backend id, so barcodes match those.
+    final overriddenIds = <int>{};
+    final overriddenBarcodes = <String>{};
+    for (final item in [..._localResults, ..._backendResults]) {
+      if (!item.isOverride) continue;
+      overriddenIds.add(item.overridesBackendId!);
+      final barcode = item.overridesBarcode;
+      if (barcode != null && barcode.isNotEmpty) {
+        overriddenBarcodes.add(barcode);
+      }
+    }
+    bool shadowed(FoodItem item) =>
+        !item.isCustom &&
+        ((item.backendId != null && overriddenIds.contains(item.backendId)) ||
+            (item.barcode != null &&
+                overriddenBarcodes.contains(item.barcode)));
+
     void addItems(List<FoodItem> items, _FoodResultOrigin origin) {
       for (final item in items) {
+        if (shadowed(item)) continue;
         final key = _resultKey(item);
         if (key == null || seenKeys.contains(key)) continue;
         seenKeys.add(key);
@@ -542,7 +807,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
     addItems(_localResults, _FoodResultOrigin.local);
     addItems(_backendResults, _FoodResultOrigin.backend);
-    addItems(_offResults, _FoodResultOrigin.off);
+    addItems(_offResultsForDisplay(), _FoodResultOrigin.off);
     final queryLower = trimmed.toLowerCase();
     results.sort((a, b) {
       final scoreA = _resultScore(a, queryLower);
@@ -555,56 +820,25 @@ class _AddFoodPageState extends State<AddFoodPage> {
     return results;
   }
 
+  // OFF search returns many low-quality duplicates of popular foods, some with
+  // miscoded calories (e.g. a Big Mac stored as 540 kcal/100g). OFF's own
+  // `completeness` score tracks this well, so drop hits below a quality floor —
+  // but never hide everything, so an obscure (only) match still shows.
+  static const double _offCompletenessFloor = 0.5;
+  List<FoodItem> _offResultsForDisplay() {
+    final good = _offResults
+        .where((i) => (i.completeness ?? 0) >= _offCompletenessFloor)
+        .toList();
+    return good.isNotEmpty ? good : _offResults;
+  }
+
   String? _resultKey(FoodItem item) {
-    if (item.barcode != null && item.barcode!.isNotEmpty) return 'barcode:${item.barcode}';
+    if (item.barcode != null && item.barcode!.isNotEmpty) {
+      return 'barcode:${item.barcode}';
+    }
     if (item.backendId != null) return 'backend:${item.backendId}';
     if (item.externalId.isNotEmpty) return 'external:${item.externalId}';
     return null;
-  }
-
-  bool _isEnglishResult(Map<String, dynamic> product) {
-    final lang = product['lang'];
-    if (lang is String && lang.toLowerCase() == 'en') return true;
-    final nameEn = product['product_name_en'];
-    if (nameEn is String && nameEn.trim().isNotEmpty) return true;
-    return false;
-  }
-
-  bool _hasCategoryMatch(List<OffProductResponse> results, String queryLower) {
-    for (final result in results) {
-      if (_matchesCategoryQuery(result.product, queryLower)) return true;
-    }
-    return false;
-  }
-
-  List<_OffSearchCandidate> _preferWholeFoodCandidates(List<_OffSearchCandidate> candidates, String queryLower) {
-    if (candidates.isEmpty || queryLower.contains(' ')) return candidates;
-    final categoryMatches = candidates.where((c) => _matchesCategoryQuery(c.product, queryLower)).toList();
-    if (categoryMatches.isNotEmpty) return categoryMatches;
-    final nameMatches = candidates.where((c) => _isSimpleNameMatch(c.item.name, queryLower)).toList();
-    if (nameMatches.isNotEmpty) return nameMatches;
-    return candidates;
-  }
-
-  bool _matchesCategoryQuery(Map<String, dynamic> product, String queryLower) {
-    final tags = product['categories_tags'];
-    if (tags is! List) return false;
-    final singular = queryLower;
-    final plural = queryLower.endsWith('s') ? queryLower : '${queryLower}s';
-    for (final tag in tags) {
-      if (tag is! String) continue;
-      final lower = tag.toLowerCase();
-      if (lower == 'en:$singular' || lower == 'en:$plural') return true;
-    }
-    return false;
-  }
-
-  bool _isSimpleNameMatch(String name, String queryLower) {
-    final normalized = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').trim();
-    if (normalized == queryLower || normalized == '${queryLower}s') return true;
-    final parts = normalized.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
-    if (parts.isEmpty || parts.length > 2) return false;
-    return parts.contains(queryLower);
   }
 
   int _nameMatchScore(String name, String queryLower) {
@@ -613,7 +847,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
     int score = 0;
     if (nameLower == queryLower) score += 400;
     if (nameLower.startsWith(queryLower)) score += 300;
-    final wordMatch = RegExp(r'\b' + RegExp.escape(queryLower)).hasMatch(nameLower);
+    final wordMatch = RegExp(
+      r'\b' + RegExp.escape(queryLower),
+    ).hasMatch(nameLower);
     if (wordMatch) {
       score += 200;
     } else if (nameLower.contains(queryLower)) {
@@ -626,13 +862,23 @@ class _AddFoodPageState extends State<AddFoodPage> {
   int _resultScore(_FoodResult result, String queryLower) {
     int score = _nameMatchScore(result.item.name, queryLower);
     switch (result.origin) {
-      case _FoodResultOrigin.off: score += 5; break;
-      case _FoodResultOrigin.backend: score += 3; break;
-      case _FoodResultOrigin.local: score += 1; break;
+      case _FoodResultOrigin.off:
+        score += 5;
+        break;
+      case _FoodResultOrigin.backend:
+        score += 3;
+        break;
+      case _FoodResultOrigin.local:
+        score += 1;
+        break;
     }
+    // Break ties toward higher-quality OFF entries so the best-filled duplicate
+    // (correct calories) surfaces above sparser ones. Capped below the name-match
+    // gradations so relevance still dominates.
+    score += ((result.item.completeness ?? 0) * 50).round();
     return score;
   }
-  
+
   void _showMealSelector() {
     // Just a simple bottom sheet or dialog to select MealType.
     showModalBottomSheet(
@@ -647,9 +893,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: MealType.values.map((meal) {
-              final label = meal.name[0].toUpperCase() + meal.name.substring(1);
               return ListTile(
-                title: Text(label),
+                leading: Icon(mealTypeIcon(meal), color: mealTypeAccent(meal)),
+                title: Text(meal.label),
                 selected: meal == _selectedMeal,
                 selectedColor: Theme.of(context).colorScheme.primary,
                 onTap: () {
@@ -673,36 +919,33 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final hasQuery = query.trim().isNotEmpty;
     final canSubmit = !_isSubmitting && _addedItems.isNotEmpty;
 
-    // Calculate totals based on 100g per selected item for now
+    // Totals scale each item's per-100g values by its chosen amount. The
+    // summary tracks the user's focus nutrients, mirroring the today page.
     double totalEnergy = 0;
-    double totalProtein = 0;
-    double totalCarbs = 0;
-    double totalFats = 0;
+    final focusTotals = List<double>.filled(_focusSpecs.length, 0);
 
-    for (final item in _addedItems) {
-      totalEnergy += item.kcal100g ?? 0.0;
-      totalProtein += item.proteinG100g ?? 0.0;
-      totalCarbs += item.carbsG100g ?? 0.0;
-      totalFats += item.fatG100g ?? 0.0;
+    for (final entry in _addedItems) {
+      final factor = entry.grams / 100.0;
+      totalEnergy += (entry.item.kcal100g ?? 0.0) * factor;
+      for (var i = 0; i < _focusSpecs.length; i++) {
+        final per100 = nutrientPer100gForItem(_focusSpecs[i], entry.item);
+        focusTotals[i] += (per100 ?? 0.0) * factor;
+      }
     }
-    
-    final mealLabel = _selectedMeal.name[0].toUpperCase() + _selectedMeal.name.substring(1);
+
+    final mealLabel = _selectedMeal.label;
 
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        backgroundColor: scheme.surface.withValues(alpha: 0.8),
-        flexibleSpace: ClipRect(
-          child: BackdropFilter(
-            filter: ColorFilter.mode(Colors.black.withValues(alpha: 0.1), BlendMode.dstOut),
-            // Use flutter standard BackdropFilter if we had a child
-            child: Container(color: Colors.transparent),
-          ),
-        ),
+        // Solid bar: the old 18-sigma BackdropFilter blurred nothing (content
+        // never scrolled under the bar) and burned GPU per frame (KAN-60).
+        backgroundColor: scheme.surface,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.chevron_left, color: scheme.primary),
+          tooltip: 'Back',
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -714,272 +957,124 @@ class _AddFoodPageState extends State<AddFoodPage> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.check, color: canSubmit ? scheme.primary : scheme.outlineVariant),
-            onPressed: canSubmit ? _submitItems : null,
+            icon: Icon(Icons.note_add_outlined, color: scheme.primary),
+            tooltip: 'Create custom food',
+            onPressed: _openCustomFoodPage,
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Meal Type Selector
-            InkWell(
-              onTap: _showMealSelector,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.restaurant, color: scheme.secondary),
-                        const SizedBox(width: AppSpacing.md),
-                        Text(
-                          mealLabel,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
-                  ],
-                ),
+      // Sized so appearing/disappearing (first item staged, last removed)
+      // slides in over ~200 ms instead of reflowing the page in one frame.
+      bottomNavigationBar: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => SizeTransition(
+          sizeFactor: animation,
+          axisAlignment: -1,
+          child: FadeTransition(opacity: animation, child: child),
+        ),
+        child: _addedItems.isEmpty
+            ? const SizedBox.shrink()
+            : _LogBar(
+                itemCount: _addedItems.length,
+                totalKcal: totalEnergy.round(),
+                mealLabel: mealLabel,
+                isSubmitting: _isSubmitting,
+                onSubmit: canSubmit ? _submitItems : null,
               ),
+      ),
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
             ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Summary Bar (Bento Style)
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 140,
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'TOTAL ENERGY',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            letterSpacing: 2.0,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
-                        ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              totalEnergy.round().toString(),
-                              style: theme.textTheme.displayMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: scheme.primary,
-                                height: 1,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'kcal',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    height: 140,
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _MacroSummaryRow(label: 'Protein', value: '${totalProtein.round()}g', color: scheme.secondary, progress: 0.7),
-                        _MacroSummaryRow(label: 'Carbs', value: '${totalCarbs.round()}g', color: scheme.tertiary, progress: 0.5),
-                        _MacroSummaryRow(label: 'Fats', value: '${totalFats.round()}g', color: scheme.primary, progress: 0.25),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            
-            // Added Items List
-            if (_addedItems.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-                child: Text(
-                  'ADDED ITEMS',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    letterSpacing: 2.0,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 10,
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              ..._addedItems.asMap().entries.map((entry) {
-                final index = entry.key;
-                final item = entry.value;
-                final kcal = item.kcal100g?.round() ?? 0;
-                return Container(
-                  margin: const EdgeInsets.only(bottom: AppSpacing.xs),
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.name,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              '100g • $kcal kcal',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.remove_circle, color: scheme.error),
-                        onPressed: () => _removeItem(index),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-            
-            const SizedBox(height: AppSpacing.lg),
-
-            // Search Bar
-            if (_message != null) ...[
-              InlineBanner(message: _message!, tone: _messageTone ?? InlineBannerTone.info),
-              const SizedBox(height: AppSpacing.md),
-            ],
-            GlassSearchBar(
-              controller: _searchController,
-              onScan: _isOffRateLimited ? null : _openScanPage,
-            ),
-            if (hasQuery) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _isOffLoading || _isOffRateLimited ? null : _searchOnline,
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.secondary,
-                  ),
-                  icon: const Icon(Icons.public),
-                  label: const Text('Search online'),
-                ),
-              ),
-            ],
-            if (_isBackendLoading || _isOffLoading) ...[
-              const SizedBox(height: AppSpacing.sm),
-              LinearProgressIndicator(
-                minHeight: 2,
-                color: scheme.primary,
-                backgroundColor: scheme.surfaceContainer,
-              ),
-            ],
-
-            const SizedBox(height: AppSpacing.lg),
-            
-            // Food Grid (Quick Add / Search Results)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    _resultsHeading(query).toUpperCase(),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      letterSpacing: 2.0,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 10,
-                    ),
+                  _MealTypeSelectorTile(
+                    meal: _selectedMeal,
+                    onTap: _showMealSelector,
                   ),
-                  if (!hasQuery)
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                      ),
-                      onPressed: () {
-                         _selectFilter(
-                           _selectedFilter == _filterFavorites ? _filterRecent : _filterFavorites
-                         );
-                      },
-                      child: Text(
-                        _selectedFilter == _filterFavorites ? 'View Recent' : 'View Favorites',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _SummaryBento(
+                    totalEnergy: totalEnergy,
+                    focusSpecs: _focusSpecs,
+                    focusTotals: focusTotals,
+                  ),
+                  if (_addedItems.isNotEmpty)
+                    _AddedItemsSection(
+                      items: _addedItems,
+                      onEdit: _editAddedItem,
+                      onInspect: (item) => _openFoodDetail(item),
+                      onRemove: _removeAddedItem,
                     ),
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            
-            if (results.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
-                child: Center(
-                  child: Text(
-                    'No foods found.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
+          ),
+          // Pinned so refining a query after browsing a long result list
+          // never means scrolling all the way back up (KAN-60).
+          PinnedHeaderSliver(
+            child: _SearchHeader(
+              controller: _searchController,
+              onScan: _isOffRateLimited ? null : _openScanPage,
+              isLoading: _isBackendLoading || _isOffLoading,
+              message: _message,
+              messageTone: _messageTone,
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.sm,
+              AppSpacing.md,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _ResultsHeader(
+                heading: _resultsHeading(query),
+                // The Recent/Favorites toggle only applies to the no-query
+                // list.
+                toggleLabel: hasQuery
+                    ? null
+                    : _selectedFilter == _filterFavorites
+                    ? 'View Recent'
+                    : 'View Favorites',
+                onToggleFilter: () => _selectFilter(
+                  _selectedFilter == _filterFavorites
+                      ? _filterRecent
+                      : _filterFavorites,
                 ),
-              )
-            else
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
+              ),
+            ),
+          ),
+          if (results.isEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              sliver: SliverToBoxAdapter(
+                child: _EmptyResults(
+                  query: query.trim(),
+                  onCreateCustomFood: _openCustomFoodPage,
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.xl,
+              ),
+              // A real sliver grid so result cards build lazily — the old
+              // shrinkWrap GridView built every card at once (KAN-60).
+              sliver: SliverGrid.builder(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   mainAxisSpacing: AppSpacing.md,
@@ -991,12 +1086,125 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   final item = results[index];
                   return _FoodCard(
                     item: item,
-                    onTap: () => _appendResult(item.item),
+                    isAdded: _isAdded(item.item),
+                    isEnriching:
+                        _enrichingKey != null &&
+                        _resultKey(item.item) == _enrichingKey,
+                    onTap: () => _onResultTap(item),
+                    onLongPress: () => _onResultLongPress(item),
                   );
                 },
               ),
-              
-            const SizedBox(height: 100), // padding for bottom nav space if any
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The "ADDED ITEMS" label plus staged tiles, extracted from build() while
+/// restructuring the page into slivers (KAN-60). Tap edits the logged amount;
+/// long-press inspects the food itself (KAN-35) — same model as the results
+/// grid.
+class _AddedItemsSection extends StatelessWidget {
+  const _AddedItemsSection({
+    required this.items,
+    required this.onEdit,
+    required this.onInspect,
+    required this.onRemove,
+  });
+
+  final List<_AddedFood> items;
+  final void Function(int index) onEdit;
+  final void Function(FoodItem item) onInspect;
+  final void Function(int index) onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.lg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+          child: Text(
+            'ADDED ITEMS',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              letterSpacing: 2.0,
+              fontWeight: FontWeight.bold,
+              fontSize: 10,
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        for (final (index, added) in items.indexed)
+          _AddedItemTile(
+            added: added,
+            onTap: () => onEdit(index),
+            onLongPress: () => onInspect(added.item),
+            onRemove: () => onRemove(index),
+          ),
+      ],
+    );
+  }
+}
+
+/// The search strip that pins below the app bar while results scroll under it
+/// (KAN-60). Carries the inline banner (errors stay visible next to the field
+/// that caused them) and always reserves the 2px activity strip so the pinned
+/// extent doesn't jump when a live search starts.
+class _SearchHeader extends StatelessWidget {
+  const _SearchHeader({
+    required this.controller,
+    required this.onScan,
+    required this.isLoading,
+    required this.message,
+    required this.messageTone,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback? onScan;
+  final bool isLoading;
+  final String? message;
+  final InlineBannerTone? messageTone;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: scheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (message != null) ...[
+              InlineBanner(
+                message: message!,
+                tone: messageTone ?? InlineBannerTone.info,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            GlassSearchBar(controller: controller, onScan: onScan),
+            const SizedBox(height: AppSpacing.xs),
+            SizedBox(
+              height: 2,
+              child: isLoading
+                  ? LinearProgressIndicator(
+                      minHeight: 2,
+                      color: scheme.primary,
+                      backgroundColor: scheme.surfaceContainer,
+                    )
+                  : null,
+            ),
           ],
         ),
       ),
@@ -1024,19 +1232,29 @@ class _MacroSummaryRow extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label.toUpperCase(),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontSize: 10,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                letterSpacing: 0,
+            Expanded(
+              child: Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  letterSpacing: 0,
+                ),
               ),
             ),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
+            // scaleDown keeps the full amount visible at large text scales;
+            // an ellipsized figure would be useless.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
               ),
             ),
           ],
@@ -1054,87 +1272,455 @@ class _MacroSummaryRow extends StatelessWidget {
   }
 }
 
-enum MealType { breakfast, lunch, dinner, snacks }
+/// The tappable row showing which meal the staged items will be logged to.
+class _MealTypeSelectorTile extends StatelessWidget {
+  const _MealTypeSelectorTile({required this.meal, required this.onTap});
+
+  final MealType meal;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  // The selected meal's own icon + accent (KAN-3) so the
+                  // destination reads at a glance, matching the today page.
+                  Icon(mealTypeIcon(meal), color: mealTypeAccent(meal)),
+                  const SizedBox(width: AppSpacing.md),
+                  Flexible(
+                    child: Text(
+                      meal.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The bento summary pair: total energy of the staged items next to their
+/// focus-nutrient totals (same nutrients the today page tracks).
+class _SummaryBento extends StatelessWidget {
+  const _SummaryBento({
+    required this.totalEnergy,
+    required this.focusSpecs,
+    required this.focusTotals,
+  });
+
+  final double totalEnergy;
+  final List<NutrientSpec> focusSpecs;
+  final List<double> focusTotals;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // A min-height instead of a fixed height so large system text scales
+    // grow the cards rather than clipping them; IntrinsicHeight keeps the
+    // two cards equal (KAN-40).
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 140),
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'TOTAL ENERGY',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      letterSpacing: 2.0,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  // The hero figure shrinks to fit rather than overflowing the
+                  // half-width card at large system text scales (KAN-40).
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          totalEnergy.round().toString(),
+                          style: theme.textTheme.displayMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: scheme.primary,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'kcal',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              constraints: const BoxConstraints(minHeight: 140),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (var i = 0; i < focusSpecs.length; i++)
+                    _MacroSummaryRow(
+                      label: focusSpecs[i].label,
+                      value: _focusValueText(
+                        focusTotals[i],
+                        focusSpecs[i].unit,
+                      ),
+                      color:
+                          LuminaHealthColors.focusAccents[i %
+                              LuminaHealthColors.focusAccents.length],
+                      progress:
+                          (focusTotals[i] /
+                                  (focusSpecs[i].dailyTarget *
+                                      _mealShareOfDailyTarget))
+                              .clamp(0.0, 1.0),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One staged item in the Added list: thumb plus amount + kcal line. Tap
+/// edits, swipe (endToStart) removes with Undo (KAN-39) — no persistent
+/// remove button, and the editor's "Remove from meal" is the visible path.
+class _AddedItemTile extends StatelessWidget {
+  const _AddedItemTile({
+    required this.added,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onRemove,
+  });
+
+  final _AddedFood added;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final grams = added.grams;
+    final kcal = ((added.item.kcal100g ?? 0) * grams / 100).round();
+    final amountLabel = describeAmount(grams, added.item);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Dismissible(
+        key: ObjectKey(added),
+        // endToStart only, so the swipe never fights the Android back
+        // gesture on the left edge.
+        direction: DismissDirection.endToStart,
+        background: SwipeDeleteBackground(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        onDismissed: (_) => onRemove(),
+        // The swipe gesture is invisible to screen readers; expose the
+        // removal as an explicit accessibility action instead.
+        child: Semantics(
+          customSemanticsActions: {
+            CustomSemanticsAction(label: 'Remove ${added.item.name}'): onRemove,
+          },
+          child: Material(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              onTap: onTap,
+              onLongPress: onLongPress,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    FoodThumb(
+                      url: added.item.imageUrl?.trim().isNotEmpty == true
+                          ? added.item.imageUrl!.trim()
+                          : null,
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            added.item.name,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '$amountLabel • $kcal kcal',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The results-section heading plus the Recent/Favorites toggle (shown only
+/// when browsing without a query — pass a null [toggleLabel] to hide it).
+class _ResultsHeader extends StatelessWidget {
+  const _ResultsHeader({
+    required this.heading,
+    required this.toggleLabel,
+    required this.onToggleFilter,
+  });
+
+  final String heading;
+  final String? toggleLabel;
+  final VoidCallback onToggleFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              heading.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                letterSpacing: 2.0,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          if (toggleLabel != null)
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+              ),
+              onPressed: onToggleFilter,
+              child: Text(
+                toggleLabel!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Empty results state: nudges toward search/scan when browsing, or toward a
+/// respelling/scan/custom food when a query found nothing.
+class _EmptyResults extends StatelessWidget {
+  const _EmptyResults({required this.query, required this.onCreateCustomFood});
+
+  final String query;
+  final VoidCallback onCreateCustomFood;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final hasQuery = query.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              hasQuery ? Icons.search_off : Icons.restaurant_menu,
+              size: 40,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              hasQuery
+                  ? 'No foods found for "$query"'
+                  : 'Search for a food or scan a barcode',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            if (hasQuery) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Try a different spelling or scan the package.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              onPressed: onCreateCustomFood,
+              icon: const Icon(Icons.add),
+              label: const Text('Create custom food'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact amount + unit for the summary rows ("32g", "120 mg").
+String _focusValueText(double value, String unit) =>
+    '${formatNutrientValue(value)}${unit == 'g' ? 'g' : ' $unit'}';
+
+// Fraction of a nutrient's daily target treated as "one meal's worth", giving
+// the summary bars a meaningful scale. Uses each focus nutrient's (possibly
+// personalized) daily target, so the bars track the user's own goals.
+const double _mealShareOfDailyTarget = 0.3;
+
 enum _FoodResultOrigin { local, backend, off }
 
 class _FoodResult {
-  const _FoodResult({
-    required this.item,
-    required this.origin,
-  });
+  const _FoodResult({required this.item, required this.origin});
 
   final FoodItem item;
   final _FoodResultOrigin origin;
 }
 
-class _OffSearchCandidate {
-  const _OffSearchCandidate({
-    required this.item,
-    required this.product,
-  });
+/// A food the user has chosen to log, paired with the amount (grams) to log.
+class _AddedFood {
+  const _AddedFood({required this.item, required this.grams});
 
   final FoodItem item;
-  final Map<String, dynamic> product;
+  final double grams;
 }
 
 class _FoodCard extends StatelessWidget {
   const _FoodCard({
     required this.item,
     required this.onTap,
+    this.onLongPress,
+    this.isAdded = false,
+    this.isEnriching = false,
   });
 
   final _FoodResult item;
   final VoidCallback onTap;
 
-  IconData _originIcon(_FoodResultOrigin origin) {
-    switch (origin) {
-      case _FoodResultOrigin.local: return Icons.history;
-      case _FoodResultOrigin.backend: return Icons.cloud;
-      case _FoodResultOrigin.off: return Icons.public;
-    }
-  }
+  /// Long-press action — opens the read-first food detail page (KAN-35).
+  final VoidCallback? onLongPress;
+  final bool isAdded;
+  final bool isEnriching;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final radius = BorderRadius.circular(AppRadius.lg * 1.5);
-    
-    final kcal = item.item.kcal100g?.round();
-    final kcalLabel = kcal == null ? 'kcal n/a' : '$kcal kcal / 100g';
+
     final imageUrl = item.item.imageUrl?.trim().isNotEmpty == true
         ? item.item.imageUrl!.trim()
         : null;
-    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: radius,
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerLow,
-            borderRadius: radius,
-            border: Border.all(color: Colors.transparent),
-          ),
-          child: ClipRRect(
-            borderRadius: radius,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (hasImage) ...[
-                  ColorFiltered(
-                    colorFilter: const ColorFilter.mode(
-                      Colors.grey,
-                      BlendMode.saturation,
-                    ),
-                    child: Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-                    ),
-                  ),
+    return Semantics(
+      button: true,
+      label: isAdded
+          ? '${item.item.name}, added. Edit amount'
+          : 'Add ${item.item.name}',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: radius,
+          onTap: isEnriching ? null : onTap,
+          onLongPress: isEnriching ? null : onLongPress,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow,
+              borderRadius: radius,
+              border: Border.all(
+                color: isAdded ? scheme.primary : Colors.transparent,
+                width: isAdded ? 2 : 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: radius,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Image / placeholder / retry layer.
+                  FoodImage(url: imageUrl),
+                  // Bottom gradient keeps the white name text legible over both
+                  // real photos and the placeholder.
                   Positioned.fill(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -1149,48 +1735,188 @@ class _FoodCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                ] else
-                  Container(
-                    color: scheme.surfaceContainerHigh,
-                    child: Center(
-                      child: Icon(
-                        _originIcon(item.origin),
-                        color: scheme.onSurfaceVariant,
-                        size: 32,
+                  if (isEnriching)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        child: Center(
+                          child: SizedBox(
+                            width: 26,
+                            height: 26,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: scheme.onPrimary,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                Positioned(
-                  left: AppSpacing.sm,
-                  right: AppSpacing.sm,
-                  bottom: AppSpacing.sm,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.item.name,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
+                  if (isAdded)
+                    Positioned(
+                      top: AppSpacing.sm,
+                      right: AppSpacing.sm,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        kcalLabel.toUpperCase(),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 10,
+                        child: Icon(
+                          Icons.check,
+                          size: 14,
+                          color: scheme.onPrimary,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
+                    ),
+                  // The user's own foods are marked so it's clear these
+                  // values are theirs, not the shared catalog's.
+                  if (item.item.isCustom)
+                    Positioned(
+                      top: AppSpacing.sm,
+                      left: AppSpacing.sm,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          item.item.isOverride ? 'Edited by you' : 'Yours',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSecondaryContainer,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    left: AppSpacing.sm,
+                    right: AppSpacing.sm,
+                    bottom: AppSpacing.sm,
+                    child: Text(
+                      item.item.name,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Persistent bottom action bar — the single primary CTA for committing the
+/// meal. Surfaces the live item count + total calories so the user knows
+/// exactly what they are logging, and shows an inline spinner while submitting.
+class _LogBar extends StatelessWidget {
+  const _LogBar({
+    required this.itemCount,
+    required this.totalKcal,
+    required this.mealLabel,
+    required this.isSubmitting,
+    required this.onSubmit,
+  });
+
+  final int itemCount;
+  final int totalKcal;
+  final String mealLabel;
+  final bool isSubmitting;
+  final VoidCallback? onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final itemLabel = itemCount == 1 ? '1 item' : '$itemCount items';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        border: Border(
+          top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.sm,
+            AppSpacing.md,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      itemLabel,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '$totalKcal kcal total',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Flexible(
+                child: FilledButton(
+                  onPressed: isSubmitting ? null : onSubmit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
+                    disabledBackgroundColor: scheme.primary.withValues(
+                      alpha: 0.5,
+                    ),
+                    minimumSize: const Size(0, 52),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xl,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                  ),
+                  child: isSubmitting
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: scheme.onPrimary,
+                          ),
+                        )
+                      : Text(
+                          'Log to $mealLabel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: scheme.onPrimary,
+                          ),
+                        ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

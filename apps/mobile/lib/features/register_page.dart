@@ -6,10 +6,7 @@ import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
 
 class RegisterPage extends StatefulWidget {
-  const RegisterPage({
-    super.key,
-    required this.authService,
-  });
+  const RegisterPage({super.key, required this.authService});
 
   final AuthService authService;
 
@@ -131,198 +128,206 @@ class _RegisterPageState extends State<RegisterPage> {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xl,
-            vertical: AppSpacing.lg,
-          ),
-          child: Form(
-            key: _formKey,
-            child: AutofillGroup(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: AppSpacing.lg),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.lg,
+            ),
+            child: Form(
+              key: _formKey,
+              child: AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: AppSpacing.xl),
 
-                  // Brand header
-                  Text(
-                    'SYMBIO',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 3,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
-
-                  // Title
-                  Text(
-                    'Join the Lab',
-                    style: theme.textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-
-                  // Subtitle
-                  Text(
-                    'Start your high-performance biometric journey today.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
-
-                  // Email label
-                  Text(
-                    'EMAIL',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.email],
-                    decoration: InputDecoration(
-                      labelText: "E-mail",
-                      hintText: 'Enter your E-mail',
-                      prefixIcon: Icon(
-                        Icons.alternate_email,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Enter your email.';
-                      }
-                      if (!value.contains('@')) {
-                        return 'Enter a valid email.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
-
-                  // Password label
-                  Text(
-                    'PASSWORD',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _submit(),
-                    autofillHints: const [AutofillHints.newPassword],
-                    decoration: InputDecoration(
-                      labelText: "Password",
-                      hintText: 'Enter your password',
-                      prefixIcon: Icon(
-                        Icons.lock_outline,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          color: colorScheme.onSurfaceVariant,
+                    // Brand header
+                    const Center(child: BrandMark()),
+                    const SizedBox(height: AppSpacing.lg),
+                    Center(
+                      child: Text(
+                        'SYMBIO',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 4,
                         ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
                       ),
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Enter a password.';
-                      }
-                      if (value.length < 8) {
-                        return 'Password must be at least 8 characters.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
+                    const SizedBox(height: AppSpacing.xxl),
 
-                  // Create Account button
-                  FilledButton(
-                    onPressed: _isLoading ? null : _submit,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      backgroundColor: colorScheme.primary,
-                      foregroundColor: colorScheme.onPrimary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      textStyle: theme.textTheme.titleSmall?.copyWith(
+                    // Title
+                    Text(
+                      'Join the Lab',
+                      style: theme.textTheme.headlineLarge?.copyWith(
                         fontWeight: FontWeight.w700,
-                        letterSpacing: 2,
+                        color: colorScheme.onSurface,
                       ),
                     ),
-                    child: _isLoading
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: colorScheme.onPrimary,
-                            ),
-                          )
-                        : const Text('CREATE ACCOUNT'),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
+                    const SizedBox(height: AppSpacing.sm),
 
-                  // Footer: Already have an account?
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Already have an account? ',
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                    // Subtitle
+                    Text(
+                      'Start your high-performance biometric journey today.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
+
+                    // Email label
+                    Text(
+                      'EMAIL',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.email],
+                      // The uppercase micro-label above the field is the
+                      // visible label; a labelText here would render a
+                      // second, floating one (KAN-58).
+                      decoration: InputDecoration(
+                        hintText: 'Enter your E-mail',
+                        prefixIcon: Icon(
+                          Icons.alternate_email,
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: Text(
-                          'Log In',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Enter your email.';
+                        }
+                        if (!value.contains('@')) {
+                          return 'Enter a valid email.';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+
+                    // Password label
+                    Text(
+                      'PASSWORD',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _submit(),
+                      onChanged: (_) => setState(() {}),
+                      autofillHints: const [AutofillHints.newPassword],
+                      decoration: InputDecoration(
+                        hintText: 'Enter your password',
+                        prefixIcon: Icon(
+                          Icons.lock_outline,
+                          color: colorScheme.onSurfaceVariant,
                         ),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Enter a password.';
+                        }
+                        if (value.length < 8) {
+                          return 'Password must be at least 8 characters.';
+                        }
+                        return null;
+                      },
+                    ),
+                    PasswordStrengthMeter(password: _passwordController.text),
+                    const SizedBox(height: AppSpacing.xxl),
+
+                    // Create Account button
+                    FilledButton(
+                      onPressed: _isLoading ? null : _submit,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        backgroundColor: colorScheme.primary,
+                        foregroundColor: colorScheme.onPrimary,
+                        elevation: 8,
+                        shadowColor: colorScheme.primary.withValues(alpha: 0.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        textStyle: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      child: _isLoading
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: colorScheme.onPrimary,
+                              ),
+                            )
+                          : const Text('CREATE ACCOUNT'),
+                    ),
+
+                    // Error feedback shown directly below the action that
+                    // triggered it, so it stays visible without scrolling
+                    // (mirrors the login page).
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      InlineBanner(
+                        message: _errorMessage!,
+                        tone: InlineBannerTone.error,
                       ),
                     ],
-                  ),
+                    const SizedBox(height: AppSpacing.xxl),
 
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: AppSpacing.xl),
-                    InlineBanner(
-                      message: _errorMessage!,
-                      tone: InlineBannerTone.error,
+                    // Footer: Already have an account?
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Already have an account? ',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        LinkButton(
+                          label: 'Log In',
+                          onPressed: _isLoading
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                        ),
+                      ],
                     ),
-                  ],
 
-                  const SizedBox(height: AppSpacing.xl),
-                ],
+                    const SizedBox(height: AppSpacing.xl),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
       ),
     );
   }

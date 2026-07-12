@@ -1,0 +1,63 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Symbio account deletion{% endblock %}
+
+{% block main %}
+  {% if result == "sent" %}
+    <div class="chip chip--brand" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3.5" y="5.5" width="17" height="13" rx="2"></rect>
+        <path d="m4.5 7 7.5 6 7.5-6"></path>
+      </svg>
+    </div>
+    <h1 class="center">Check your email</h1>
+    <p class="lead center">If that email has a Symbio account, a confirmation
+      link is on its way. Open it to finish deleting the account. The link
+      expires in 1 hour.</p>
+
+  {% elif result == "success" %}
+    <div class="chip chip--success" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="m8.5 12 2.3 2.3L15.5 9.7"></path>
+      </svg>
+    </div>
+    <h1 class="center">Account deleted</h1>
+    <p class="lead center">Your Symbio account and all data associated with it
+      have been permanently deleted. Thanks for giving Symbio a try.</p>
+
+  {% elif result == "used" %}
+    <div class="chip chip--info" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"></path>
+        <path d="M3 3v5h5"></path>
+      </svg>
+    </div>
+    <h1 class="center">Link already used</h1>
+    <p class="lead center">This deletion link has already been used. If your
+      account still exists and you want it deleted, request a new link.</p>
+
+  {% elif result == "expired" %}
+    <div class="chip chip--warning" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 7.5v5l3 2"></path>
+      </svg>
+    </div>
+    <h1 class="center">Link expired</h1>
+    <p class="lead center">This deletion link has expired. Request a new one to
+      delete your account.</p>
+
+  {% else %}
+    <div class="chip chip--error" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 7.5v5"></path>
+        <path d="M12 16h.01"></path>
+      </svg>
+    </div>
+    <h1 class="center">Invalid link</h1>
+    <p class="lead center">We couldn't use this deletion link. Request a new
+      one if you still want your account deleted.</p>
+  {% endif %}
+{% endblock %}

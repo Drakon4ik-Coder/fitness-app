@@ -171,7 +171,9 @@ CI expects `contracts/openapi.yaml` to be up to date.
 - Production env vars typically include `DJANGO_SETTINGS_MODULE=config.settings.prod`, `DJANGO_SECRET_KEY`, `DATABASE_URL`, and `CSRF_TRUSTED_ORIGINS`. `SENTRY_DSN` is optional.
 - `MEDIA_ROOT` is local disk (`apps/backend/media`); plan for persistent storage in production if using uploads.
 
-See [`docs/RELEASE.md`](docs/RELEASE.md) for tagging and release notes guidance.
+See [`docs/RELEASE.md`](docs/RELEASE.md) for tagging and release notes guidance,
+and [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for production backups, uptime
+monitoring, and reboot-survival runbooks.
 
 ## Roadmap
 Already shipped: auth, nutrition logging, barcode lookup, and food ingestion. Planned next (see [`docs/ROADMAP.md`](docs/ROADMAP.md)):

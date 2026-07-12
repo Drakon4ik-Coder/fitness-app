@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'tokens.dart';
 
 class LuminaHealthColors {
   static const Color background = Color(0xFF0E0E0E);
   static const Color error = Color(0xFFFF7351);
+  // Amber warning, used for "over goal" states that are cautionary but not
+  // errors (e.g. calories or fat past the daily target).
+  static const Color warning = Color(0xFFFFB020);
   static const Color errorContainer = Color(0xFFB92902);
   static const Color onError = Color(0xFF450900);
   static const Color onErrorContainer = Color(0xFFFFD2C8);
@@ -18,6 +22,29 @@ class LuminaHealthColors {
   static const Color onSecondaryContainer = Color(0xFFE9CDFF);
   static const Color tertiary = Color(0xFFFF8439);
   static const Color tertiaryContainer = Color(0xFFF77113);
+  // Fourth accent, completing the green/purple/orange set for surfaces that
+  // color up to four data series (e.g. the today page's focus nutrients).
+  static const Color quaternary = Color(0xFF4DD9E8);
+
+  /// Accent per focus-nutrient slot, shared by every surface that renders the
+  /// user's focus picks (today card, amount-sheet pills, add-meal summary) so
+  /// slot N is always the same color everywhere.
+  static const List<Color> focusAccents = [
+    primary,
+    secondary,
+    tertiary,
+    quaternary,
+  ];
+
+  /// Hairline border/divider on dark surfaces — the faint edge on cards,
+  /// sheets, and the nav bar. One token so every hairline reads the same.
+  static final Color hairline = Colors.white.withValues(alpha: 0.05);
+
+  /// Stronger sibling of [hairline]: the edge that lifts an inset element
+  /// (image thumbnails, wells) off its parent card. A future light theme
+  /// remaps both tokens instead of hunting per-screen literals (KAN-41).
+  static final Color innerHighlight = Colors.white.withValues(alpha: 0.1);
+
   static const Color surface = Color(0xFF0E0E0E);
   static const Color surfaceBright = Color(0xFF2C2C2C);
   static const Color surfaceContainer = Color(0xFF1A1A1A);
@@ -79,7 +106,10 @@ class LuminaHealthEffects extends ThemeExtension<LuminaHealthEffects> {
   }
 
   @override
-  LuminaHealthEffects lerp(ThemeExtension<LuminaHealthEffects>? other, double t) {
+  LuminaHealthEffects lerp(
+    ThemeExtension<LuminaHealthEffects>? other,
+    double t,
+  ) {
     if (other is! LuminaHealthEffects) {
       return this;
     }
@@ -87,9 +117,14 @@ class LuminaHealthEffects extends ThemeExtension<LuminaHealthEffects> {
       glowLow: lerpDouble(glowLow, other.glowLow, t),
       glowMedium: lerpDouble(glowMedium, other.glowMedium, t),
       glowHigh: lerpDouble(glowHigh, other.glowHigh, t),
-      glassOverlayOpacity: lerpDouble(glassOverlayOpacity, other.glassOverlayOpacity, t),
+      glassOverlayOpacity: lerpDouble(
+        glassOverlayOpacity,
+        other.glassOverlayOpacity,
+        t,
+      ),
       blurRadius: lerpDouble(blurRadius, other.blurRadius, t),
-      ringTrackColor: Color.lerp(ringTrackColor, other.ringTrackColor, t) ?? ringTrackColor,
+      ringTrackColor:
+          Color.lerp(ringTrackColor, other.ringTrackColor, t) ?? ringTrackColor,
     );
   }
 
@@ -134,6 +169,8 @@ class LuminaHealthTheme {
       surfaceContainerHighest: LuminaHealthColors.surfaceContainerHighest,
     );
 
+    final textTheme = _buildTextTheme(scheme);
+
     // The Design.md specifically requests: Input style with surface-container-highest and rounded-md corner
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppRadius.md),
@@ -145,11 +182,13 @@ class LuminaHealthTheme {
       brightness: Brightness.dark,
       colorScheme: scheme,
       scaffoldBackgroundColor: scheme.surface,
+      textTheme: textTheme,
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: scheme.onSurface,
         surfaceTintColor: Colors.transparent,
+        titleTextStyle: textTheme.titleLarge,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -173,6 +212,11 @@ class LuminaHealthTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
+          elevation: 8,
+          shadowColor: scheme.primary.withValues(alpha: 0.5),
+          textStyle: textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
@@ -182,6 +226,11 @@ class LuminaHealthTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(48),
+          elevation: 8,
+          shadowColor: scheme.primary.withValues(alpha: 0.5),
+          textStyle: textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
@@ -217,5 +266,42 @@ class LuminaHealthTheme {
   static LuminaHealthEffects effectsOf(BuildContext context) {
     return Theme.of(context).extension<LuminaHealthEffects>() ??
         LuminaHealthEffects.fallback;
+  }
+
+  /// Typography: Space Grotesk for display/headline/title (geometric, athletic,
+  /// reads well at HUD numeric sizes) paired with Inter for body and the
+  /// letter-spaced labels. Display and headline roles use tabular figures so
+  /// live-updating numbers (kcal, macros) don't shift horizontally.
+  static TextTheme _buildTextTheme(ColorScheme scheme) {
+    final base = ThemeData(brightness: Brightness.dark).textTheme.apply(
+      bodyColor: scheme.onSurface,
+      displayColor: scheme.onSurface,
+    );
+    final body = GoogleFonts.interTextTheme(base);
+    const tabular = <FontFeature>[FontFeature.tabularFigures()];
+
+    TextStyle numeric(TextStyle? style, FontWeight weight) {
+      return GoogleFonts.spaceGrotesk(
+        textStyle: style,
+        fontWeight: weight,
+        fontFeatures: tabular,
+      );
+    }
+
+    TextStyle title(TextStyle? style, FontWeight weight) {
+      return GoogleFonts.spaceGrotesk(textStyle: style, fontWeight: weight);
+    }
+
+    return body.copyWith(
+      displayLarge: numeric(body.displayLarge, FontWeight.w800),
+      displayMedium: numeric(body.displayMedium, FontWeight.w800),
+      displaySmall: numeric(body.displaySmall, FontWeight.w700),
+      headlineLarge: numeric(body.headlineLarge, FontWeight.w700),
+      headlineMedium: numeric(body.headlineMedium, FontWeight.w700),
+      headlineSmall: numeric(body.headlineSmall, FontWeight.w700),
+      titleLarge: title(body.titleLarge, FontWeight.w700),
+      titleMedium: title(body.titleMedium, FontWeight.w600),
+      titleSmall: title(body.titleSmall, FontWeight.w600),
+    );
   }
 }

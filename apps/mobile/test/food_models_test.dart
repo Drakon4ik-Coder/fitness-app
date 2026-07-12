@@ -1,6 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('toBackendPayload falls back on invalid raw_source_json', () {
@@ -26,5 +25,299 @@ void main() {
     });
 
     expect(item.nutrimentsJson, isNull);
+  });
+
+  group('gramsFromServingText', () {
+    test('reads an explicit g/ml amount', () {
+      expect(gramsFromServingText('30 g'), 30);
+      expect(gramsFromServingText('355ml'), 355);
+      expect(gramsFromServingText('1 egg (50 g)'), 50);
+      // An explicit gram amount wins even next to a foreign unit.
+      expect(gramsFromServingText('1 oz (28 g)'), 28);
+    });
+
+    test('reads a bare number and spelled-out gram words', () {
+      expect(gramsFromServingText('30'), 30);
+      expect(gramsFromServingText('100 grams'), 100);
+      expect(gramsFromServingText('100 gr'), 100);
+    });
+
+    test('rejects a bare piece count', () {
+      expect(gramsFromServingText('1 egg'), isNull);
+    });
+
+    test('rejects amounts in units it does not convert', () {
+      // Reading the bare number as grams would be off by the unit's
+      // conversion factor (1000x for mg/kg, ~28x for oz).
+      expect(gramsFromServingText('100 mg'), isNull);
+      expect(gramsFromServingText('1 kg'), isNull);
+      expect(gramsFromServingText('1 oz'), isNull);
+      expect(gramsFromServingText('2 cups'), isNull);
+      expect(gramsFromServingText('8 fl oz'), isNull);
+      expect(gramsFromServingText('1 tbsp'), isNull);
+    });
+  });
+
+  group('detectCookedNutritionBasis', () {
+    test('flags fresh meat with protein above the raw ceiling', () {
+      // UK mince case: 29 g protein/100g is only reachable after cooking.
+      expect(
+        detectCookedNutritionBasis(
+          categoriesTags: const ['en:meats', 'en:beef', 'en:beef-steaks'],
+          proteinG100g: 29,
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not flag raw meat with a plausible raw protein', () {
+      expect(
+        detectCookedNutritionBasis(
+          categoriesTags: const ['en:meats', 'en:chicken'],
+          proteinG100g: 22,
+        ),
+        isFalse,
+      );
+    });
+
+    test('does not flag protein-dense cured/prepared meat', () {
+      // Cured ham is legitimately ~30 g protein as sold.
+      expect(
+        detectCookedNutritionBasis(
+          categoriesTags: const ['en:meats', 'en:prepared-meats', 'en:hams'],
+          proteinG100g: 30,
+        ),
+        isFalse,
+      );
+    });
+
+    test('does not flag protein-dense non-meat foods', () {
+      expect(
+        detectCookedNutritionBasis(
+          categoriesTags: const ['en:dairies', 'en:cheeses'],
+          proteinG100g: 28,
+        ),
+        isFalse,
+      );
+    });
+
+    test('does not flag when protein is unknown', () {
+      expect(
+        detectCookedNutritionBasis(
+          categoriesTags: const ['en:meats', 'en:beef'],
+          proteinG100g: null,
+        ),
+        isFalse,
+      );
+    });
+
+    group('CIQUAL raw-reference cross-check', () {
+      test(
+        'flags protein far above the raw reference, no categories needed',
+        () {
+          // CIQUAL 6250 "Beef, minced steak, 5% fat, raw" = 21.9 g protein;
+          // the label's 29 g is the grilled column (ratio 1.32).
+          expect(
+            detectCookedNutritionBasis(
+              categoriesTags: const [],
+              proteinG100g: 29,
+              ciqualCode: 6250,
+            ),
+            isTrue,
+          );
+        },
+      );
+
+      test('catches cooked values the raw ceiling alone would miss', () {
+        // Cooked 20% mince is ~24 g protein — under the 25 g ceiling — but
+        // 1.39x the 17.3 g raw reference (CIQUAL 6256).
+        expect(
+          detectCookedNutritionBasis(
+            categoriesTags: const ['en:meats', 'en:beef'],
+            proteinG100g: 24,
+            ciqualCode: 6256,
+          ),
+          isTrue,
+        );
+      });
+
+      test(
+        'a raw reference match near the label suppresses the ceiling rule',
+        () {
+          // 26 g protein would trip the category ceiling, but it is only 1.19x
+          // the raw reference — plausibly raw, so the reference wins.
+          expect(
+            detectCookedNutritionBasis(
+              categoriesTags: const ['en:meats', 'en:beef'],
+              proteinG100g: 26,
+              ciqualCode: 6250,
+            ),
+            isFalse,
+          );
+        },
+      );
+
+      test('an unknown code falls back to the category heuristic', () {
+        expect(
+          detectCookedNutritionBasis(
+            categoriesTags: const ['en:meats', 'en:beef'],
+            proteinG100g: 29,
+            ciqualCode: 999999,
+          ),
+          isTrue,
+        );
+      });
+    });
+  });
+
+  test('fromBackendDetail re-derives the cooked basis from raw categories', () {
+    final item = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 7,
+      'name': 'Lean Beef Steak Mince',
+      'protein_g_100g': 29,
+      'raw_source_json':
+          '{"product": {"categories_tags": ["en:meats", "en:beef"]}}',
+    });
+
+    expect(item.isCookedBasis, isTrue);
+  });
+
+  test(
+    'fromBackendDetail re-derives the cooked basis from the CIQUAL match',
+    () {
+      // No category tags needed: the round-tripped Agribalyse block alone
+      // identifies the raw reference food.
+      final item = FoodItem.fromBackendDetail(<String, dynamic>{
+        'id': 7,
+        'name': 'Lean Beef Steak Mince',
+        'protein_g_100g': 29,
+        'raw_source_json':
+            '{"product": {"ecoscore_data": {"agribalyse": '
+            '{"agribalyse_food_code": "6250"}}}}',
+      });
+
+      expect(item.isCookedBasis, isTrue);
+    },
+  );
+
+  test('fromBackendSummary keeps the custom source and external id', () {
+    final item = FoodItem.fromBackendSummary(<String, dynamic>{
+      'id': 12,
+      'source': 'custom',
+      'external_id': 'cf-abc',
+      'name': "Mum's granola",
+      'barcode': null,
+    });
+
+    expect(item.isCustom, isTrue);
+    expect(item.externalId, 'cf-abc');
+    expect(item.backendId, 12);
+  });
+
+  test('nutrition basis round-trips through the local db map', () {
+    final item = FoodItem(
+      source: offSource,
+      externalId: '123',
+      name: 'Mince',
+      brands: '',
+      rawSourceJson: '{}',
+      nutritionBasis: cookedNutritionBasis,
+    );
+
+    final restored = FoodItem.fromDbMap(item.toDbMap());
+    expect(restored.isCookedBasis, isTrue);
+  });
+
+  test('override link round-trips through db map and custom payload', () {
+    final item = FoodItem(
+      source: customSource,
+      externalId: 'cf-1',
+      name: 'Corrected mince',
+      brands: '',
+      kcal100g: 124,
+      rawSourceJson: '{}',
+      overridesBackendId: 42,
+      overridesBarcode: '5054070875254',
+    );
+
+    final restored = FoodItem.fromDbMap(item.toDbMap());
+    expect(restored.isOverride, isTrue);
+    expect(restored.overridesBackendId, 42);
+    expect(restored.overridesBarcode, '5054070875254');
+
+    final payload = item.toCustomPayload();
+    expect(payload['overrides_food'], 42);
+    // The barcode link is local-only scan plumbing, never sent.
+    expect(payload.containsKey('overrides_barcode'), isFalse);
+  });
+
+  test('fromBackendDetail restores the override link', () {
+    final item = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 7,
+      'source': 'custom',
+      'external_id': 'cf-1',
+      'name': 'Corrected mince',
+      'overrides_food': 42,
+      'raw_source_json': '{}',
+    });
+
+    expect(item.isOverride, isTrue);
+    expect(item.overridesBackendId, 42);
+  });
+
+  test('community verified marker round-trips through the local db map', () {
+    final verifiedAt = DateTime.utc(2026, 7, 1, 12);
+    final item = FoodItem(
+      source: offSource,
+      externalId: '123',
+      name: 'Mince',
+      brands: '',
+      rawSourceJson: '{}',
+      communityVerifiedAt: verifiedAt,
+    );
+
+    final restored = FoodItem.fromDbMap(item.toDbMap());
+    expect(restored.isCommunityVerified, isTrue);
+    expect(restored.communityVerifiedAt, verifiedAt);
+    // Server-owned: never sent back on either write path.
+    expect(
+      item.toBackendPayload().containsKey('community_verified_at'),
+      isFalse,
+    );
+    expect(
+      item.toCustomPayload().containsKey('community_verified_at'),
+      isFalse,
+    );
+  });
+
+  test('backend parsers read community_verified_at', () {
+    final detail = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 7,
+      'source': 'openfoodfacts',
+      'external_id': '123',
+      'name': 'Mince',
+      'community_verified_at': '2026-07-01T12:00:00Z',
+      'raw_source_json': '{}',
+    });
+    expect(detail.isCommunityVerified, isTrue);
+
+    final summary = FoodItem.fromBackendSummary(<String, dynamic>{
+      'id': 7,
+      'source': 'openfoodfacts',
+      'external_id': '123',
+      'name': 'Mince',
+      'community_verified_at': '2026-07-01T12:00:00Z',
+    });
+    expect(summary.isCommunityVerified, isTrue);
+
+    final unverified = FoodItem.fromBackendDetail(<String, dynamic>{
+      'id': 8,
+      'source': 'openfoodfacts',
+      'external_id': '456',
+      'name': 'Apple',
+      'community_verified_at': null,
+      'raw_source_json': '{}',
+    });
+    expect(unverified.isCommunityVerified, isFalse);
   });
 }
