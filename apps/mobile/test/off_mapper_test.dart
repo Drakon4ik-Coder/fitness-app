@@ -1,6 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fitness_app/features/nutrition/data/off_mapper.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('maps OFF product to normalized fields with kcal fallback', () {
@@ -184,7 +183,7 @@ void main() {
     expect(item.servingSizeG, 42);
   });
 
-  test('handles non-string brands safely', () {
+  test('joins list brands from Search-a-licious into a string', () {
     final mapper = OffMapper();
     final product = {
       'code': '555555',
@@ -197,7 +196,7 @@ void main() {
       rawJson: '{"product": {"product_name": "Test Bar"}}',
     );
 
-    expect(item.brands, '');
+    expect(item.brands, 'Brand A, Brand B');
   });
 
   test('returns null imageUrl when no org or front image present', () {
@@ -215,5 +214,211 @@ void main() {
 
     expect(item.imageUrl, isNull);
     expect(item.imageSignature, isNull);
+  });
+
+  test('derives a piece descriptor from a piece-counted serving', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '111',
+        'product_name': 'Eggs',
+        'serving_size': '2 eggs (105 g)',
+        'serving_quantity': 105,
+        'nutriments': {'energy-kcal_100g': 143},
+      },
+      rawJson: '{"product": {"product_name": "Eggs"}}',
+    );
+
+    expect(item.servingSizeG, 105);
+    expect(item.gramsPerPiece, closeTo(52.5, 0.001));
+    expect(item.pieceUnit, 'egg');
+  });
+
+  test('treats a single piece as one whole unit', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '222',
+        'product_name': 'Big Mac',
+        'serving_size': '1 burger (215 g)',
+        'serving_quantity': 215,
+        'nutriments': {'energy-kcal_100g': 250},
+      },
+      rawJson: '{"product": {"product_name": "Big Mac"}}',
+    );
+
+    expect(item.gramsPerPiece, 215);
+    expect(item.pieceUnit, 'burger');
+  });
+
+  test('does not treat measure words (serving/g) as pieces', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '333',
+        'product_name': 'Chips',
+        'serving_size': '1 serving (28 g)',
+        'serving_quantity': 28,
+        'nutriments': {'energy-kcal_100g': 500},
+      },
+      rawJson: '{"product": {"product_name": "Chips"}}',
+    );
+
+    expect(item.servingSizeG, 28);
+    expect(item.gramsPerPiece, isNull);
+    expect(item.pieceUnit, isNull);
+  });
+
+  test('drops an inconsistent serving via the kcal sanity guard', () {
+    final mapper = OffMapper();
+    // 250 kcal/100g over a 232 g serving implies ~580 kcal/serving, but the
+    // serving energy says 50 — the serving is untrustworthy and is dropped.
+    final item = mapper.mapProduct(
+      product: {
+        'code': '444',
+        'product_name': 'Suspect Burger',
+        'serving_size': '1 burger (232 g)',
+        'serving_quantity': 232,
+        'nutriments': {'energy-kcal_100g': 250, 'energy-kcal_serving': 50},
+      },
+      rawJson: '{"product": {"product_name": "Suspect Burger"}}',
+    );
+
+    expect(item.servingSizeG, isNull);
+    expect(item.gramsPerPiece, isNull);
+  });
+
+  test('ignores a bare piece count with no weight (no 1 g/egg)', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '666',
+        'product_name': 'Eggs',
+        'serving_size': '1 egg',
+        'serving_quantity': 1,
+        'nutriments': {'energy-kcal_100g': 143},
+      },
+      rawJson: '{"product": {"product_name": "Eggs"}}',
+    );
+
+    expect(item.servingSizeG, isNull);
+    expect(item.gramsPerPiece, isNull);
+    expect(item.pieceUnit, isNull);
+  });
+
+  test('does not read an mg serving as grams (no 1000x serving)', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '888',
+        'product_name': 'Vitamin D drops',
+        'serving_size': '100 mg',
+        'serving_quantity': 100,
+        'serving_quantity_unit': 'mg',
+        'nutriments': {'energy-kcal_100g': 400},
+      },
+      rawJson: '{"product": {"product_name": "Vitamin D drops"}}',
+    );
+
+    expect(item.servingSizeG, isNull);
+    expect(item.gramsPerPiece, isNull);
+  });
+
+  test('reads completeness for search-result ranking', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '777',
+        'product_name': 'Big Mac',
+        'completeness': 0.875,
+        'nutriments': {'energy-kcal_100g': 228},
+      },
+      rawJson: '{"product": {"product_name": "Big Mac"}}',
+    );
+
+    expect(item.completeness, 0.875);
+  });
+
+  test('keeps a serving whose energy is consistent', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '555',
+        'product_name': 'Good Burger',
+        'serving_size': '1 burger (232 g)',
+        'serving_quantity': 232,
+        'nutriments': {'energy-kcal_100g': 250, 'energy-kcal_serving': 580},
+      },
+      rawJson: '{"product": {"product_name": "Good Burger"}}',
+    );
+
+    expect(item.servingSizeG, 232);
+    expect(item.gramsPerPiece, 232);
+    expect(item.pieceUnit, 'burger');
+  });
+
+  test('flags fresh meat with cooked-column protein as cooked basis', () {
+    final mapper = OffMapper();
+    // Modeled on ASDA Lean Scotch Beef Steak Mince (5054070875254): raw 5%
+    // mince is ~21 g protein/100g, so 29 g means the grilled column was
+    // entered into the plain per-100g fields.
+    final item = mapper.mapProduct(
+      product: {
+        'code': '5054070875254',
+        'product_name': 'Lean Scotch Beef Steak Mince',
+        'categories_tags': ['en:meats', 'en:beef', 'en:ground-beef-steaks'],
+        'nutriments': {
+          'energy-kcal_100g': 172,
+          'proteins_100g': 29,
+          'fat_100g': 6.3,
+        },
+      },
+      rawJson: '{}',
+    );
+
+    expect(item.isCookedBasis, isTrue);
+  });
+
+  test('leaves plausibly-raw meat on the as-sold basis', () {
+    final mapper = OffMapper();
+    final item = mapper.mapProduct(
+      product: {
+        'code': '999',
+        'product_name': 'Beef Mince 20% Fat',
+        'categories_tags': ['en:meats', 'en:beef'],
+        'nutriments': {
+          'energy-kcal_100g': 254,
+          'proteins_100g': 17,
+          'fat_100g': 20,
+        },
+      },
+      rawJson: '{}',
+    );
+
+    expect(item.isCookedBasis, isFalse);
+  });
+
+  test('flags cooked basis via the Agribalyse CIQUAL match alone', () {
+    final mapper = OffMapper();
+    // Cooked 20% mince: 24 g protein is under the raw ceiling, so only the
+    // CIQUAL raw reference (6256: 17.3 g) catches it.
+    final item = mapper.mapProduct(
+      product: {
+        'code': '888',
+        'product_name': 'Beef Mince 20% Fat',
+        'categories_tags': ['en:meats', 'en:beef'],
+        'ecoscore_data': {
+          'agribalyse': {'agribalyse_food_code': '6256'},
+        },
+        'nutriments': {
+          'energy-kcal_100g': 270,
+          'proteins_100g': 24,
+          'fat_100g': 18,
+        },
+      },
+      rawJson: '{}',
+    );
+
+    expect(item.isCookedBasis, isTrue);
   });
 }

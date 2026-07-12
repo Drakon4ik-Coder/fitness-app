@@ -1,14 +1,14 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../core/auth_service.dart';
 import '../core/auth_storage.dart';
 import '../core/google_auth_service.dart';
-
-import 'register_page.dart';
 import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
+import 'forgot_password_page.dart';
+import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -109,9 +109,9 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } finally {
       if (mounted) {
         setState(() => _isResending = false);
@@ -169,297 +169,324 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xl,
-            vertical: AppSpacing.lg,
-          ),
-          child: Form(
-            key: _formKey,
-            child: AutofillGroup(
-                child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: AppSpacing.lg),
+          // Fill the viewport and let the content center itself. The scroll
+          // view only engages as a safety net when the keyboard is open, the
+          // device is short, or Dynamic Type is enlarged.
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xl,
+                  vertical: AppSpacing.lg,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - AppSpacing.lg * 2,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Form(
+                      key: _formKey,
+                      child: AutofillGroup(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Spacer(),
 
-                  // Brand header
-                  Text(
-                    'SYMBIO',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 3,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
-
-                  // Title
-                  Text(
-                    'Welcome Back',
-                    style: theme.textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-
-                  // Subtitle
-                  Text(
-                    'Continue your high-performance biometric journey.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl + AppSpacing.lg),
-
-                  // Email label
-                  Text(
-                    'EMAIL',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.email],
-                    decoration: InputDecoration(
-                      labelText: "E-mail",
-                      hintText: 'Enter your e-mail',
-                      prefixIcon: Icon(
-                        Icons.alternate_email,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Enter your email.';
-                      }
-                      if (!value.contains('@')) {
-                        return 'Enter a valid email.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
-
-                  // Password label row with forgot password
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'PASSWORD',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          // Forgot password action placeholder
-                        },
-                        child: Text(
-                          'FORGOT PASSWORD?',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.primary,
-                            letterSpacing: 1,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _submit(),
-                    autofillHints: const [AutofillHints.password],
-                    decoration: InputDecoration(
-                      labelText: "Password",
-                      hintText: 'Enter your password',
-                      prefixIcon: Icon(
-                        Icons.lock_outline,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                      ),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Enter your password.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
-
-                  // Login button
-                  FilledButton(
-                    onPressed: _isLoading ? null : _submit,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      backgroundColor: colorScheme.primary,
-                      foregroundColor: colorScheme.onPrimary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      textStyle: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                    child: _isLoading
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: colorScheme.onPrimary,
+                            // Brand header
+                            const Center(child: BrandMark()),
+                            const SizedBox(height: AppSpacing.sm),
+                            Center(
+                              child: Text(
+                                'SYMBIO',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 4,
+                                ),
+                              ),
                             ),
-                          )
-                        : const Text('LOGIN'),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
+                            const SizedBox(height: AppSpacing.xl),
 
-                  // Divider with "OR CONTINUE WITH"
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Divider(
-                          color: colorScheme.outline.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
-                        child: Text(
-                          'OR CONTINUE WITH',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Divider(
-                          color: colorScheme.outline.withValues(alpha: 0.4),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
+                            // Title
+                            Text(
+                              'Welcome Back',
+                              style: theme.textTheme.headlineLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
 
-                  // Google login button
-                  OutlinedButton.icon(
-                    onPressed: _isLoading ? null : _googleSubmit,
-                    icon: const Text(
-                      'G',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 18,
-                      ),
-                    ),
-                    label: const Text('GOOGLE'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      side: BorderSide(
-                        color: colorScheme.outline.withValues(alpha: 0.5),
-                      ),
-                      foregroundColor: colorScheme.onSurface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                      ),
-                      textStyle: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xxl),
+                            // Subtitle
+                            Text(
+                              'Continue your high-performance biometric journey.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.xl),
 
-                  // Footer: New to Symbio?
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'New to Symbio? ',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: _isLoading
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => RegisterPage(
-                                      authService: widget.authService,
+                            // Email label
+                            Text(
+                              'EMAIL',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                letterSpacing: 1.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            TextFormField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.email],
+                              // The uppercase micro-label above the field is
+                              // the visible label; a labelText here would
+                              // render a second, floating one (KAN-58).
+                              decoration: InputDecoration(
+                                hintText: 'Enter your e-mail',
+                                prefixIcon: Icon(
+                                  Icons.alternate_email,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Enter your email.';
+                                }
+                                if (!value.contains('@')) {
+                                  return 'Enter a valid email.';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: AppSpacing.lg),
+
+                            // Password label row with forgot password
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'PASSWORD',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                    letterSpacing: 1.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                LinkButton(
+                                  label: 'FORGOT PASSWORD?',
+                                  textStyle: theme.textTheme.labelSmall
+                                      ?.copyWith(
+                                        letterSpacing: 1,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () {
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  ForgotPasswordPage(
+                                                    authService:
+                                                        widget.authService,
+                                                    initialEmail:
+                                                        _emailController.text
+                                                            .trim(),
+                                                  ),
+                                            ),
+                                          );
+                                        },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            TextFormField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              textInputAction: TextInputAction.done,
+                              onFieldSubmitted: (_) => _submit(),
+                              autofillHints: const [AutofillHints.password],
+                              decoration: InputDecoration(
+                                hintText: 'Enter your password',
+                                prefixIcon: Icon(
+                                  Icons.lock_outline,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                  },
+                                ),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Enter your password.';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: AppSpacing.xl),
+
+                            // Login button
+                            FilledButton(
+                              onPressed: _isLoading ? null : _submit,
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(52),
+                                backgroundColor: colorScheme.primary,
+                                foregroundColor: colorScheme.onPrimary,
+                                elevation: 8,
+                                shadowColor: colorScheme.primary.withValues(
+                                  alpha: 0.5,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.md,
+                                  ),
+                                ),
+                                textStyle: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                              child: _isLoading
+                                  ? SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: colorScheme.onPrimary,
+                                      ),
+                                    )
+                                  : const Text('LOGIN'),
+                            ),
+
+                            // Error feedback shown directly below the action that
+                            // triggered it, so it stays visible without scrolling.
+                            if (_errorMessage != null) ...[
+                              const SizedBox(height: AppSpacing.lg),
+                              InlineBanner(
+                                message: _errorMessage!,
+                                tone: InlineBannerTone.error,
+                              ),
+                              if (_showResend) ...[
+                                const SizedBox(height: AppSpacing.sm),
+                                TextButton(
+                                  onPressed: _isResending
+                                      ? null
+                                      : _resendVerification,
+                                  child: _isResending
+                                      ? SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: colorScheme.primary,
+                                          ),
+                                        )
+                                      : const Text('Resend verification email'),
+                                ),
+                              ],
+                            ],
+                            const SizedBox(height: AppSpacing.xl),
+
+                            // Divider with "OR CONTINUE WITH"
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Divider(
+                                    color: colorScheme.outline.withValues(
+                                      alpha: 0.4,
                                     ),
                                   ),
-                                );
-                              },
-                        child: Text(
-                          'Create account',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.md,
+                                  ),
+                                  child: Text(
+                                    'OR CONTINUE WITH',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Divider(
+                                    color: colorScheme.outline.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: AppSpacing.lg),
+
+                            // Social sign-in providers (more can be added beside Google)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SocialAuthButton(
+                                  semanticLabel: 'Continue with Google',
+                                  onPressed: _isLoading ? null : _googleSubmit,
+                                  child: SvgPicture.asset(
+                                    'assets/brand/google_g.svg',
+                                    width: 24,
+                                    height: 24,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: AppSpacing.xl),
+
+                            // Footer: New to Symbio?
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'New to Symbio? ',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                LinkButton(
+                                  label: 'Create account',
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () {
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => RegisterPage(
+                                                authService: widget.authService,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                ),
+                              ],
+                            ),
+
+                            const Spacer(),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: AppSpacing.xl),
-                    InlineBanner(
-                      message: _errorMessage!,
-                      tone: InlineBannerTone.error,
                     ),
-                    if (_showResend) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      TextButton(
-                        onPressed: _isResending ? null : _resendVerification,
-                        child: _isResending
-                            ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: colorScheme.primary,
-                                ),
-                              )
-                            : const Text('Resend verification email'),
-                      ),
-                    ],
-                  ],
-
-                  const SizedBox(height: AppSpacing.xl),
-                ],
-              ),
-            ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
-      ),
       ),
     );
   }

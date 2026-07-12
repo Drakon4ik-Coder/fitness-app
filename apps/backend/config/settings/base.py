@@ -1,8 +1,9 @@
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+
 import environ
-import os
 import sentry_sdk
 
 env = environ.Env()
@@ -24,6 +25,10 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "rest_framework_simplejwt",
+    # Records every issued refresh token (OutstandingToken) and rejects
+    # blacklisted ones on /auth/refresh — this is what lets a password
+    # change/reset revoke sessions opened under the old credential.
+    "rest_framework_simplejwt.token_blacklist",
     "accounts",
     "preferences",
     "foods",
@@ -76,7 +81,8 @@ AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "NAME": "django.contrib.auth.password_validation."
+        "UserAttributeSimilarityValidator",
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
@@ -136,9 +142,17 @@ REST_FRAMEWORK: dict[str, Any] = {
         "user": "100/min",
         # Tighter per-view scopes for sensitive anonymous endpoints.
         "resend_verification": "2/day",  # sends an email per call
+        "password_reset": "3/hour",  # sends an email per call
         "login": "5/min",  # credential brute-force / password spray
-        "register": "2/day",  # sends a verification email per call
+        "register": "2/min",  # sends a verification email per call
         "google": "10/min",  # outbound token verification to Google per call
+        # Keyed by user id (authenticated): the re-auth check verifies the
+        # password / Google token, so cap attempts against a stolen access
+        # token being used to brute-force the deletion re-auth.
+        "account_delete": "5/hour",
+        # Same posture as account_delete: the current-password re-auth check
+        # must not be brute-forceable with a stolen access token.
+        "password_change": "5/hour",
     },
 }
 
@@ -165,10 +179,15 @@ SPECTACULAR_SETTINGS = {
 }
 
 SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
+# Staging and prod deploys set SENTRY_ENVIRONMENT ("staging" / "prod") so
+# their events are separable in Sentry. The "local" default never reports —
+# even with a DSN in a dev .env — because localhost errors are pure noise.
+SENTRY_ENVIRONMENT = env("SENTRY_ENVIRONMENT", default="local")
 
-if SENTRY_DSN:
+if SENTRY_DSN and SENTRY_ENVIRONMENT != "local":
     sentry_sdk.init(
         dsn=SENTRY_DSN,
+        environment=SENTRY_ENVIRONMENT,
         traces_sample_rate=0.1,
     )
 
@@ -197,7 +216,24 @@ EMAIL_VERIFICATION_TTL = timedelta(
     hours=env.int("EMAIL_VERIFICATION_TTL_HOURS", default=24)
 )
 
+# How long an emailed password-reset link stays valid. Shorter than the
+# verification TTL because it grants a credential change.
+PASSWORD_RESET_TTL = timedelta(hours=env.int("PASSWORD_RESET_TTL_HOURS", default=1))
+
+# How long an emailed account-deletion link stays valid. Short like the reset
+# TTL: it authorizes an irreversible action.
+ACCOUNT_DELETION_TTL = timedelta(hours=env.int("ACCOUNT_DELETION_TTL_HOURS", default=1))
+
 # Absolute base URL used to build verification links in emails. When empty we
 # fall back to the host of the incoming request (correct in prod behind the
 # public domain; fine in dev with the console email backend).
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="").rstrip("/")
+
+# Android Digital Asset Links, served at /.well-known/assetlinks.json. Declaring
+# the app here lets Google Password Manager share a saved login between this
+# website and the app (so the same credential autofills in both). The
+# fingerprints are the SHA-256 of each signing certificate (debug, upload, and
+# Play App Signing) — public values, supplied comma-separated. With none set the
+# endpoint returns an empty statement list (valid JSON that asserts nothing).
+ANDROID_APP_PACKAGE = env("ANDROID_APP_PACKAGE", default="uk.drakon4ik.symbio")
+ANDROID_CERT_FINGERPRINTS = env.list("ANDROID_CERT_FINGERPRINTS", default=[])

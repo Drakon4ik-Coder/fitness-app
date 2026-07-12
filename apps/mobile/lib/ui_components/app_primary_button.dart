@@ -16,7 +16,8 @@ class AppPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget spinner = loadingIndicator ??
+    final Widget spinner =
+        loadingIndicator ??
         const SizedBox(
           width: 18,
           height: 18,

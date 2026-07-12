@@ -10,13 +10,11 @@ class AuthInterceptor extends Interceptor {
     required AuthService authService,
     required Future<void> Function() onSessionExpired,
     required String accessToken,
-  })  : _storage = storage,
-        _authService = authService,
-        _onSessionExpired = onSessionExpired,
-        _accessToken = accessToken,
-        _retryClient = Dio(
-          BaseOptions(baseUrl: EnvironmentConfig.apiBaseUrl),
-        );
+  }) : _storage = storage,
+       _authService = authService,
+       _onSessionExpired = onSessionExpired,
+       _accessToken = accessToken,
+       _retryClient = Dio(BaseOptions(baseUrl: EnvironmentConfig.apiBaseUrl));
 
   final AuthStorage _storage;
   final AuthService _authService;
@@ -40,8 +38,7 @@ class AuthInterceptor extends Interceptor {
   ) async {
     final is401 = err.response?.statusCode == 401;
     final alreadyRetried = err.requestOptions.extra['retried'] == true;
-    final isRefreshCall =
-        err.requestOptions.path.contains('/auth/refresh');
+    final isRefreshCall = err.requestOptions.path.contains('/auth/refresh');
 
     if (!is401 || alreadyRetried || isRefreshCall) {
       return handler.next(err);
@@ -65,8 +62,7 @@ class AuthInterceptor extends Interceptor {
   }
 
   Future<String?> _ensureRefreshed() {
-    return _refreshing ??=
-        _doRefresh().whenComplete(() => _refreshing = null);
+    return _refreshing ??= _doRefresh().whenComplete(() => _refreshing = null);
   }
 
   Future<String?> _doRefresh() async {

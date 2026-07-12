@@ -39,10 +39,7 @@ class AppFormField extends StatelessWidget {
       validator: validator,
       autofillHints: autofillHints,
       enabled: enabled,
-      decoration: InputDecoration(
-        labelText: label,
-        suffixIcon: suffixIcon,
-      ),
+      decoration: InputDecoration(labelText: label, suffixIcon: suffixIcon),
     );
 
     if (bottomSpacing == null) {
@@ -89,10 +86,7 @@ class AppTextField extends StatelessWidget {
       obscureText: obscureText,
       onSubmitted: onSubmitted,
       enabled: enabled,
-      decoration: InputDecoration(
-        labelText: label,
-        suffixIcon: suffixIcon,
-      ),
+      decoration: InputDecoration(labelText: label, suffixIcon: suffixIcon),
     );
 
     if (bottomSpacing == null) {

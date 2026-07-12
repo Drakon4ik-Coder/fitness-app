@@ -37,7 +37,9 @@ class GlassSearchBar extends StatelessWidget {
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: scheme.onSurface.withValues(alpha: effects.glassOverlayOpacity),
+            color: scheme.onSurface.withValues(
+              alpha: effects.glassOverlayOpacity,
+            ),
             borderRadius: radius,
             border: Border.all(
               color: scheme.outlineVariant.withValues(alpha: 0.7),
@@ -48,10 +50,7 @@ class GlassSearchBar extends StatelessWidget {
             child: Row(
               children: [
                 const SizedBox(width: AppSpacing.md),
-                Icon(
-                  Icons.search,
-                  color: scheme.onSurfaceVariant,
-                ),
+                Icon(Icons.search, color: scheme.onSurfaceVariant),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: TextField(
@@ -90,10 +89,7 @@ class GlassSearchBar extends StatelessWidget {
                         minHeight: 48,
                       ),
                       onPressed: controller.clear,
-                      icon: Icon(
-                        Icons.close,
-                        color: scheme.onSurfaceVariant,
-                      ),
+                      icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
                     );
                   },
                 ),

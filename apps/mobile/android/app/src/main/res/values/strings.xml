@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Points Google Password Manager at this domain's Digital Asset Links so a
+         saved login is shared between the app and https://symbio.drakon4ik.uk.
+         The backend serves the matching statement at
+         /.well-known/assetlinks.json. This URL is the public backend host, not
+         whatever API host a dev build happens to talk to. -->
+    <string name="asset_statements" translatable="false">
+        [{
+          \"include\": \"https://symbio.drakon4ik.uk/.well-known/assetlinks.json\"
+        }]
+    </string>
+</resources>

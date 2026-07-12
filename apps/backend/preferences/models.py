@@ -46,6 +46,19 @@ class UserPreferences(models.Model):
     )
     daily_calorie_goal = models.PositiveIntegerField(null=True, blank=True)
     weekly_workouts_goal = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Per-nutrient daily target overrides, keyed by nutrient catalog key
+    # (see ``nutrients.catalog``). Only keys the user has personalized are stored;
+    # anything absent falls back to the client's catalog default. Values are in the
+    # catalog's canonical unit for that nutrient.
+    nutrient_goals = models.JSONField(default=dict, blank=True)
+    # Ordered list of nutrient catalog keys the user wants highlighted on the
+    # today page (max 4). Empty means the client default (protein, carbs,
+    # fat). Order is display order.
+    focus_nutrients = models.JSONField(default=list, blank=True)
+    # Nutrient catalog keys the user wants an over-goal warning for (KAN-38).
+    # Empty (the default) means only calories warn — which nutrients deserve a
+    # warning is a personal-goal question, so nothing warns until opted into.
+    warn_nutrients = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

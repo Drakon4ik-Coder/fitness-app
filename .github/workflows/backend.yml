@@ -42,6 +42,9 @@ jobs:
           filters: |
             backend:
               - 'apps/backend/**'
+              # The backend test suite guards the mirrored nutrient catalog,
+              # so a Dart-side catalog change must also run the backend job.
+              - 'apps/mobile/lib/features/nutrition/data/nutrient_catalog.dart'
               - 'contracts/**'
               - 'scripts/**'
               - 'Makefile'

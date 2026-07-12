@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0E0E0E">
+  <title>{% block title %}Symbio{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0E0E0E;
+      --surface: #161616;
+      --surface-input: #262626;
+      --on-surface: #FFFFFF;
+      --on-surface-variant: #ADAAAA;
+      --outline: #484847;
+      --primary: #6BFF8F;
+      --on-primary: #00461C;
+      --secondary: #C180FF;
+      --tertiary: #FF8439;
+      --error: #FF7351;
+      --error-surface: #2A1109;
+      --display: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+      --body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      font-family: var(--body);
+      color: var(--on-surface);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .shell {
+      position: relative;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    /* Atmospheric mint glow seeping from the top — mirrors the in-app HUD. */
+    .shell::before {
+      content: "";
+      position: absolute;
+      top: -40%;
+      left: 50%;
+      width: min(640px, 120vw);
+      height: min(640px, 120vw);
+      transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(107, 255, 143, 0.16) 0%, rgba(107, 255, 143, 0) 65%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .card {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border-radius: 24px;
+      padding: 40px 32px;
+      box-shadow: 0 32px 64px rgba(0, 0, 0, 0.55);
+    }
+
+    /* Brand lockup: vector ring + letterspaced wordmark, just like the app. */
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 0 0 28px;
+    }
+
+    .ring {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      border: 3px solid var(--primary);
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(107, 255, 143, 0.45),
+                  inset 0 0 8px rgba(107, 255, 143, 0.22);
+    }
+
+    .ring span {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--primary);
+      text-shadow: 0 0 10px rgba(107, 255, 143, 0.6);
+    }
+
+    .wordmark {
+      margin: 0;
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 4px;
+      color: var(--primary);
+    }
+
+    /* Status chip — themed SVG icon in a glowing tinted disc (no emoji). */
+    .chip {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .chip svg { width: 34px; height: 34px; }
+
+    .chip--success { background: rgba(107, 255, 143, 0.12); box-shadow: 0 0 28px rgba(107, 255, 143, 0.22); }
+    .chip--success svg { stroke: var(--primary); }
+    .chip--warning { background: rgba(255, 132, 57, 0.12); box-shadow: 0 0 28px rgba(255, 132, 57, 0.18); }
+    .chip--warning svg { stroke: var(--tertiary); }
+    .chip--info { background: rgba(193, 128, 255, 0.12); box-shadow: 0 0 28px rgba(193, 128, 255, 0.18); }
+    .chip--info svg { stroke: var(--secondary); }
+    .chip--error { background: rgba(255, 115, 81, 0.12); box-shadow: 0 0 28px rgba(255, 115, 81, 0.18); }
+    .chip--error svg { stroke: var(--error); }
+    .chip--brand { background: rgba(107, 255, 143, 0.12); box-shadow: 0 0 28px rgba(107, 255, 143, 0.22); }
+    .chip--brand svg { stroke: var(--primary); }
+
+    h1 {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 24px;
+      line-height: 1.2;
+      margin: 0 0 10px;
+      color: var(--on-surface);
+    }
+
+    p.lead {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--on-surface-variant);
+      margin: 0;
+    }
+
+    .center { text-align: center; }
+
+    /* Form controls — match the app's filled, borderless inputs. */
+    label.field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--on-surface-variant);
+      margin: 0 0 8px;
+    }
+
+    input[type="password"],
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 16px;
+      font-family: var(--body);
+      font-size: 16px;
+      color: var(--on-surface);
+      background: var(--surface-input);
+      border: 1.5px solid transparent;
+      border-radius: 12px;
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    input::placeholder { color: #6f6c6c; }
+
+    input[type="password"]:focus,
+    input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(107, 255, 143, 0.16);
+    }
+
+    .show-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--on-surface-variant);
+      margin: 12px 0 0;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .show-toggle input { accent-color: var(--primary); width: 16px; height: 16px; }
+
+    /* Primary CTA — mint fill, dark-green ink, soft glow. */
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 28px;
+      padding: 15px 24px;
+      font-family: var(--display);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-align: center;
+      text-decoration: none;
+      color: var(--on-primary);
+      background: var(--primary);
+      border: 0;
+      border-radius: 16px;
+      cursor: pointer;
+      transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+      box-shadow: 0 10px 24px rgba(107, 255, 143, 0.28);
+    }
+
+    .btn:hover { filter: brightness(1.05); box-shadow: 0 12px 30px rgba(107, 255, 143, 0.36); }
+    .btn:active { transform: translateY(1px); }
+    .btn:focus-visible { outline: none; box-shadow: 0 0 0 4px rgba(107, 255, 143, 0.3); }
+
+    .alert {
+      background: var(--error-surface);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin: 0 0 20px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #FFD2C8;
+    }
+
+    .alert ul { margin: 0; padding-left: 18px; }
+
+    .foot {
+      position: relative;
+      z-index: 1;
+      margin-top: 24px;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      color: #6f6c6c;
+      text-align: center;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="card">
+      <div class="brand">
+        <span class="ring"><span>S</span></span>
+        <p class="wordmark">SYMBIO</p>
+      </div>
+      {% block main %}{% endblock %}
+    </section>
+    <p class="foot">{% block footer %}High-performance biometric tracking{% endblock %}</p>
+  </main>
+</body>
+</html>

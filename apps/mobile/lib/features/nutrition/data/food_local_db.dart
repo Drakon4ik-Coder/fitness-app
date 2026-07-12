@@ -4,10 +4,18 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'food_models.dart';
+import 'local_db_paths.dart';
 
 class FoodLocalDb {
-  FoodLocalDb({Database? database}) : _database = database;
+  /// [userId] namespaces the SQLite file per account (KAN-64): the catalog
+  /// cache carries per-user state (favorites, custom foods, last-used), so it
+  /// follows the same scoping as the nutrition store. Null falls back to the
+  /// legacy shared file.
+  FoodLocalDb({Database? database, int? userId})
+    : _database = database,
+      _userId = userId;
 
+  final int? _userId;
   Database? _database;
   Completer<Database>? _databaseCompleter;
 
@@ -43,6 +51,14 @@ class FoodLocalDb {
       await db.close();
     }
     _database = null;
+  }
+
+  /// Drops the whole catalog cache. Used when the account is deleted — the
+  /// favorites and custom foods in it belong to the account that no longer
+  /// exists. Plain logout keeps the file (KAN-64).
+  Future<void> clear() async {
+    final db = await database;
+    await db.delete('foods');
   }
 
   Future<FoodItem> upsertFood(FoodItem item) async {
@@ -85,11 +101,29 @@ class FoodLocalDb {
     return merged.copyWith(localId: id);
   }
 
+  Future<void> deleteFood(int localId) async {
+    final db = await database;
+    await db.delete('foods', where: 'id = ?', whereArgs: [localId]);
+  }
+
   Future<void> updateLastUsed(int localId, DateTime usedAt) async {
     final db = await database;
     await db.update(
       'foods',
       {'last_used_at': usedAt.toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Sets the favorite flag directly. Deliberately not routed through
+  /// [upsertFood]: its merge ORs favorites together (so a stale fetch never
+  /// clears one), which would make un-favoriting impossible.
+  Future<void> setFavorite(int localId, bool isFavorite) async {
+    final db = await database;
+    await db.update(
+      'foods',
+      {'is_favorite': isFavorite ? 1 : 0},
       where: 'id = ?',
       whereArgs: [localId],
     );
@@ -143,6 +177,20 @@ class FoodLocalDb {
     return rows.map(FoodItem.fromDbMap).toList();
   }
 
+  /// The caller's live override shadowing the food with [barcode], if any —
+  /// lets a barcode scan resolve straight to the user's corrected copy.
+  Future<FoodItem?> fetchOverrideForBarcode(String barcode) async {
+    final db = await database;
+    final rows = await db.query(
+      'foods',
+      where: 'overrides_barcode = ?',
+      whereArgs: [barcode],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return FoodItem.fromDbMap(rows.first);
+  }
+
   Future<FoodItem?> fetchByBarcode(String barcode) async {
     final db = await database;
     final rows = await db.query(
@@ -183,6 +231,17 @@ class FoodLocalDb {
   }
 
   FoodItem _mergeFood(FoodItem existing, FoodItem incoming) {
+    // Custom foods replace wholesale: the incoming item is the owner's edit,
+    // so a field they cleared must stay cleared. Field-by-field ?? merging
+    // below is for OFF rows, where incoming nulls mean "not fetched", not
+    // "removed". Identity/bookkeeping still carries over.
+    if (incoming.isCustom) {
+      return incoming.copyWith(
+        backendId: incoming.backendId ?? existing.backendId,
+        lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
+        isFavorite: incoming.isFavorite || existing.isFavorite,
+      );
+    }
     final rawJson = incoming.rawSourceJson.trim();
     final hasRawJson = rawJson.isNotEmpty && rawJson != '{}';
     return existing.copyWith(
@@ -209,7 +268,12 @@ class FoodLocalDb {
       fiberG100g: incoming.fiberG100g ?? existing.fiberG100g,
       saltG100g: incoming.saltG100g ?? existing.saltG100g,
       servingSizeG: incoming.servingSizeG ?? existing.servingSizeG,
-      rawSourceJson: hasRawJson ? incoming.rawSourceJson : existing.rawSourceJson,
+      nutritionBasis: incoming.nutritionBasis ?? existing.nutritionBasis,
+      communityVerifiedAt:
+          incoming.communityVerifiedAt ?? existing.communityVerifiedAt,
+      rawSourceJson: hasRawJson
+          ? incoming.rawSourceJson
+          : existing.rawSourceJson,
       nutrimentsJson: incoming.nutrimentsJson ?? existing.nutrimentsJson,
       lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
       isFavorite: incoming.isFavorite || existing.isFavorite,
@@ -239,6 +303,12 @@ class FoodLocalDb {
     'fiber_g_100g': 'REAL',
     'salt_g_100g': 'REAL',
     'serving_size_g': 'REAL',
+    'grams_per_piece': 'REAL',
+    'piece_unit': 'TEXT',
+    'nutrition_basis': 'TEXT',
+    'overrides_backend_id': 'INTEGER',
+    'overrides_barcode': 'TEXT',
+    'community_verified_at': 'TEXT',
     'raw_source_json': 'TEXT NOT NULL',
     'nutriments_json': 'TEXT',
     'last_used_at': 'TEXT',
@@ -250,28 +320,44 @@ class FoodLocalDb {
       .map((column) => '${column.key} ${column.value}')
       .join(', ');
 
-  // The same columns as a comma-separated name list for INSERT ... SELECT copies.
-  static final String _foodsColumnList = _foodsColumns.keys.join(', ');
+  // Snapshot of the columns as they existed at schema v3, frozen as a literal so
+  // the v3 table-rebuild below never references columns added in later versions
+  // (those are applied afterwards by their own ALTER steps).
+  static const String _foodsColumnsV3DdlSnapshot =
+      'id INTEGER PRIMARY KEY AUTOINCREMENT, backend_id INTEGER, '
+      'source TEXT NOT NULL, external_id TEXT NOT NULL, barcode TEXT, '
+      'name TEXT NOT NULL, brands TEXT NOT NULL, image_url TEXT, '
+      'image_signature TEXT, content_hash TEXT, kcal_100g REAL, '
+      'protein_g_100g REAL, carbs_g_100g REAL, fat_g_100g REAL, '
+      'sugars_g_100g REAL, fiber_g_100g REAL, salt_g_100g REAL, '
+      'serving_size_g REAL, raw_source_json TEXT NOT NULL, '
+      'nutriments_json TEXT, last_used_at TEXT, '
+      'is_favorite INTEGER NOT NULL DEFAULT 0';
+  static const String _foodsColumnListV3Snapshot =
+      'id, backend_id, source, external_id, barcode, name, brands, image_url, '
+      'image_signature, content_hash, kcal_100g, protein_g_100g, carbs_g_100g, '
+      'fat_g_100g, sugars_g_100g, fiber_g_100g, salt_g_100g, serving_size_g, '
+      'raw_source_json, nutriments_json, last_used_at, is_favorite';
 
   Future<void> _createIndexes(DatabaseExecutor db) async {
-    await db.execute(
-      'CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)',
-    );
+    await db.execute('CREATE UNIQUE INDEX idx_foods_barcode ON foods(barcode)');
     await db.execute(
       'CREATE UNIQUE INDEX idx_foods_source_external_id ON foods(source, external_id)',
     );
     await db.execute('CREATE INDEX idx_foods_name ON foods(name)');
-    await db.execute(
-      'CREATE INDEX idx_foods_last_used ON foods(last_used_at)',
-    );
+    await db.execute('CREATE INDEX idx_foods_last_used ON foods(last_used_at)');
   }
 
   Future<Database> _openDatabase() async {
     final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/foods.db';
+    final path = await resolveUserDbPath(
+      directoryPath: directory.path,
+      baseName: 'foods',
+      userId: _userId,
+    );
     return openDatabase(
       path,
-      version: 3,
+      version: 7,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
         await _createIndexes(db);
@@ -294,14 +380,45 @@ class FoodLocalDb {
           // (the portable approach that works on every SQLite version).
           // onUpgrade already runs inside a transaction, so these statements
           // are applied atomically without an explicit nested transaction.
-          await db.execute('CREATE TABLE foods_new ($_foodsColumnsDdl)');
           await db.execute(
-            'INSERT INTO foods_new ($_foodsColumnList) '
-            'SELECT $_foodsColumnList FROM foods',
+            'CREATE TABLE foods_new ($_foodsColumnsV3DdlSnapshot)',
+          );
+          await db.execute(
+            'INSERT INTO foods_new ($_foodsColumnListV3Snapshot) '
+            'SELECT $_foodsColumnListV3Snapshot FROM foods',
           );
           await db.execute('DROP TABLE foods');
           await db.execute('ALTER TABLE foods_new RENAME TO foods');
           await _createIndexes(db);
+        }
+        if (oldVersion < 4) {
+          // Piece-based logging support: weight of one piece + its noun, both
+          // nullable so existing rows simply have no piece dimension.
+          await db.execute('ALTER TABLE foods ADD COLUMN grams_per_piece REAL');
+          await db.execute('ALTER TABLE foods ADD COLUMN piece_unit TEXT');
+        }
+        if (oldVersion < 5) {
+          // Cooked-basis marker (see cookedNutritionBasis); nullable, so
+          // existing rows stay per-100g as sold.
+          await db.execute('ALTER TABLE foods ADD COLUMN nutrition_basis TEXT');
+        }
+        if (oldVersion < 6) {
+          // Fork-on-edit overrides (KAN-31): which global item a custom food
+          // shadows, by backend id and (locally) by barcode for scan lookup.
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN overrides_backend_id INTEGER',
+          );
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN overrides_barcode TEXT',
+          );
+        }
+        if (oldVersion < 7) {
+          // Community convergence marker (KAN-32): when the shared item's
+          // nutrition was promoted from converged user edits. Nullable —
+          // existing rows are simply unverified.
+          await db.execute(
+            'ALTER TABLE foods ADD COLUMN community_verified_at TEXT',
+          );
         }
       },
     );

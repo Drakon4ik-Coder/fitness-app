@@ -1,0 +1,33 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Delete your Symbio account{% endblock %}
+
+{% block main %}
+  <div class="chip chip--error" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7h16"></path>
+      <path d="M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"></path>
+      <path d="M6.5 7 7.4 19a2 2 0 0 0 2 1.8h5.2a2 2 0 0 0 2-1.8L17.5 7"></path>
+      <path d="M10 11v6"></path>
+      <path d="M14 11v6"></path>
+    </svg>
+  </div>
+
+  <h1 class="center">Delete your account</h1>
+  <p class="lead center">Enter your account email and we'll send a confirmation
+    link. Confirming it permanently deletes your Symbio account and all data
+    associated with it — your food log, goals, preferences and custom foods.
+    This cannot be undone.</p>
+
+  {% if error %}
+    <div role="alert" class="alert" style="margin-top:24px;">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" style="margin-top:28px;">
+    {% csrf_token %}
+    <label class="field-label" for="email">Account email</label>
+    <input id="email" name="email" type="text" inputmode="email" required
+           autocomplete="email" placeholder="you@example.com">
+    <button type="submit" class="btn">Send deletion link</button>
+  </form>
+{% endblock %}

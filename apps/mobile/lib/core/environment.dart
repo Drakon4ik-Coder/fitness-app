@@ -19,6 +19,10 @@ class EnvironmentConfig {
     'GOOGLE_SERVER_CLIENT_ID',
     defaultValue: '',
   );
+  static const String _sentryDsn = String.fromEnvironment(
+    'SENTRY_DSN',
+    defaultValue: '',
+  );
 
   static const Map<String, String> _baseUrls = {
     'local': 'http://localhost:8000',
@@ -40,4 +44,6 @@ class EnvironmentConfig {
   static String get offCountry => _offCountry;
 
   static String get googleServerClientId => _googleServerClientId;
+
+  static String get sentryDsn => _sentryDsn;
 }

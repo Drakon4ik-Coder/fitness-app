@@ -20,13 +20,14 @@ class OffMapper {
   }) {
     final barcode = product['code']?.toString();
     final name = _bestName(product);
-    final brands = _stringValue(product['brands']) ?? '';
+    final brands = _brandsValue(product['brands']) ?? '';
     final locale = localeLanguage?.trim().toLowerCase();
     final result = _selectImage(product, locale);
 
     final nutriments = product['nutriments'];
-    final nutrimentsJson =
-        nutriments is Map<String, dynamic> ? nutriments : null;
+    final nutrimentsJson = nutriments is Map<String, dynamic>
+        ? nutriments
+        : null;
 
     final kcal100g = _kcalPer100g(nutrimentsJson);
     final protein = _readNutriment(nutrimentsJson, 'proteins_100g');
@@ -35,7 +36,69 @@ class OffMapper {
     final sugars = _readNutriment(nutrimentsJson, 'sugars_100g');
     final fiber = _readNutriment(nutrimentsJson, 'fiber_100g');
     final salt = _readNutriment(nutrimentsJson, 'salt_100g');
-    final servingSize = _parseServingSize(product['serving_size']);
+    // The serving weight (grams) must come from an explicit g/ml quantity in the
+    // text. `serving_quantity` is only used as a fallback when it is a genuine
+    // mass/volume — OFF sometimes stores the bare piece *count* there (e.g.
+    // "1 egg" -> 1), which a naive grams reading would turn into a 1 g serving.
+    final rawServing = product['serving_size'];
+    // A numeric serving_size is already grams; stringify it so the shared text
+    // parser handles it uniformly (and finds no spurious piece count).
+    final servingText = rawServing is num
+        ? rawServing.toString()
+        : _stringValue(rawServing);
+    final sqUnit = _stringValue(
+      product['serving_quantity_unit'],
+    )?.toLowerCase();
+    final leadingPiece = parseLeadingPiece(servingText);
+    var servingSize = gramsFromServingText(servingText);
+    if (servingSize == null) {
+      final sq = _parseServingQuantity(product['serving_quantity']);
+      final unitIsMass =
+          sqUnit == null || sqUnit.isEmpty || sqUnit == 'g' || sqUnit == 'ml';
+      final isCountArtifact =
+          leadingPiece != null &&
+          sq != null &&
+          (sq - leadingPiece.count).abs() < 1e-6;
+      if (sq != null && unitIsMass && !isCountArtifact) {
+        servingSize = sq;
+      }
+    }
+    // Sanity guard: OFF entries sometimes carry an inconsistent serving (e.g. a
+    // whole-burger weight paired with per-100g values that are really the whole
+    // item's totals). When both the per-100g and per-serving energy are known,
+    // distrust the serving if scaling 100g by it disagrees with the serving
+    // value, and fall back to plain grams.
+    if (servingSize != null) {
+      final kcalServing = _readNutriment(nutrimentsJson, 'energy-kcal_serving');
+      if (kcal100g != null && kcal100g > 0 && kcalServing != null) {
+        final expected = kcal100g * servingSize / 100.0;
+        final denom = kcalServing.abs() < 1 ? 1.0 : kcalServing.abs();
+        if ((expected - kcalServing).abs() / denom > 0.3) {
+          servingSize = null;
+        }
+      }
+    }
+    // A piece descriptor lets the UI count in whole pieces (eggs, burgers).
+    // Only derived when the serving weight itself is trusted.
+    final piece = servingSize == null
+        ? null
+        : parsePieceDescriptor(servingText);
+    // Cooked-basis detection: a label whose protein sits far above the raw
+    // CIQUAL reference (or above the raw physical ceiling for fresh meat/fish
+    // categories) carries the cooked ("grilled") column in OFF's plain
+    // fields, so amounts must be entered/converted as cooked weight (see
+    // cookedNutritionBasis).
+    final categoriesTags = product['categories_tags'];
+    final cookedBasis = detectCookedNutritionBasis(
+      categoriesTags: categoriesTags is List
+          ? categoriesTags.whereType<String>().toList()
+          : const <String>[],
+      proteinG100g: protein,
+      ciqualCode: ciqualCodeFromOffProduct(product),
+    );
+    // OFF data completeness in [0,1] — used to rank/filter live search results
+    // so low-quality duplicates (often with miscoded calories) sink or drop out.
+    final completeness = parseNullableDouble(product['completeness']);
     final imageSignature = result.signature;
     final contentHash = _buildContentHash(
       source: offSource,
@@ -59,8 +122,9 @@ class OffMapper {
       barcode: barcode,
       name: name,
       brands: brands,
-      imageUrl:
-          result.url != null && result.url!.isNotEmpty ? result.url : null,
+      imageUrl: result.url != null && result.url!.isNotEmpty
+          ? result.url
+          : null,
       imageSignature: imageSignature,
       contentHash: contentHash,
       kcal100g: kcal100g,
@@ -71,6 +135,10 @@ class OffMapper {
       fiberG100g: fiber,
       saltG100g: salt,
       servingSizeG: servingSize,
+      gramsPerPiece: piece?.gramsPerPiece,
+      pieceUnit: piece?.unit,
+      nutritionBasis: cookedBasis ? cookedNutritionBasis : null,
+      completeness: completeness,
       rawSourceJson: rawJson,
       nutrimentsJson: nutrimentsJson,
     );
@@ -158,6 +226,20 @@ class OffMapper {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  // The barcode endpoint returns brands as a comma-separated string, while the
+  // Search-a-licious endpoint returns them as a list. Normalize both to a
+  // single comma-separated string.
+  String? _brandsValue(dynamic value) {
+    if (value is List) {
+      final joined = value
+          .map((e) => e?.toString().trim() ?? '')
+          .where((e) => e.isNotEmpty)
+          .join(', ');
+      return joined.isEmpty ? null : joined;
+    }
+    return _stringValue(value);
+  }
+
   String _buildContentHash({
     required String source,
     required String externalId,
@@ -223,7 +305,8 @@ class OffMapper {
   }
 
   double? _kcalPer100g(Map<String, dynamic>? nutriments) {
-    final energy = _readNutriment(nutriments, 'energy-kcal_100g') ??
+    final energy =
+        _readNutriment(nutriments, 'energy-kcal_100g') ??
         _readNutriment(nutriments, 'energy-kcal_value');
     if (energy != null) return energy;
     final protein = _readNutriment(nutriments, 'proteins_100g') ?? 0;
@@ -238,16 +321,9 @@ class OffMapper {
     return parseNullableDouble(nutriments[key]);
   }
 
-  double? _parseServingSize(dynamic value) {
-    if (value == null) return null;
-    if (value is num) return value.toDouble();
-    if (value is! String) return null;
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return null;
-    final match = RegExp(r'([\d.,]+)').firstMatch(trimmed);
-    if (match == null) return null;
-    final number = match.group(1)?.replaceAll(',', '.');
-    if (number == null) return null;
-    return double.tryParse(number);
+  double? _parseServingQuantity(dynamic value) {
+    final parsed = parseNullableDouble(value);
+    if (parsed == null || parsed <= 0) return null;
+    return parsed;
   }
 }

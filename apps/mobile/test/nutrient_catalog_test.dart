@@ -1,0 +1,594 @@
+import 'package:fitness_app/features/nutrition/data/food_models.dart';
+import 'package:fitness_app/features/nutrition/data/nutrient_catalog.dart';
+import 'package:fitness_app/features/nutrition/data/nutrition_api_service.dart';
+import 'package:fitness_app/features/nutrition/nutrition_detail_page.dart';
+import 'package:fitness_app/ui_system/lumina_health_theme.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+FoodItem _food(
+  Map<String, dynamic>? nutriments, {
+  double? proteinG100g,
+  double? sugarsG100g,
+  double? fiberG100g,
+  double? saltG100g,
+}) => FoodItem(
+  source: offSource,
+  externalId: 'x',
+  name: 'Test food',
+  brands: '',
+  rawSourceJson: '{}',
+  proteinG100g: proteinG100g,
+  sugarsG100g: sugarsG100g,
+  fiberG100g: fiberG100g,
+  saltG100g: saltG100g,
+  nutrimentsJson: nutriments,
+);
+
+NutritionEntry _entry({
+  required double quantityG,
+  Map<String, dynamic>? nutriments,
+  double? proteinG100g,
+}) => NutritionEntry(
+  id: 1,
+  mealType: 'breakfast',
+  consumedAt: DateTime(2024, 1, 1),
+  quantityG: quantityG,
+  kcal: 0,
+  foodItem: _food(nutriments, proteinG100g: proteinG100g),
+);
+
+NutrientTotal _find(List<NutrientTotal> totals, String key) =>
+    totals.firstWhere((t) => t.spec.key == key);
+
+void main() {
+  group('nutrientPer100g unit conversion', () {
+    test('converts the raw unit into the catalog unit', () {
+      // Vitamin C catalog unit is mg; OFF here reports mg directly.
+      final specC = kNutrientCatalog.firstWhere((s) => s.key == 'vitamin_c');
+      final mg = nutrientPer100g(specC, {
+        'vitamin-c_100g': 60,
+        'vitamin-c_unit': 'mg',
+      });
+      expect(mg, closeTo(60, 1e-9));
+    });
+
+    test('converts grams source into a mg catalog unit', () {
+      final specSodium = kNutrientCatalog.firstWhere((s) => s.key == 'sodium');
+      // 1 g of sodium == 1000 mg (catalog unit for sodium is mg).
+      final value = nutrientPer100g(specSodium, {
+        'sodium_100g': 1,
+        'sodium_unit': 'g',
+      });
+      expect(value, closeTo(1000, 1e-6));
+    });
+
+    test('assumes grams when the unit is missing', () {
+      final specProtein = kNutrientCatalog.firstWhere(
+        (s) => s.key == 'protein',
+      );
+      final value = nutrientPer100g(specProtein, {'proteins_100g': 12});
+      expect(value, closeTo(12, 1e-9));
+    });
+
+    test('returns null for an unconvertible unit (e.g. IU)', () {
+      final specA = kNutrientCatalog.firstWhere((s) => s.key == 'vitamin_a');
+      final value = nutrientPer100g(specA, {
+        'vitamin-a_100g': 500,
+        'vitamin-a_unit': 'IU',
+      });
+      expect(value, isNull);
+    });
+
+    test('returns null when the nutrient is absent', () {
+      final specIron = kNutrientCatalog.firstWhere((s) => s.key == 'iron');
+      expect(nutrientPer100g(specIron, {'proteins_100g': 10}), isNull);
+    });
+  });
+
+  group('flat-column fallback (blob-less foods)', () {
+    NutrientSpec spec(String key) =>
+        kNutrientCatalog.firstWhere((s) => s.key == key);
+
+    test('nutrientPer100gForItem reads every flat macro column', () {
+      final item = _food(
+        null,
+        proteinG100g: 12,
+        sugarsG100g: 5,
+        fiberG100g: 3,
+        saltG100g: 0.4,
+      );
+      expect(nutrientPer100gForItem(spec('protein'), item), 12);
+      expect(nutrientPer100gForItem(spec('sugars'), item), 5);
+      expect(nutrientPer100gForItem(spec('fiber'), item), 3);
+      expect(nutrientPer100gForItem(spec('salt'), item), 0.4);
+      // Columns the food doesn't carry stay no-data.
+      expect(nutrientPer100gForItem(spec('carbs'), item), isNull);
+      expect(nutrientPer100gForItem(spec('iron'), item), isNull);
+    });
+
+    test('the blob wins over the flat column when both exist', () {
+      final item = _food({'proteins_100g': 20}, proteinG100g: 12);
+      expect(nutrientPer100gForItem(spec('protein'), item), closeTo(20, 1e-9));
+    });
+
+    test('nutrientTotalsForItem scales flat columns like blob values', () {
+      final totals = nutrientTotalsForItem(
+        _food(null, proteinG100g: 10, saltG100g: 2),
+        200,
+      );
+      expect(_find(totals, 'protein').amount, closeTo(20, 1e-9));
+      expect(_find(totals, 'salt').amount, closeTo(4, 1e-9));
+      expect(_find(totals, 'carbs').hasData, isFalse);
+    });
+
+    test('aggregateNutrients counts a blob-less food with flat macros', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 200, proteinG100g: 10), // no blob: flat column only
+      ]);
+      final protein = _find(totals, 'protein');
+      expect(protein.amount, closeTo(30, 1e-9));
+      expect(protein.reportedCount, 2);
+      expect(protein.isIncomplete, isFalse);
+    });
+
+    test('nutrientContributors ranks blob-less foods with flat macros', () {
+      final specProtein = spec('protein');
+      final breakdown = nutrientContributors([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 300, proteinG100g: 10), // 30 g — the top source
+      ], specProtein);
+      expect(breakdown.total, closeTo(40, 1e-9));
+      expect(breakdown.missingCount, 0);
+      expect(breakdown.contributors.first.amount, closeTo(30, 1e-9));
+    });
+  });
+
+  group('aggregateNutrients', () {
+    test('scales per-100g values by logged quantity and sums entries', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 200, nutriments: {'proteins_100g': 10}), // 20 g
+        _entry(quantityG: 50, nutriments: {'proteins_100g': 10}), // 5 g
+      ]);
+      expect(_find(totals, 'protein').amount, closeTo(25, 1e-9));
+    });
+
+    test('marks a nutrient with no contributing entry as no-data', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+      ]);
+      final iron = _find(totals, 'iron');
+      expect(iron.hasData, isFalse);
+      expect(iron.amount, isNull);
+    });
+
+    test('flags any amount past the daily target as over-target', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'salt_100g': 8, 'salt_unit': 'g'}),
+      ]);
+      final salt = _find(totals, 'salt');
+      expect(salt.amount, closeTo(8, 1e-9));
+      expect(salt.isOverTarget, isTrue); // 8 g > 6 g target
+      expect(salt.progress, 1.0); // clamped
+    });
+
+    test('over-goal treatment: warn only when opted in (KAN-38)', () {
+      NutrientSpec spec(String key) =>
+          kNutrientCatalog.firstWhere((s) => s.key == key);
+
+      // Fresh account (empty warn set): nothing warns — restrict-type and the
+      // energy macros are neutral, target-type nutrients celebrate.
+      expect(
+        overGoalTreatment(spec('sodium'), const {}),
+        OverGoalTreatment.neutral,
+      );
+      expect(
+        overGoalTreatment(spec('fat'), const {}),
+        OverGoalTreatment.neutral,
+      );
+      expect(
+        overGoalTreatment(spec('carbs'), const {}),
+        OverGoalTreatment.neutral,
+      );
+      expect(
+        overGoalTreatment(spec('protein'), const {}),
+        OverGoalTreatment.celebrate,
+      );
+      expect(
+        overGoalTreatment(spec('vitamin_c'), const {}),
+        OverGoalTreatment.celebrate,
+      );
+
+      // Opting in flips exactly that nutrient to warn — even a target-type one.
+      expect(
+        overGoalTreatment(spec('sodium'), const {'sodium'}),
+        OverGoalTreatment.warn,
+      );
+      expect(
+        overGoalTreatment(spec('protein'), const {'protein'}),
+        OverGoalTreatment.warn,
+      );
+      expect(
+        overGoalTreatment(spec('sugars'), const {'sodium'}),
+        OverGoalTreatment.neutral,
+      );
+    });
+
+    test('suggested warn nutrients are exactly the cautionary set', () {
+      expect(kSuggestedWarnNutrients, [
+        'sugars',
+        'saturated_fat',
+        'sodium',
+        'salt',
+        'cholesterol',
+      ]);
+    });
+
+    test('handles entries with no nutriments blob', () {
+      final totals = aggregateNutrients([_entry(quantityG: 100)]);
+      expect(totals.every((t) => !t.hasData), isTrue);
+    });
+  });
+
+  group('incomplete (floor) totals', () {
+    test('flags a tracked macro reported by only some foods', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 100, nutriments: {'carbohydrates_100g': 20}),
+      ]);
+      final protein = _find(totals, 'protein');
+      expect(protein.hasData, isTrue);
+      expect(protein.reportedCount, 1);
+      expect(protein.totalCount, 2);
+      expect(protein.isIncomplete, isTrue);
+    });
+
+    test('a fully-reported tracked macro is not incomplete', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 5}),
+      ]);
+      expect(_find(totals, 'protein').isIncomplete, isFalse);
+    });
+
+    test('a partially-reported micronutrient is NOT flagged (not tracked)', () {
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'iron_100g': 5, 'iron_unit': 'mg'}),
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
+      ]);
+      final iron = _find(totals, 'iron');
+      expect(iron.hasData, isTrue);
+      expect(iron.reportedCount, 1);
+      expect(iron.isIncomplete, isFalse);
+    });
+
+    test(
+      'server counts drive incompleteness; absent counts read as complete',
+      () {
+        final incomplete = nutrientTotalsFromServer({
+          'protein': {
+            'amount': 10.0,
+            'unit': 'g',
+            'group': 'macros',
+            'reported': 1,
+            'total': 2,
+          },
+        });
+        expect(_find(incomplete, 'protein').isIncomplete, isTrue);
+
+        final legacy = nutrientTotalsFromServer({
+          'protein': {'amount': 10.0, 'unit': 'g', 'group': 'macros'},
+        });
+        expect(_find(legacy, 'protein').isIncomplete, isFalse);
+      },
+    );
+  });
+
+  group('nutrientTotalsFromServer', () {
+    test('reads amounts directly and marks omitted keys as no-data', () {
+      final totals = nutrientTotalsFromServer({
+        'protein': {'amount': 25.0, 'unit': 'g', 'group': 'macros'},
+        'vitamin_c': {'amount': 60.0, 'unit': 'mg', 'group': 'vitamins'},
+      });
+      expect(_find(totals, 'protein').amount, closeTo(25, 1e-9));
+      expect(_find(totals, 'vitamin_c').amount, closeTo(60, 1e-9));
+      expect(_find(totals, 'iron').hasData, isFalse);
+    });
+  });
+
+  testWidgets('detail page prefers the server nutrients map', (tester) async {
+    // Iron lives in the Minerals section, far down the lazy ListView — give the
+    // surface enough height that every row builds.
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 400,
+          // Entries would aggregate to nothing; the server map must win.
+          entries: [_entry(quantityG: 100)],
+          serverNutrients: const {
+            'iron': {'amount': 9.0, 'unit': 'mg', 'group': 'minerals'},
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Iron'), findsOneWidget);
+    expect(find.textContaining('9 / 18 mg'), findsOneWidget);
+  });
+
+  testWidgets('detail page renders values and no-data rows', (tester) async {
+    final entries = [
+      _entry(
+        quantityG: 100,
+        nutriments: {
+          'proteins_100g': 20,
+          'vitamin-c_100g': 40,
+          'vitamin-c_unit': 'mg',
+        },
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 500,
+          entries: entries,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Protein'), findsOneWidget);
+    expect(find.text('Vitamin C'), findsOneWidget);
+    // A catalog nutrient with no source data shows an explicit no-data row.
+    expect(find.text('— no data'), findsWidgets);
+    expect(find.text('500'), findsOneWidget); // energy header
+  });
+
+  testWidgets('tapping a nutrient row opens its top-sources sheet', (
+    tester,
+  ) async {
+    final entries = [
+      _entry(
+        quantityG: 100,
+        nutriments: {'vitamin-c_100g': 40, 'vitamin-c_unit': 'mg'},
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 500,
+          entries: entries,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Vitamin C'));
+    await tester.pumpAndSettle();
+
+    // The contributor sheet is up, ranking the single logged food.
+    expect(find.text('TOP SOURCES'), findsOneWidget);
+    expect(find.text('Test food'), findsOneWidget);
+    expect(find.text('100%'), findsOneWidget); // sole contributor's share
+  });
+
+  testWidgets('no-data nutrient rows are not tappable', (tester) async {
+    final entries = [
+      _entry(
+        quantityG: 100,
+        nutriments: {'vitamin-c_100g': 40, 'vitamin-c_unit': 'mg'},
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 500,
+          entries: entries,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Protein has no data here (top of the list, on-screen); tapping its
+    // no-data row must not open a sheet.
+    expect(find.text('— no data'), findsWidgets);
+    await tester.tap(find.text('Protein'));
+    await tester.pumpAndSettle();
+    expect(find.text('TOP SOURCES'), findsNothing);
+  });
+
+  testWidgets('detail page shows empty state with no entries', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: const NutritionDetailPage(
+          dateLabel: 'Today',
+          eatenKcal: 0,
+          entries: [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No foods logged yet'), findsOneWidget);
+  });
+
+  group('nutrientContributors', () {
+    NutritionEntry namedEntry({
+      required String name,
+      required String brand,
+      required double quantityG,
+      Map<String, dynamic>? nutriments,
+    }) => NutritionEntry(
+      id: 1,
+      mealType: 'breakfast',
+      consumedAt: DateTime(2024, 1, 1),
+      quantityG: quantityG,
+      kcal: 0,
+      foodItem: FoodItem(
+        source: offSource,
+        externalId: name,
+        name: name,
+        brands: brand,
+        rawSourceJson: '{}',
+        nutrimentsJson: nutriments,
+      ),
+    );
+
+    final specC = kNutrientCatalog.firstWhere((s) => s.key == 'vitamin_c');
+
+    test('ranks foods high→low with correct amounts, shares and total', () {
+      final breakdown = nutrientContributors([
+        // 50 g * 20 mg/100g = 10 mg
+        namedEntry(
+          name: 'Kiwi',
+          brand: 'Fresh',
+          quantityG: 50,
+          nutriments: {'vitamin-c_100g': 20, 'vitamin-c_unit': 'mg'},
+        ),
+        // 100 g * 90 mg/100g = 90 mg (the top source)
+        namedEntry(
+          name: 'Orange',
+          brand: '',
+          quantityG: 100,
+          nutriments: {'vitamin-c_100g': 90, 'vitamin-c_unit': 'mg'},
+        ),
+      ], specC);
+
+      expect(breakdown.total, closeTo(100, 1e-9));
+      expect(breakdown.entryCount, 2);
+      expect(breakdown.missingCount, 0);
+      expect(breakdown.contributors.map((c) => c.name), ['Orange', 'Kiwi']);
+      expect(breakdown.contributors.first.amount, closeTo(90, 1e-9));
+      expect(breakdown.contributors.first.share, closeTo(0.9, 1e-9));
+      expect(breakdown.contributors.last.share, closeTo(0.1, 1e-9));
+    });
+
+    test(
+      'drops foods with no data or a zero value, counting them as missing',
+      () {
+        final breakdown = nutrientContributors([
+          namedEntry(
+            name: 'Orange',
+            brand: '',
+            quantityG: 100,
+            nutriments: {'vitamin-c_100g': 50, 'vitamin-c_unit': 'mg'},
+          ),
+          // Reports the nutrient but as a literal 0 — doesn't move the total.
+          namedEntry(
+            name: 'Water',
+            brand: '',
+            quantityG: 250,
+            nutriments: {'vitamin-c_100g': 0, 'vitamin-c_unit': 'mg'},
+          ),
+          // No blob at all.
+          namedEntry(name: 'Mystery', brand: '', quantityG: 100),
+        ], specC);
+
+        expect(breakdown.contributors.map((c) => c.name), ['Orange']);
+        expect(breakdown.entryCount, 3);
+        expect(breakdown.missingCount, 2);
+      },
+    );
+
+    test('returns an empty breakdown when nothing carries the nutrient', () {
+      final breakdown = nutrientContributors([
+        namedEntry(name: 'Mystery', brand: '', quantityG: 100),
+      ], specC);
+
+      expect(breakdown.contributors, isEmpty);
+      expect(breakdown.total, 0);
+      expect(breakdown.missingCount, 1);
+    });
+  });
+
+  group('resolveCatalog', () {
+    double target(List<NutrientSpec> catalog, String key) =>
+        catalog.firstWhere((s) => s.key == key).dailyTarget;
+
+    test('returns the catalog unchanged for null or empty goals', () {
+      expect(resolveCatalog(null), same(kNutrientCatalog));
+      expect(resolveCatalog(const {}), same(kNutrientCatalog));
+    });
+
+    test('overrides only the targeted nutrient, leaving others at default', () {
+      final resolved = resolveCatalog({'protein': 150});
+      expect(target(resolved, 'protein'), 150);
+      // Everything else keeps its reference default.
+      expect(target(resolved, 'carbs'), target(kNutrientCatalog, 'carbs'));
+    });
+
+    test('ignores non-positive overrides, keeping the default', () {
+      final resolved = resolveCatalog({'protein': 0, 'fat': -5});
+      expect(target(resolved, 'protein'), target(kNutrientCatalog, 'protein'));
+      expect(target(resolved, 'fat'), target(kNutrientCatalog, 'fat'));
+    });
+
+    test('a resolved override flows into aggregated totals progress', () {
+      final catalog = resolveCatalog({'protein': 40});
+      // 100 g of a 20 g/100g protein food = 20 g == half of a 40 g goal.
+      final totals = aggregateNutrients([
+        _entry(quantityG: 100, nutriments: {'proteins_100g': 20}),
+      ], catalog: catalog);
+      expect(_find(totals, 'protein').progress, closeTo(0.5, 1e-9));
+    });
+  });
+
+  group('resolveFocusSpecs', () {
+    List<String> keys(List<NutrientSpec> specs) => [
+      for (final spec in specs) spec.key,
+    ];
+
+    test('null or empty selections fall back to the default trio', () {
+      expect(keys(resolveFocusSpecs(null)), kDefaultFocusNutrients);
+      expect(keys(resolveFocusSpecs(const [])), kDefaultFocusNutrients);
+    });
+
+    test('keeps the user order and drops unknown keys', () {
+      final resolved = resolveFocusSpecs(const [
+        'fiber',
+        'unobtanium',
+        'protein',
+      ]);
+      expect(keys(resolved), ['fiber', 'protein']);
+    });
+
+    test('an all-invalid selection falls back to the default trio', () {
+      expect(
+        keys(resolveFocusSpecs(const ['unobtanium'])),
+        kDefaultFocusNutrients,
+      );
+    });
+
+    test('caps the selection at $kMaxFocusNutrients', () {
+      final resolved = resolveFocusSpecs(const [
+        'protein',
+        'carbs',
+        'fat',
+        'fiber',
+        'sugars',
+      ]);
+      expect(resolved.length, kMaxFocusNutrients);
+    });
+
+    test('resolves against a goal-adjusted base catalog', () {
+      final resolved = resolveFocusSpecs(const [
+        'protein',
+      ], base: resolveCatalog({'protein': 42}));
+      expect(resolved.single.dailyTarget, 42);
+    });
+  });
+}

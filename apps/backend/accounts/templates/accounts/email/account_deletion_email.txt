@@ -1,0 +1,15 @@
+Confirm deleting your Symbio account
+
+We received a request to permanently delete the Symbio account for this email
+address. Open the link below to confirm:
+
+{{ deletion_url }}
+
+Confirming permanently deletes your account and all data associated with it —
+your food log, goals, preferences and custom foods. This cannot be undone.
+
+This link expires in 1 hour. If you didn't request this, you can ignore this
+email — your account won't be touched.
+
+—
+SYMBIO · High-performance biometrics

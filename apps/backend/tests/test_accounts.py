@@ -1,13 +1,13 @@
 import re
 
 import pytest
-from django.core import mail
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import Client
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from accounts.models import EmailVerificationToken
+from accounts.models import EmailVerificationToken, PasswordResetToken
 from preferences.models import UserPreferences
 
 
@@ -505,3 +505,324 @@ def test_anon_throttle_keys_on_cloudflare_client_ip(settings, monkeypatch) -> No
 
     # A different client IP is tracked separately and is still allowed.
     assert refresh("203.0.113.2").status_code != 429
+
+
+# ---------------------------------------------------------------------------
+# Password reset
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_request_sends_link_for_existing_user() -> None:
+    get_user_model().objects.create_user(
+        email="reset@example.com", password="Str0ngPass!word"
+    )
+    client = APIClient()
+
+    response = client.post(
+        "/api/v1/auth/password-reset",
+        {"email": "reset@example.com"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert len(mail.outbox) == 1
+    assert PasswordResetToken.objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_request_is_silent_for_unknown_email() -> None:
+    client = APIClient()
+
+    response = client.post(
+        "/api/v1/auth/password-reset",
+        {"email": "ghost@example.com"},
+        format="json",
+    )
+
+    # 200 with no email sent, so the endpoint can't enumerate accounts.
+    assert response.status_code == 200
+    assert len(mail.outbox) == 0
+    assert PasswordResetToken.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_request_skips_inactive_user() -> None:
+    user = get_user_model().objects.create_user(
+        email="inactive@example.com", password="Str0ngPass!word"
+    )
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+    client = APIClient()
+
+    response = client.post(
+        "/api/v1/auth/password-reset",
+        {"email": "inactive@example.com"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_confirm_changes_password() -> None:
+    user = get_user_model().objects.create_user(
+        email="change@example.com", password="OldPass!word1"
+    )
+    raw_token = PasswordResetToken.issue(user)
+    client = Client(enforce_csrf_checks=True)
+    url = f"/api/v1/auth/reset-password/{raw_token}"
+
+    # A POST without the CSRF token is rejected (403).
+    assert client.post(url).status_code == 403
+
+    # GET renders the form and hands us a CSRF token.
+    get_response = client.get(url)
+    assert get_response.status_code == 200
+    csrf_token = get_response.context["csrf_token"]
+
+    confirm_response = client.post(
+        url,
+        {
+            "csrfmiddlewaretoken": str(csrf_token),
+            "password": "Br4ndNew!pass",
+        },
+    )
+
+    assert confirm_response.status_code == 200
+    assert confirm_response.context["result"] == "success"
+    user.refresh_from_db()
+    assert user.check_password("Br4ndNew!pass")
+    # Resetting via the emailed link also verifies the email.
+    assert user.email_verified is True
+    # The token is now consumed.
+    assert PasswordResetToken.objects.get(user=user).used_at is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_confirm_revokes_existing_refresh_tokens() -> None:
+    # The reset flow is the "I lost control of my account" path: a refresh
+    # token stolen before the reset must stop working immediately.
+    user = get_user_model().objects.create_user(
+        email="revoke@example.com", password="OldPass!word1"
+    )
+    user.email_verified = True
+    user.save(update_fields=["email_verified"])
+    old_refresh = (
+        APIClient()
+        .post(
+            "/api/v1/auth/token",
+            {"email": user.email, "password": "OldPass!word1"},
+            format="json",
+        )
+        .data["refresh"]
+    )
+
+    raw_token = PasswordResetToken.issue(user)
+    client = Client()
+    url = f"/api/v1/auth/reset-password/{raw_token}"
+    confirm_response = client.post(url, {"password": "Br4ndNew!pass"})
+    assert confirm_response.context["result"] == "success"
+
+    refresh_response = APIClient().post(
+        "/api/v1/auth/refresh", {"refresh": old_refresh}, format="json"
+    )
+    assert refresh_response.status_code == 401
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_get_does_not_consume_token() -> None:
+    # Email scanners pre-fetch links with GET; that must not burn the token.
+    user = get_user_model().objects.create_user(
+        email="scan@example.com", password="OldPass!word1"
+    )
+    raw_token = PasswordResetToken.issue(user)
+    client = APIClient()
+
+    response = client.get(f"/api/v1/auth/reset-password/{raw_token}")
+
+    assert response.status_code == 200
+    assert PasswordResetToken.objects.get(user=user).used_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_rejects_weak_password_without_consuming_token() -> None:
+    user = get_user_model().objects.create_user(
+        email="weakreset@example.com", password="OldPass!word1"
+    )
+    raw_token = PasswordResetToken.issue(user)
+    client = Client()
+    url = f"/api/v1/auth/reset-password/{raw_token}"
+
+    response = client.post(url, {"password": "password"})
+
+    assert response.status_code == 200
+    assert response.context["errors"]  # form re-rendered with errors
+    user.refresh_from_db()
+    assert user.check_password("OldPass!word1")  # unchanged
+    assert PasswordResetToken.objects.get(user=user).used_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_password_reset_token_is_single_use() -> None:
+    user = get_user_model().objects.create_user(
+        email="single@example.com", password="OldPass!word1"
+    )
+    raw_token = PasswordResetToken.issue(user)
+    client = Client()
+    url = f"/api/v1/auth/reset-password/{raw_token}"
+
+    first = client.post(url, {"password": "Br4ndNew!pass"})
+    assert first.context["result"] == "success"
+
+    second = client.post(url, {"password": "An0ther!pass"})
+    assert second.context["result"] == "used"
+    user.refresh_from_db()
+    # Second attempt's password did not take effect.
+    assert user.check_password("Br4ndNew!pass")
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_expired_password_reset_token_is_rejected(settings) -> None:
+    from datetime import timedelta
+
+    settings.PASSWORD_RESET_TTL = timedelta(seconds=0)
+    user = get_user_model().objects.create_user(
+        email="expired@example.com", password="OldPass!word1"
+    )
+    raw_token = PasswordResetToken.issue(user)
+    client = APIClient()
+
+    response = client.get(f"/api/v1/auth/reset-password/{raw_token}")
+
+    assert response.status_code == 200
+    assert response.context["result"] == "expired"
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_invalid_password_reset_token_is_rejected() -> None:
+    client = APIClient()
+
+    response = client.get("/api/v1/auth/reset-password/not-a-real-token")
+
+    assert response.status_code == 200
+    assert response.context["result"] == "invalid"
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_updates_username_and_display_name() -> None:
+    user = get_user_model().objects.create_user(
+        email="handle@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch(
+        "/api/v1/auth/me",
+        {"username": "casey_1", "display_name": "Casey"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["username"] == "casey_1"
+    assert response.data["display_name"] == "Casey"
+    user.refresh_from_db()
+    assert user.username == "casey_1"
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_rejects_taken_username_case_insensitively() -> None:
+    get_user_model().objects.create_user(
+        email="first@example.com", password="Str0ngPass!word", username="Casey"
+    )
+    user = get_user_model().objects.create_user(
+        email="second@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch("/api/v1/auth/me", {"username": "casey"}, format="json")
+
+    assert response.status_code == 400
+    assert "username" in response.data
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_rejects_malformed_username() -> None:
+    user = get_user_model().objects.create_user(
+        email="malformed@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch(
+        "/api/v1/auth/me", {"username": "has space!"}, format="json"
+    )
+
+    assert response.status_code == 400
+    assert "username" in response.data
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_clears_username_with_null() -> None:
+    user = get_user_model().objects.create_user(
+        email="clear@example.com",
+        password="Str0ngPass!word",
+        email_verified=True,
+        username="old_handle",
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    response = client.patch("/api/v1/auth/me", {"username": None}, format="json")
+
+    assert response.status_code == 200
+    assert response.data["username"] is None
+    user.refresh_from_db()
+    assert user.username is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+def test_me_username_race_lost_returns_400(monkeypatch) -> None:
+    # The test DB can't reproduce real concurrency, so inject the race
+    # deterministically: a rival claims the username AFTER UniqueValidator
+    # passed but BEFORE save() writes. uniq_username_ci then raises
+    # IntegrityError, which must surface as the validator's 400, not a 500.
+    from accounts.serializers import UserUpdateSerializer
+
+    user = get_user_model().objects.create_user(
+        email="racer@example.com", password="Str0ngPass!word", email_verified=True
+    )
+    client = APIClient()
+    client.force_authenticate(user)
+
+    real_update = UserUpdateSerializer.update
+
+    def rival_claims_mid_flight(self, instance, validated_data):
+        get_user_model().objects.create_user(
+            email="rival@example.com", password="Str0ngPass!word", username="Casey"
+        )
+        return real_update(self, instance, validated_data)
+
+    monkeypatch.setattr(UserUpdateSerializer, "update", rival_claims_mid_flight)
+
+    response = client.patch("/api/v1/auth/me", {"username": "casey"}, format="json")
+
+    assert response.status_code == 400
+    assert response.data["username"] == ["This username is already taken."]
