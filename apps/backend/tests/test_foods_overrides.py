@@ -92,6 +92,34 @@ def test_each_override_save_appends_a_proposal() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+def test_partial_reupsert_keeps_stored_nutrients_in_the_proposal() -> None:
+    client = _auth_client("alice@example.com")
+    target = _global_mince()
+    client.post("/api/v1/foods/custom", _override_payload(target.id), format="json")
+
+    # Required fields only: omitting a nutrient means "unchanged", not "gone".
+    # The proposal must snapshot the override's stored state, or this save
+    # would retract alice's protein/fat votes from convergence.
+    response = client.post(
+        "/api/v1/foods/custom",
+        {
+            "external_id": "cf-override-1",
+            "name": "Lean Beef Steak Mince (corrected)",
+            "kcal_100g": "124",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    latest = FoodEditProposal.objects.order_by("-id").first()
+    assert latest is not None
+    assert latest.new_values["kcal_100g"] == 124.0
+    assert latest.new_values["protein_g_100g"] == 21.0
+    assert latest.new_values["fat_g_100g"] == 4.5
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_explicit_null_detaches_the_override() -> None:
     client = _auth_client("alice@example.com")
     target = _global_mince()

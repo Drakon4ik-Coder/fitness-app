@@ -323,12 +323,10 @@ class CustomFoodSerializer(serializers.Serializer):
                     raw_source_json={},
                     **data,
                 )
-            self._record_proposal(item, owner, data)
+            self._record_proposal(item, owner)
             return item
 
-    def _record_proposal(
-        self, item: FoodItem, owner: Any, data: dict[str, Any]
-    ) -> None:
+    def _record_proposal(self, item: FoodItem, owner: Any) -> None:
         # Every save of an override is one piece of convergence evidence for
         # the shadowed global item (KAN-32 groups these by food + user).
         if item.overrides_id is None:
@@ -340,7 +338,12 @@ class CustomFoodSerializer(serializers.Serializer):
             user=owner,
             food_item=target,
             old_values=nutrition_snapshot(target),
-            new_values=nutrition_snapshot(data),
+            # Snapshot the saved item, not the request payload: an upsert may
+            # omit optional nutrients it isn't changing, and a payload
+            # snapshot would record those as None — silently withdrawing the
+            # user's earlier per-field votes (promotion counts only each
+            # user's latest proposal).
+            new_values=nutrition_snapshot(item),
         )
         # Opportunistic promotion check: cheap when under quorum, and means
         # convergence takes effect the moment the deciding edit lands.
