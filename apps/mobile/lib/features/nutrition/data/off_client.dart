@@ -37,6 +37,13 @@ class OffClient {
            Dio(
              BaseOptions(
                baseUrl: _baseUrl,
+               // Dio defaults to NO timeouts. During OFF outages the server
+               // sometimes hangs instead of fast-failing; without these the
+               // in-flight future never resolves and the live-search loading
+               // line stays on forever (same values as auth_service /
+               // off_image_downloader).
+               connectTimeout: const Duration(seconds: 10),
+               receiveTimeout: const Duration(seconds: 20),
                headers: {
                  'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
                },
@@ -111,7 +118,14 @@ class OffClient {
     } on OffRateLimitException {
       rethrow;
     } on DioException catch (error) {
-      throw OffException(error.message ?? 'Unable to fetch from OFF.');
+      // OFF answers an unknown or malformed code (e.g. a scanned QR that
+      // decodes to an Amazon ASIN) with HTTP 404 — that is "no such product",
+      // not a failure, and must map to the page's friendly not-found banner.
+      if (error.response?.statusCode == 404) {
+        return null;
+      }
+      // Never surface Dio's raw exception text (error.message) to the UI.
+      throw OffException(_formatDioMessage(error, 'Unable to fetch from OFF.'));
     } catch (error, stackTrace) {
       logError('off.fetchProduct', error, stackTrace);
       throw OffException('Unable to fetch from OFF.');
