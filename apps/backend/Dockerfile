@@ -30,7 +30,12 @@ COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*
 COPY . /app
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && chown -R appuser:appuser /app
+# media/ and staticfiles/ are dockerignored, so they must be created here:
+# compose mounts named volumes at these paths, and if the mountpoint is
+# missing from the image Docker creates it root-owned — the non-root appuser
+# then can't write (first food-image upload died with EACCES on media/foods).
+RUN mkdir -p /app/media /app/staticfiles \
+    && chmod +x /entrypoint.sh && chown -R appuser:appuser /app
 USER appuser
 ENV DJANGO_SETTINGS_MODULE=config.settings.prod
 CMD ["/entrypoint.sh"]
