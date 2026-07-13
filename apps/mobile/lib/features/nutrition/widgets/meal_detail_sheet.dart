@@ -30,6 +30,7 @@ class MealDetailSheet extends StatefulWidget {
     required this.onDeleteEntry,
     required this.onRestoreEntry,
     required this.onAddMore,
+    this.onDuplicate,
     this.focusSpecs,
     this.catalog = kNutrientCatalog,
     this.warnNutrients = const {},
@@ -67,6 +68,11 @@ class MealDetailSheet extends StatefulWidget {
 
   /// Closes the sheet and opens add-food scoped to this meal.
   final VoidCallback onAddMore;
+
+  /// Duplicates this meal: receives the entries *as currently shown* (edits
+  /// and deletes made in the sheet included) so the parent can stage them
+  /// into a fresh add-food session. Null hides the action.
+  final void Function(List<NutritionEntry> entries)? onDuplicate;
 
   /// The user's focus nutrients, forwarded to the amount sheet so its preview
   /// pills match the today page. Null falls back to the default trio.
@@ -325,6 +331,10 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
                     itemCount: _entries.length,
                     moving: _movingAll,
                     onMoveAll: _busy || _entries.isEmpty ? null : _moveAll,
+                    showDuplicate: widget.onDuplicate != null,
+                    onDuplicate: _busy || _entries.isEmpty
+                        ? null
+                        : () => widget.onDuplicate?.call(List.of(_entries)),
                   ),
                   Divider(
                     height: 1,
@@ -431,6 +441,8 @@ class _Header extends StatelessWidget {
     required this.itemCount,
     required this.moving,
     required this.onMoveAll,
+    required this.showDuplicate,
+    required this.onDuplicate,
   });
 
   final IconData icon;
@@ -442,6 +454,14 @@ class _Header extends StatelessWidget {
 
   /// Opens the "move all to…" flow; null disables the action (e.g. mid-move).
   final VoidCallback? onMoveAll;
+
+  /// Whether the duplicate action is wired at all; false omits the button
+  /// entirely rather than rendering it permanently disabled.
+  final bool showDuplicate;
+
+  /// Hands the meal to the duplicate flow; null disables the button (busy
+  /// or empty meal).
+  final VoidCallback? onDuplicate;
 
   @override
   Widget build(BuildContext context) {
@@ -517,7 +537,16 @@ class _Header extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2.5),
               ),
             )
-          else
+          else ...[
+            if (showDuplicate)
+              IconButton(
+                key: const Key('duplicateMeal'),
+                onPressed: onDuplicate,
+                icon: const Icon(Icons.content_copy),
+                iconSize: 22,
+                tooltip: 'Duplicate meal',
+                color: scheme.onSurfaceVariant,
+              ),
             IconButton(
               onPressed: onMoveAll,
               icon: const Icon(Icons.drive_file_move_outline),
@@ -525,6 +554,7 @@ class _Header extends StatelessWidget {
               tooltip: 'Move all to another meal',
               color: scheme.onSurfaceVariant,
             ),
+          ],
         ],
       ),
     );

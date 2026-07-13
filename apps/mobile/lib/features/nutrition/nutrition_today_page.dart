@@ -448,8 +448,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   Future<void> _openAddFoodSheet(
     BuildContext context, {
     MealType? initialMeal,
+    List<StagedFood> initialItems = const [],
+    DateTime? targetDate,
   }) async {
     final messenger = ScaffoldMessenger.of(context);
+    final date = targetDate ?? _selectedDate;
     // When opened from the generic "+" (no explicit meal), guess the meal from
     // the time of day and what's already been logged today.
     final meal =
@@ -467,18 +470,24 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           repository: _repository,
           offClient: _offClient,
           onLogout: _handleLogout,
-          selectedDate: _selectedDate,
+          selectedDate: date,
           initialMeal: meal,
+          initialItems: initialItems,
           focusSpecs: _focusSpecs,
           catalog: _catalog,
           warnNutrients: _warnNutrients,
         ),
       ),
     );
+    if (!mounted) return;
+    // A duplicate targets today no matter which day was being browsed; jump
+    // there on a clean submit so the freshly logged copy is on screen.
+    if (didAdd == true && !DateUtils.isSameDay(_selectedDate, date)) {
+      setState(() => _selectedDate = date);
+    }
     // Reload even when the page reports no clean submit: a partially failed
     // submit (KAN-53) has already logged some items, and backing out must not
     // leave them off the day view. A no-op refetch when nothing changed.
-    if (!mounted) return;
     await _loadDay();
     if (!mounted || didAdd != true) return;
     messenger.showSnackBar(
@@ -514,6 +523,22 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         onAddMore: () {
           Navigator.of(context).pop();
           _openAddFoodSheet(context, initialMeal: meal.mealType);
+        },
+        // Duplicate stages the meal's foods into a fresh add-food session
+        // targeting *today* — the "eat this again" case — so a meal browsed
+        // on any past day can be re-logged (and tweaked) in one flow.
+        // Nothing is written until Log is pressed there.
+        onDuplicate: (entries) {
+          Navigator.of(context).pop();
+          _openAddFoodSheet(
+            context,
+            initialMeal: meal.mealType,
+            initialItems: [
+              for (final entry in entries)
+                (item: entry.foodItem, grams: entry.quantityG),
+            ],
+            targetDate: DateUtils.dateOnly(DateTime.now()),
+          );
         },
       ),
     );
