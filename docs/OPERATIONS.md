@@ -46,6 +46,10 @@ RCLONE_CONFIG_OFFSITE_PROVIDER=Cloudflare
 RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID=...             # from the R2 API token
 RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY=...
 RCLONE_CONFIG_OFFSITE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+# Required with a bucket-scoped token: rclone otherwise tries to check/create
+# the bucket before uploading, and CreateBucket is denied → 403 AccessDenied
+# ("failed to prepare upload") on every copy.
+RCLONE_CONFIG_OFFSITE_NO_CHECK_BUCKET=true
 ```
 
 (Any S3-compatible provider works the same way — swap `PROVIDER`/`ENDPOINT`;
