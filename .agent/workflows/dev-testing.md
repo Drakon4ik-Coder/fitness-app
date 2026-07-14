@@ -15,7 +15,7 @@ make migrate   # first time only
 
 2. Run Flutter on Android emulator (uses `10.0.2.2` to reach host):
 ```bash
-cd apps/mobile && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080
+cd apps/mobile && flutter run --flavor local --dart-define=API_BASE_URL=http://10.0.2.2:8080
 ```
 
 Or use the shortcut:
@@ -94,7 +94,7 @@ adb connect <phone-ip>:<port>
 4. Run Flutter:
 ```bash
 cd apps/mobile
-flutter run --dart-define=API_BASE_URL=http://<your-lan-ip>:8080
+flutter run --flavor local --dart-define=API_BASE_URL=http://<your-lan-ip>:8080
 ```
 
 ---
@@ -108,4 +108,4 @@ flutter run --dart-define=API_BASE_URL=http://<your-lan-ip>:8080
 | `ERR_CLEARTEXT_NOT_PERMITTED` | Rebuild: `flutter clean && flutter run ...` |
 | ADB disconnects | Re-run `adb connect <phone-ip>:<port>` or re-run `make dev-phone` |
 | Backend not starting | Check `docker compose logs backend` |
-| Wrong API URL on phone | The app uses `http://localhost:8080` via the adb reverse tunnel — confirm it's active with `adb reverse --list`. To target a different host, run `flutter run --dart-define=API_BASE_URL=http://<host>:8080` (`LAN_IP` only affects log output, not the API URL) |
+| Wrong API URL on phone | The app uses `http://localhost:8080` via the adb reverse tunnel — confirm it's active with `adb reverse --list`. To target a different host, run `flutter run --flavor local --dart-define=API_BASE_URL=http://<host>:8080` (`LAN_IP` only affects log output, not the API URL) |

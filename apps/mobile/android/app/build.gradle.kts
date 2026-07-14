@@ -23,14 +23,39 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "uk.drakon4ik.symbio"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    // One installable app per backend environment so a dev/staging build never
+    // replaces the Play-installed prod app. The flavor only controls identity
+    // (application id, launcher label); which backend the app talks to is
+    // still --dart-define=APP_ENV, so the two must be passed together — use
+    // the Makefile / workflow commands, not bare `flutter run`.
+    // Each application id needs its own Android OAuth client (package name +
+    // signing SHA-1) in the Google Cloud project or Google Sign-In fails.
+    flavorDimensions += "env"
+    productFlavors {
+        create("local") {
+            dimension = "env"
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Symbio Dev")
+        }
+        create("staging") {
+            dimension = "env"
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            resValue("string", "app_name", "Symbio Staging")
+        }
+        create("prod") {
+            dimension = "env"
+            // Bare id — this is the Play Store / GitHub Releases app.
+            resValue("string", "app_name", "Symbio")
+        }
     }
 
     val keyPropertiesFile = rootProject.file("key.properties")
