@@ -207,6 +207,7 @@ void main() {
     required NutritionRepository repository,
     _FakeFoodsApi? foodsApi,
     _FakeOffClient? offClient,
+    List<StagedFood> initialItems = const [],
     Future<String?> Function(BuildContext)? scanBarcode,
   }) async {
     late Future<bool?> result;
@@ -225,6 +226,7 @@ void main() {
                     offClient: offClient ?? _FakeOffClient(),
                     onLogout: () async {},
                     selectedDate: DateUtils.dateOnly(DateTime.now()),
+                    initialItems: initialItems,
                     scanBarcode: scanBarcode,
                   ),
                 ),
@@ -287,6 +289,58 @@ void main() {
     expect(localDb.lastUsedTouches, hasLength(1));
     expect(await result, isTrue);
   });
+
+  testWidgets(
+    'duplicate-seeded foods arrive pre-staged at their logged amounts and '
+    'log as-is',
+    (WidgetTester tester) async {
+      final store = InMemoryNutritionStore();
+      final result = await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(store),
+        initialItems: [
+          (item: makeTestFood(name: 'Oatmeal', backendId: 1), grams: 120),
+          (item: makeTestFood(name: 'Banana', backendId: 2), grams: 80),
+        ],
+      );
+
+      // Staged before any interaction, at the source amounts (not the smart
+      // defaults), with the log bar already up — "just press Log" is one tap.
+      expect(find.text('ADDED ITEMS'), findsOneWidget);
+      expect(find.text('2 items'), findsOneWidget);
+      // 150 kcal/100g each: 120 g → 180 + 80 g → 120.
+      expect(find.text('300 kcal total'), findsOneWidget);
+
+      await tester.tap(find.text('Log to Breakfast'));
+      await tester.pumpAndSettle();
+
+      expect(store.entries, hasLength(2));
+      expect(store.entries.values.map((e) => e.quantityG).toSet(), {
+        120.0,
+        80.0,
+      });
+      expect(await result, isTrue);
+    },
+  );
+
+  testWidgets(
+    'a food logged twice in the source meal seeds one merged staged row',
+    (WidgetTester tester) async {
+      final food = makeTestFood(name: 'Oatmeal', backendId: 1);
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        initialItems: [(item: food, grams: 100), (item: food, grams: 50)],
+      );
+
+      // One row at the summed amount: staged items are keyed by food
+      // identity, and two rows sharing a key would fight over every edit.
+      expect(find.text('1 item'), findsOneWidget);
+      expect(find.text('225 kcal total'), findsOneWidget);
+    },
+  );
 
   testWidgets('tapping an added food opens the editor instead of duplicating', (
     WidgetTester tester,

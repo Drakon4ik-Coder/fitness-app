@@ -21,11 +21,22 @@ import 'in_memory_nutrition_store.dart';
 /// Minimal in-memory catalog cache so the add-food page pushed from a meal
 /// card doesn't reach sqflite's missing platform channel (KAN-36 tests).
 class _FakeLocalDb extends FoodLocalDb {
+  int _nextLocalId = 1;
+
   @override
   Future<List<FoodItem>> fetchRecentFoods({int limit = 20}) async => const [];
 
   @override
   Future<List<FoodItem>> fetchFavorites({int limit = 20}) async => const [];
+
+  // The duplicate-meal flow submits through the add-food page, which
+  // persists each food locally and touches the recents ordering.
+  @override
+  Future<FoodItem> upsertFood(FoodItem item) async =>
+      item.localId == null ? item.copyWith(localId: _nextLocalId++) : item;
+
+  @override
+  Future<void> updateLastUsed(int localId, DateTime usedAt) async {}
 }
 
 class _FakeFoodsApi extends FoodsApiService {
@@ -1016,101 +1027,93 @@ void main() {
     },
   );
 
-  group('copy previous day (KAN-51)', () {
-    /// Routes the three calls the copy flow makes: entry creates echo the
-    /// request as a server entry, deletes ack with 204, everything else gets
-    /// an empty day/sync payload. [createDelay] holds the create response
-    /// open so a test can act while a copy is still in flight.
-    Dio copyDio(
-      List<Map<String, dynamic>> createBodies, {
-      Duration? createDelay,
-    }) {
-      var nextId = 100;
-      final dio = Dio();
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            if (options.method == 'POST' &&
-                options.path.endsWith('/nutrition/entries')) {
-              final body = (options.data as Map).cast<String, dynamic>();
-              createBodies.add(body);
-              void respond() => handler.resolve(
-                Response(
-                  requestOptions: options,
-                  statusCode: 201,
-                  data: {
-                    'id': nextId++,
-                    'client_uuid': body['client_uuid'],
-                    'meal_type': body['meal_type'],
-                    'consumed_at': body['consumed_at'],
-                    'quantity_g': body['quantity_g'],
-                    'kcal': 180,
-                    'updated_at': body['consumed_at'],
-                    'food_item': {
-                      'id': 7,
-                      'name': 'Test Food',
-                      'kcal_100g': 150,
-                    },
-                  },
-                ),
-              );
-              if (createDelay != null) {
-                Future<void>.delayed(createDelay, respond);
-              } else {
-                respond();
-              }
-              return;
+  /// Routes the three calls the copy/duplicate flows make: entry creates echo
+  /// the request as a server entry, deletes ack with 204, everything else gets
+  /// an empty day/sync payload. [createDelay] holds the create response
+  /// open so a test can act while a copy is still in flight.
+  Dio copyDio(
+    List<Map<String, dynamic>> createBodies, {
+    Duration? createDelay,
+  }) {
+    var nextId = 100;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.method == 'POST' &&
+              options.path.endsWith('/nutrition/entries')) {
+            final body = (options.data as Map).cast<String, dynamic>();
+            createBodies.add(body);
+            void respond() => handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 201,
+                data: {
+                  'id': nextId++,
+                  'client_uuid': body['client_uuid'],
+                  'meal_type': body['meal_type'],
+                  'consumed_at': body['consumed_at'],
+                  'quantity_g': body['quantity_g'],
+                  'kcal': 180,
+                  'updated_at': body['consumed_at'],
+                  'food_item': {'id': 7, 'name': 'Test Food', 'kcal_100g': 150},
+                },
+              ),
+            );
+            if (createDelay != null) {
+              Future<void>.delayed(createDelay, respond);
+            } else {
+              respond();
             }
-            if (options.method == 'DELETE') {
-              handler.resolve(
-                Response(requestOptions: options, statusCode: 204),
-              );
-              return;
-            }
-            if (options.path.contains('/entries/sync')) {
-              handler.resolve(
-                Response(
-                  requestOptions: options,
-                  statusCode: 200,
-                  data: {'entries': [], 'next_cursor': '', 'has_more': false},
-                ),
-              );
-              return;
-            }
+            return;
+          }
+          if (options.method == 'DELETE') {
+            handler.resolve(Response(requestOptions: options, statusCode: 204));
+            return;
+          }
+          if (options.path.contains('/entries/sync')) {
             handler.resolve(
               Response(
                 requestOptions: options,
                 statusCode: 200,
-                data: _dayPayload(date: _todayKey(), kcal: 0),
+                data: {'entries': [], 'next_cursor': '', 'has_more': false},
               ),
             );
-          },
-        ),
-      );
-      return dio;
-    }
-
-    /// A store that already knows yesterday: seeded, with one breakfast entry.
-    InMemoryNutritionStore storeWithYesterdayBreakfast() {
-      final now = DateTime.now();
-      final yesterday = DateTime(now.year, now.month, now.day - 1);
-      final yesterdayKey = NutritionApiService.formatDate(yesterday);
-      final store = InMemoryNutritionStore(
-        seedPayloads: {
-          yesterdayKey: _dayPayload(date: yesterdayKey, kcal: 180),
+            return;
+          }
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 0),
+            ),
+          );
         },
-      );
-      store.entries['y-1'] = makeStoredEntry(
-        uuid: 'y-1',
-        serverId: 11,
-        mealType: 'breakfast',
-        consumedAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 8),
-        quantityG: 120,
-        kcal: 180,
-      );
-      return store;
-    }
+      ),
+    );
+    return dio;
+  }
 
+  /// A store that already knows yesterday: seeded, with one breakfast entry.
+  InMemoryNutritionStore storeWithYesterdayBreakfast() {
+    final now = DateTime.now();
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    final yesterdayKey = NutritionApiService.formatDate(yesterday);
+    final store = InMemoryNutritionStore(
+      seedPayloads: {yesterdayKey: _dayPayload(date: yesterdayKey, kcal: 180)},
+    );
+    store.entries['y-1'] = makeStoredEntry(
+      uuid: 'y-1',
+      serverId: 11,
+      mealType: 'breakfast',
+      consumedAt: DateTime(yesterday.year, yesterday.month, yesterday.day, 8),
+      quantityG: 120,
+      kcal: 180,
+    );
+    return store;
+  }
+
+  group('copy previous day (KAN-51)', () {
     Widget app(Dio dio, InMemoryNutritionStore store) {
       return MaterialApp(
         theme: LuminaHealthTheme.dark(),
@@ -1222,6 +1225,119 @@ void main() {
       // meal — only the first tap may reach the repository.
       expect(createBodies, hasLength(1));
       expect(find.text('Copied 1 food'), findsOneWidget);
+    });
+  });
+
+  group('duplicate meal', () {
+    testWidgets(
+      'duplicating a past meal stages it into add-food, logs to today, and '
+      'jumps back to today',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final createBodies = <Map<String, dynamic>>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: LuminaHealthTheme.dark(),
+            home: NutritionTodayPage(
+              accessToken: 'token',
+              onLogout: () async {},
+              nutritionApi: NutritionApiService(
+                accessToken: 'token',
+                dio: copyDio(createBodies),
+              ),
+              localStore: storeWithYesterdayBreakfast(),
+              localDb: _FakeLocalDb(),
+              foodsApi: _FakeFoodsApi(),
+              offClient: _FakeOffClient(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Browse to yesterday and open its logged breakfast.
+        await tester.tap(find.byTooltip('Previous day'));
+        await tester.pumpAndSettle();
+        expect(find.text('Yesterday'), findsOneWidget);
+        await tester.tap(find.text('Breakfast'));
+        await tester.pumpAndSettle();
+
+        // Duplicate closes the sheet and lands on add-food with the meal's
+        // foods pre-staged at their logged amounts — nothing written yet.
+        await tester.tap(find.byKey(const Key('duplicateMeal')));
+        await tester.pumpAndSettle();
+        expect(find.byType(AddFoodPage), findsOneWidget);
+        expect(find.text('ADDED ITEMS'), findsOneWidget);
+        expect(find.text('1 item'), findsOneWidget);
+        expect(createBodies, isEmpty);
+
+        await tester.tap(find.text('Log to Breakfast'));
+        await tester.pumpAndSettle();
+
+        // Same food and amount, fresh entry, consumed *today* (the duplicate
+        // targets today no matter which day was being browsed).
+        expect(createBodies, hasLength(1));
+        expect(createBodies.single['food_item_id'], 7);
+        expect(createBodies.single['meal_type'], 'breakfast');
+        expect(createBodies.single['quantity_g'], 120);
+        expect(createBodies.single['client_uuid'], isNot('y-1'));
+        final consumedAt = DateTime.parse(
+          createBodies.single['consumed_at'] as String,
+        ).toLocal();
+        expect(DateUtils.isSameDay(consumedAt, DateTime.now()), isTrue);
+
+        // The page jumped from yesterday back to today to show the result.
+        expect(find.text('Today'), findsOneWidget);
+        expect(find.text('Meal logged'), findsOneWidget);
+        expect(find.text('Test Food'), findsOneWidget);
+      },
+    );
+
+    testWidgets('backing out of a duplicate logs nothing and stays put', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final createBodies = <Map<String, dynamic>>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(
+              accessToken: 'token',
+              dio: copyDio(createBodies),
+            ),
+            localStore: storeWithYesterdayBreakfast(),
+            localDb: _FakeLocalDb(),
+            foodsApi: _FakeFoodsApi(),
+            offClient: _FakeOffClient(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Previous day'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Breakfast'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('duplicateMeal')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AddFoodPage), findsOneWidget);
+
+      // Abandoning the staged copy must not log anything or yank the user
+      // off the day they were browsing.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+
+      expect(createBodies, isEmpty);
+      expect(find.text('Yesterday'), findsOneWidget);
+      expect(find.text('Meal logged'), findsNothing);
     });
   });
 
