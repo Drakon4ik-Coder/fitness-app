@@ -106,6 +106,57 @@ void main() {
     },
   );
 
+  testWidgets(
+    'header with both actions survives a narrow screen at max text scale '
+    'and a four-digit kcal total (KAN-40)',
+    (tester) async {
+      // 320dp-wide phone at the largest Android text scale; any RenderFlex
+      // overflow fails the test via the reported FlutterError.
+      tester.view.physicalSize = const Size(640, 2532);
+      tester.view.devicePixelRatio = 2.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      // 100 g of a 1000 kcal/100g food × 3 entries → a 3000 kcal header.
+      final rich = _food('Feast').copyWith(kcal100g: 1000);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: Scaffold(
+            body: MealDetailSheet(
+              mealLabel: 'Breakfast',
+              mealTypeName: 'breakfast',
+              mealIcon: Icons.breakfast_dining,
+              mealColor: LuminaHealthColors.tertiary,
+              entries: [
+                for (var i = 1; i <= 3; i++)
+                  NutritionEntry(
+                    id: i,
+                    uuid: 'uuid-$i',
+                    mealType: 'breakfast',
+                    consumedAt: DateTime(2024, 1, 1, 8),
+                    quantityG: 100,
+                    kcal: 1000,
+                    foodItem: rich,
+                  ),
+              ],
+              onUpdateEntry: (entry, {quantityG, mealType}) async => entry,
+              onDeleteEntry: (_) async => true,
+              onRestoreEntry: (entry) async => entry,
+              onAddMore: () {},
+              onDuplicate: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('3000'), findsOneWidget);
+      expect(find.byKey(const Key('duplicateMeal')), findsOneWidget);
+    },
+  );
+
   testWidgets('duplicate is disabled once the meal empties', (tester) async {
     await _pumpSheet(
       tester,
