@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:fitness_app/features/nutrition/add_food_page.dart';
+import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
 import 'package:fitness_app/features/nutrition/data/food_local_db.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/foods_api_service.dart';
@@ -45,6 +46,14 @@ class _FakeFoodsApi extends FoodsApiService {
   @override
   Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
       const [];
+}
+
+/// Rejects every custom-food upsert, forcing a duplicate submit that stages
+/// an unsynced custom food to fail mid-list after earlier items logged.
+class _RejectingFoodsApi extends _FakeFoodsApi {
+  @override
+  Future<FoodItem> upsertCustomFood(FoodItem item) async =>
+      throw ApiException('Rejected by server.');
 }
 
 class _FakeOffClient extends OffClient {
@@ -1339,6 +1348,92 @@ void main() {
       expect(find.text('Yesterday'), findsOneWidget);
       expect(find.text('Meal logged'), findsNothing);
     });
+
+    testWidgets(
+      'backing out after a partially failed duplicate still jumps to today',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        // Yesterday's breakfast has a second food: an unsynced custom food
+        // whose upsert the server rejects, so the duplicate submit logs the
+        // first entry to today and then fails mid-list.
+        final store = storeWithYesterdayBreakfast();
+        final now = DateTime.now();
+        final yesterday = DateTime(now.year, now.month, now.day - 1);
+        store.entries['y-2'] = makeStoredEntry(
+          uuid: 'y-2',
+          serverId: 12,
+          mealType: 'breakfast',
+          consumedAt: DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            9,
+          ),
+          quantityG: 50,
+          kcal: 90,
+          food: FoodItem(
+            source: customSource,
+            externalId: 'custom-broken',
+            name: 'Broken Custom',
+            brands: '',
+            kcal100g: 180,
+            proteinG100g: 5,
+            carbsG100g: 10,
+            fatG100g: 2,
+            rawSourceJson: '{}',
+          ),
+        );
+
+        final createBodies = <Map<String, dynamic>>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: LuminaHealthTheme.dark(),
+            home: NutritionTodayPage(
+              accessToken: 'token',
+              onLogout: () async {},
+              nutritionApi: NutritionApiService(
+                accessToken: 'token',
+                dio: copyDio(createBodies),
+              ),
+              localStore: store,
+              localDb: _FakeLocalDb(),
+              foodsApi: _RejectingFoodsApi(),
+              offClient: _FakeOffClient(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byTooltip('Previous day'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Breakfast'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('duplicateMeal')));
+        await tester.pumpAndSettle();
+        expect(find.byType(AddFoodPage), findsOneWidget);
+
+        await tester.tap(find.text('Log to Breakfast'));
+        await tester.pumpAndSettle();
+
+        // First food logged, then the custom upsert failed: the page stays
+        // open reporting the failure, with the first entry already created.
+        expect(createBodies, hasLength(1));
+        expect(find.byType(AddFoodPage), findsOneWidget);
+        expect(find.textContaining('Could not log'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pumpAndSettle();
+
+        // No clean submit, but an entry landed on today — the page must
+        // jump there so the logged copy isn't off-screen. No success snack.
+        expect(find.text('Today'), findsOneWidget);
+        expect(find.text('Test Food'), findsOneWidget);
+        expect(find.text('Meal logged'), findsNothing);
+      },
+    );
   });
 
   testWidgets(

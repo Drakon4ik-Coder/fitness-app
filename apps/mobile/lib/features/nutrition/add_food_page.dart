@@ -67,6 +67,7 @@ class AddFoodPage extends StatefulWidget {
     this.focusSpecs,
     this.catalog,
     this.warnNutrients = const {},
+    this.onEntryLogged,
     this.scanBarcode,
   });
 
@@ -95,6 +96,13 @@ class AddFoodPage extends StatefulWidget {
   /// Catalog keys the user opted into over-goal warnings for (KAN-38),
   /// forwarded to the amount sheet's nutrition-facts breakdown.
   final Set<String> warnNutrients;
+
+  /// Fires once per staged item actually logged during submit. A mid-list
+  /// failure (KAN-53) leaves the page open with the earlier items already
+  /// created, so the pop result alone can't tell the caller whether
+  /// [selectedDate] gained entries — backing out after a partial submit
+  /// must still surface them.
+  final VoidCallback? onEntryLogged;
 
   /// Runs the barcode-scan flow and resolves with the scanned code (null =
   /// dismissed). Defaults to pushing [NutritionScanPage]; tests inject a fake
@@ -779,6 +787,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         return;
       }
       _addedItems.remove(added);
+      widget.onEntryLogged?.call();
     }
 
     if (!mounted) return;

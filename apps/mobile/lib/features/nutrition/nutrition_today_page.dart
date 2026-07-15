@@ -462,6 +462,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           mealsLogged: _dayLog?.meals ?? const {},
           windows: _mealWindows,
         );
+    // The pop result only reports a clean submit; a partially failed one
+    // (KAN-53) has already created entries before the page is backed out,
+    // so track creations separately — the day jump below must fire for
+    // those too or the logged copies end up off-screen.
+    var loggedAny = false;
     final didAdd = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AddFoodPage(
@@ -476,18 +481,18 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           focusSpecs: _focusSpecs,
           catalog: _catalog,
           warnNutrients: _warnNutrients,
+          onEntryLogged: () => loggedAny = true,
         ),
       ),
     );
     if (!mounted) return;
     // A duplicate targets today no matter which day was being browsed; jump
-    // there on a clean submit so the freshly logged copy is on screen.
-    if (didAdd == true && !DateUtils.isSameDay(_selectedDate, date)) {
+    // there whenever anything was logged so the freshly logged copies are
+    // on screen.
+    if (loggedAny && !DateUtils.isSameDay(_selectedDate, date)) {
       setState(() => _selectedDate = date);
     }
-    // Reload even when the page reports no clean submit: a partially failed
-    // submit (KAN-53) has already logged some items, and backing out must not
-    // leave them off the day view. A no-op refetch when nothing changed.
+    // Reload even when nothing was logged: a no-op refetch when unchanged.
     await _loadDay();
     if (!mounted || didAdd != true) return;
     messenger.showSnackBar(
