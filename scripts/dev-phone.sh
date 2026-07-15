@@ -134,4 +134,4 @@ $ADB reverse tcp:8080 tcp:8080
 # ---------- run Flutter ----------
 echo "🚀 Launching Flutter app → API at http://localhost:8080 (via adb)"
 cd "$REPO_ROOT/apps/mobile"
-flutter run --dart-define="API_BASE_URL=http://localhost:8080" --dart-define="GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com"
+flutter run --flavor local --dart-define="API_BASE_URL=http://localhost:8080" --dart-define="GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com"
