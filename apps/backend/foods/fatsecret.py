@@ -70,8 +70,13 @@ def _fetch_token() -> str:
         ) from exc
 
     # Refresh 5 minutes early so an in-flight request never races an
-    # expiring token; floor at 60s so a tiny expires_in can't defeat caching.
-    cache.set(_TOKEN_CACHE_KEY, token, timeout=max(expires_in - 300, 60))
+    # expiring token; floor at 60s so a modest expires_in can't defeat
+    # caching — but never cache past the token's actual lifetime, or every
+    # request in the stale window would burn a guaranteed 401 round trip
+    # before the retry path recovers.
+    cache.set(
+        _TOKEN_CACHE_KEY, token, timeout=min(max(expires_in - 300, 60), expires_in)
+    )
     return token
 
 

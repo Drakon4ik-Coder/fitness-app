@@ -280,6 +280,29 @@ def test_fatsecret_food_detail_happy_path_passes_through_verbatim() -> None:
 
 
 @pytest.mark.integration
+@CONFIGURED
+@pytest.mark.parametrize(
+    ("expires_in", "expected_ttl"),
+    [
+        (86400, 86100),  # normal: 5-min early-refresh margin
+        (200, 60),  # short: margin would go negative, floor keeps caching
+        (30, 30),  # tiny: TTL must never exceed the token's lifetime
+    ],
+)
+def test_token_cache_ttl_never_outlives_the_token(
+    expires_in: int, expected_ttl: int
+) -> None:
+    token_resp = _token_response(expires_in=expires_in)
+    with (
+        patch(POST, return_value=token_resp),
+        patch("foods.fatsecret.cache.set") as mock_set,
+    ):
+        fatsecret._fetch_token()
+
+    assert mock_set.call_args.kwargs["timeout"] == expected_ttl
+
+
+@pytest.mark.integration
 @CONFIGURED_OAUTH1
 def test_oauth1_signature_matches_reference_vector() -> None:
     # Expected value computed with an independent RFC 5849 implementation that
