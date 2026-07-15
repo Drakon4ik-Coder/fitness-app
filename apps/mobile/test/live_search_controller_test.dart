@@ -620,6 +620,40 @@ void main() {
     });
   });
 
+  test('a half-wired controller (callback without client) never emits '
+      'FatSecret callbacks — not even the clear-on-empty/short-query ones', () {
+    fakeAsync((async) {
+      final calls = <List<FoodItem>>[];
+      final controller = LiveSearchController(
+        offClient: _FakeOffClient(),
+        foodsApi: _FakeFoodsApi(),
+        // No fatsecretClient: the leg is off, so caller-owned FatSecret
+        // state must stay untouched even though the callback is wired.
+        onFatSecretResults: calls.add,
+        onBackendResults: (_) {},
+        onOffResults: (_) {},
+        onLoadingChanged:
+            ({
+              required bool backend,
+              required bool off,
+              required bool fatsecret,
+            }) {},
+        onUnauthorized: () async {},
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+      controller.onQueryChanged('b'); // below the 2-char floor
+      async.elapse(const Duration(milliseconds: 300));
+      controller.onQueryChanged(''); // empty-query clear path
+      async.elapse(const Duration(milliseconds: 300));
+
+      expect(calls, isEmpty);
+
+      controller.dispose();
+    });
+  });
+
   test('a non-401 ApiException from FatSecret is swallowed silently — '
       'backend/OFF results still flow', () {
     fakeAsync((async) {

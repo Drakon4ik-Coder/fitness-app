@@ -124,7 +124,10 @@ class LiveSearchController {
       _setLoading(backend: false, off: false, fatsecret: false);
       onBackendResults(const []);
       onOffResults(const []);
-      onFatSecretResults?.call(const []);
+      // Gated on _fatsecretEnabled, not just callback presence: when the leg
+      // is disabled the controller must never touch FatSecret state — a
+      // half-wired caller's results are its own, not ours to clear.
+      if (_fatsecretEnabled) onFatSecretResults!(const []);
       return;
     }
 
@@ -150,7 +153,8 @@ class LiveSearchController {
       _setLoading(backend: false, off: false, fatsecret: false);
       onBackendResults(const []);
       onOffResults(const []);
-      onFatSecretResults?.call(const []);
+      // Same _fatsecretEnabled gate as the empty-query clear above.
+      if (_fatsecretEnabled) onFatSecretResults!(const []);
       return;
     }
 
