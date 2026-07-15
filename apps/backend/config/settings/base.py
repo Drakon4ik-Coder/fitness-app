@@ -196,13 +196,16 @@ GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
 
 # FatSecret Platform API (KAN-67): a thin backend proxy so the client secret
 # never ships to the phone. "premier" is the Premier Free tier scope; override
-# per-account if the FatSecret plan changes. GB matches the OFF client's
-# en:united-kingdom normalization so results stay regionally consistent
-# between the two food sources; blank means omit the region param entirely.
+# per-account if the FatSecret plan changes. Region defaults to blank (omit
+# the param → US dataset) because localization is a paid entitlement that no
+# free-tier key has — a default that requests GB would break or mis-serve
+# every fresh deployment. Set GB explicitly once FatSecret grants it; that
+# matches the OFF client's en:united-kingdom normalization so the two food
+# sources stay regionally consistent.
 FATSECRET_CLIENT_ID = env("FATSECRET_CLIENT_ID", default="").strip()
 FATSECRET_CLIENT_SECRET = env("FATSECRET_CLIENT_SECRET", default="").strip()
 FATSECRET_SCOPE = env("FATSECRET_SCOPE", default="premier")
-FATSECRET_REGION = env("FATSECRET_REGION", default="GB").strip()
+FATSECRET_REGION = env("FATSECRET_REGION", default="").strip()
 # "oauth1" signs each request (RFC 5849 two-legged HMAC-SHA1) and needs no IP
 # whitelisting — FatSecret only enforces its whitelist at the OAuth 2.0 token
 # endpoint, which is unusable behind shared egress (Render) without a paid

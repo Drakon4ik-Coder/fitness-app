@@ -138,7 +138,28 @@ def test_fatsecret_search_happy_path_passes_through_verbatim() -> None:
     api_params = api_call.kwargs["data"]
     assert api_params["search_expression"] == "pizza"
     assert api_params["format"] == "json"
-    assert api_params["region"] == "GB"  # default FATSECRET_REGION
+    # Default region is blank: localization is a paid entitlement, so the
+    # param must be omitted entirely unless explicitly configured.
+    assert "region" not in api_params
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED
+@override_settings(FATSECRET_REGION="GB")
+def test_explicit_fatsecret_region_is_forwarded() -> None:
+    client = _auth_client()
+    token_resp = _token_response()
+    api_resp = _mock_response(200, {"foods": {"food": []}})
+
+    with patch(
+        POST, side_effect=_post_side_effect([token_resp], [api_resp])
+    ) as mock_post:
+        response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert response.status_code == 200
+    api_call = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert api_call[0].kwargs["data"]["region"] == "GB"
 
 
 @pytest.mark.django_db
