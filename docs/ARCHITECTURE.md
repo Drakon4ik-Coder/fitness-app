@@ -250,6 +250,14 @@ on-tap by design) and uploads the resulting image to the backend via
 (`SOURCE_OPEN_FOOD_FACTS` in `foods/models.py`) when ingesting or checking
 foods server-side.
 
+Uploaded images live on the `media-data` volume and are served by Django
+itself at `/media/` (`config/urls.py`, not DEBUG-gated — WhiteNoise only
+covers staticfiles). Rows whose media file has gone missing (pre-volume
+writes, volume loss) are healed by
+`manage.py repair_food_images [--dry-run]`: it resets the image bookkeeping
+so serializers fall back to the original source `image_url` and clients can
+re-upload.
+
 ---
 
 ## Notable gaps / quirks

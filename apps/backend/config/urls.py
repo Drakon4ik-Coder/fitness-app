@@ -1,8 +1,8 @@
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
-from django.http import HttpRequest, JsonResponse
-from django.urls import include, path
+from django.http import FileResponse, HttpRequest, JsonResponse
+from django.urls import include, path, re_path
+from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from accounts.views import (
@@ -46,5 +46,19 @@ urlpatterns = [
     path("api/v1/preferences/", include("preferences.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Media must be served in production too, not just DEBUG: the food serializers
+# hand out backend-hosted /media/ URLs whenever images_ok, and WhiteNoise only
+# covers staticfiles — without this route every stored food image 404s once
+# DEBUG is off. django.views.static.serve is discouraged for high-traffic
+# media, but these are pre-validated ≤5 MB re-encoded JPEGs at hobby scale;
+# revisit if a CDN/object store ever fronts the images.
+def _serve_media(request: HttpRequest, path: str) -> FileResponse:
+    # MEDIA_ROOT is read per-request (not captured at URLconf import) so
+    # override_settings works in tests.
+    return serve(request, path, document_root=str(settings.MEDIA_ROOT))
+
+
+urlpatterns += [
+    re_path(r"^media/(?P<path>.*)$", _serve_media),
+]
