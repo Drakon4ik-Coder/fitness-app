@@ -3,6 +3,7 @@ import 'package:fitness_app/core/app_log.dart';
 import 'package:fitness_app/features/nutrition/add_food_page.dart';
 import 'package:fitness_app/features/nutrition/custom_food_page.dart';
 import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
+import 'package:fitness_app/features/nutrition/data/fatsecret_client.dart';
 import 'package:fitness_app/features/nutrition/data/food_local_db.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/foods_api_service.dart';
@@ -112,6 +113,86 @@ class _FakeOffClient extends OffClient {
   }
 }
 
+/// Fake FatSecret client: search/get results are canned per test, and every
+/// `getFood` call is recorded so a test can assert exactly one enrichment
+/// fetch happened (mirrors `_FakeOffClient.fetchedBarcodes`).
+class _FakeFatSecretClient extends FatSecretClient {
+  _FakeFatSecretClient({
+    this.searchResults = const [],
+    this.foodsById = const {},
+  }) : super(
+         accessToken: 'test-token',
+         dio: Dio(),
+         rateLimiter: OffRateLimiter(),
+       );
+
+  final List<Map<String, dynamic>> searchResults;
+  final Map<String, Map<String, dynamic>> foodsById;
+  final List<String> fetchedFoodIds = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> searchFoods(
+    String query, {
+    int maxResults = 10,
+    CancelToken? cancelToken,
+  }) async => searchResults;
+
+  @override
+  Future<Map<String, dynamic>?> getFood(String foodId) async {
+    fetchedFoodIds.add(foodId);
+    return foodsById[foodId];
+  }
+}
+
+/// A FatSecret `foods.search` hit in the raw map shape [FatSecretMapper]
+/// consumes. Defaults to a per-100g description so `mapSummary` fills macros;
+/// pass `description: null` for a non-100g basis (macros stay null until
+/// enrich).
+Map<String, dynamic> makeFatSecretSearchHit({
+  required String foodId,
+  required String name,
+  String brand = '',
+  String? description =
+      'Per 100g - Calories: 200kcal | Fat: 5.00g | Carbs: 20.00g | '
+      'Protein: 10.00g',
+}) {
+  return {
+    'food_id': foodId,
+    'food_name': name,
+    'brand_name': brand,
+    'food_type': 'Brand',
+    if (description != null) 'food_description': description,
+  };
+}
+
+/// A FatSecret `food.get.v4` detail whose single serving is a countable piece
+/// (e.g. "1 burger"), the payoff piece-derivation case from KAN-67.
+Map<String, dynamic> makeFatSecretDetail({
+  required String foodId,
+  required String name,
+  double metricGrams = 200,
+  double calories = 400,
+  String measurementDescription = 'burger',
+}) {
+  return {
+    'food_id': foodId,
+    'food_name': name,
+    'servings': {
+      'serving': {
+        'serving_description': '1 $measurementDescription',
+        'metric_serving_amount': metricGrams.toString(),
+        'metric_serving_unit': 'g',
+        'number_of_units': '1.000',
+        'measurement_description': measurementDescription,
+        'calories': calories.toString(),
+        'protein': '10.00',
+        'carbohydrate': '30.00',
+        'fat': '15.00',
+      },
+    },
+  };
+}
+
 /// An OFF search/product payload in the raw map shape [OffMapper] consumes.
 OffProductResponse makeOffResponse({
   required String barcode,
@@ -207,6 +288,7 @@ void main() {
     required NutritionRepository repository,
     _FakeFoodsApi? foodsApi,
     _FakeOffClient? offClient,
+    _FakeFatSecretClient? fatsecretApi,
     List<StagedFood> initialItems = const [],
     Future<String?> Function(BuildContext)? scanBarcode,
   }) async {
@@ -224,6 +306,9 @@ void main() {
                     foodsApi: foodsApi ?? _FakeFoodsApi(),
                     repository: repository,
                     offClient: offClient ?? _FakeOffClient(),
+                    // Null unless a test opts in — feature off by default,
+                    // matching AddFoodPage's own nullable fatsecretApi.
+                    fatsecretApi: fatsecretApi,
                     onLogout: () async {},
                     selectedDate: DateUtils.dateOnly(DateTime.now()),
                     initialItems: initialItems,
@@ -584,6 +669,167 @@ void main() {
       // amount is one 30 g serving (200 kcal/100g → 60 kcal), not 100 g.
       expect(off.fetchedBarcodes, ['555']);
       expect(find.text('1 serving (30 g) • 60 kcal'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'FatSecret search results are merged into the results list alongside '
+    'local/backend/OFF',
+    (WidgetTester tester) async {
+      final fatsecret = _FakeFatSecretClient(
+        searchResults: [
+          makeFatSecretSearchHit(foodId: '1', name: 'Diner Burger'),
+        ],
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        fatsecretApi: fatsecret,
+      );
+
+      await search(tester, 'burger');
+
+      expect(find.text('Diner Burger', skipOffstage: false), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'tapping a serving-less FatSecret result enriches it first (getFood) and '
+    'stages it with the piece default',
+    (WidgetTester tester) async {
+      // FatSecret search never returns serving data; the full food does.
+      final fatsecret = _FakeFatSecretClient(
+        searchResults: [
+          makeFatSecretSearchHit(
+            foodId: '1',
+            name: 'Diner Burger',
+            description: 'Per 1 burger - Calories: 400kcal',
+          ),
+        ],
+        foodsById: {
+          '1': makeFatSecretDetail(
+            foodId: '1',
+            name: 'Diner Burger',
+            metricGrams: 200,
+            calories: 400,
+            measurementDescription: 'burger',
+          ),
+        },
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        fatsecretApi: fatsecret,
+      );
+
+      await search(tester, 'burger');
+      final card = find.text('Diner Burger', skipOffstage: false).first;
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      // Exactly one enrichment fetch, and the staged amount defaults to one
+      // whole 200 g burger — the food's declared whole-portion calories
+      // (400 kcal), normalized to 200 kcal/100g and back for the 200 g piece.
+      expect(fatsecret.fetchedFoodIds, ['1']);
+      expect(find.text('1 burger (200 g) • 400 kcal'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a FatSecret item whose enrich finds no per-100g-mappable serving shows '
+    'a snackbar and stages nothing (refuses a zero-calorie phantom)',
+    (WidgetTester tester) async {
+      final fatsecret = _FakeFatSecretClient(
+        searchResults: [
+          makeFatSecretSearchHit(
+            foodId: '1',
+            name: 'Mystery Item',
+            description: 'Per 1 serving - Calories: 400kcal',
+          ),
+        ],
+        // getFood returns a food with no usable metric mass on any serving —
+        // FatSecretMapper.mapDetail returns null for this.
+        foodsById: {
+          '1': {
+            'food_id': '1',
+            'food_name': 'Mystery Item',
+            'servings': {
+              'serving': {
+                'serving_description': '1 serving',
+                'calories': '400',
+              },
+            },
+          },
+        },
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        fatsecretApi: fatsecret,
+      );
+
+      await search(tester, 'mystery');
+      final card = find.text('Mystery Item', skipOffstage: false).first;
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      expect(fatsecret.fetchedFoodIds, ['1']);
+      expect(
+        find.text('No nutrition data available for this item.'),
+        findsOneWidget,
+      );
+      expect(find.text('ADDED ITEMS'), findsNothing);
+    },
+  );
+
+  testWidgets('the "Powered by FatSecret" attribution footer shows only when a '
+      'FatSecret result is visible, never over the Recent Foods default view', (
+    WidgetTester tester,
+  ) async {
+    final fatsecret = _FakeFatSecretClient(
+      searchResults: [
+        makeFatSecretSearchHit(foodId: '1', name: 'Diner Burger'),
+      ],
+    );
+    await pumpAddFoodPage(
+      tester,
+      localDb: _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]),
+      repository: _offlineRepository(InMemoryNutritionStore()),
+      fatsecretApi: fatsecret,
+    );
+
+    // Recent Foods default view: no query, no FatSecret rows — no footer.
+    expect(find.text('Oatmeal'), findsOneWidget);
+    expect(find.text('Powered by FatSecret'), findsNothing);
+
+    await search(tester, 'burger');
+
+    expect(find.text('Diner Burger', skipOffstage: false), findsOneWidget);
+    expect(
+      find.text('Powered by FatSecret', skipOffstage: false),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'no attribution footer when search results include no FatSecret rows',
+    (WidgetTester tester) async {
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+      );
+
+      await search(tester, 'oatmeal');
+
+      expect(find.text('Powered by FatSecret'), findsNothing);
     },
   );
 
