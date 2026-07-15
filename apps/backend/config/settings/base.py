@@ -193,6 +193,16 @@ if SENTRY_DSN and SENTRY_ENVIRONMENT != "local":
 
 GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
 
+# FatSecret Platform API (KAN-67): a thin backend proxy so the client secret
+# never ships to the phone. "premier" is the Premier Free tier scope; override
+# per-account if the FatSecret plan changes. GB matches the OFF client's
+# en:united-kingdom normalization so results stay regionally consistent
+# between the two food sources; blank means omit the region param entirely.
+FATSECRET_CLIENT_ID = env("FATSECRET_CLIENT_ID", default="").strip()
+FATSECRET_CLIENT_SECRET = env("FATSECRET_CLIENT_SECRET", default="").strip()
+FATSECRET_SCOPE = env("FATSECRET_SCOPE", default="premier")
+FATSECRET_REGION = env("FATSECRET_REGION", default="GB").strip()
+
 # Email
 # Local/dev defaults to the console backend (emails print to the runserver
 # logs). Prod overrides EMAIL_BACKEND to SMTP via env. The same env vars work

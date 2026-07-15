@@ -111,6 +111,7 @@ def _absolute_file_url(request: Any | None, field: Any) -> str:
 # another user's food by posting its (source, external_id) pair.
 _INGEST_SOURCE_CHOICES = [
     (FoodItem.SOURCE_OPEN_FOOD_FACTS, "Open Food Facts"),
+    (FoodItem.SOURCE_FATSECRET, "FatSecret"),
 ]
 
 
