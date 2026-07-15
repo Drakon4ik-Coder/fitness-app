@@ -96,6 +96,18 @@ void main() {
       expect(item.nutrimentsJson, isNull);
     });
 
+    test('a per-100g basis with no parseable values yields null '
+        'nutrimentsJson, not an empty map (no-nutrition guard depends on '
+        'null)', () {
+      final item = mapper.mapSummary(
+        _bigMacSearchHit(description: 'Per 100g -'),
+      );
+
+      expect(item, isNotNull);
+      expect(item!.kcal100g, isNull);
+      expect(item.nutrimentsJson, isNull);
+    });
+
     test('null food_id yields no item', () {
       final food = _bigMacSearchHit()..remove('food_id');
       expect(mapper.mapSummary(food), isNull);

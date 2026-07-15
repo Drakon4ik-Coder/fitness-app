@@ -61,6 +61,11 @@ class FatSecretMapper {
         if (carbs != null) 'carbohydrates_100g': carbs,
         if (protein != null) 'proteins_100g': protein,
       };
+      // Same normalization as mapDetail: a per-100g description whose values
+      // all fail to parse must yield null, not {} — the page's no-nutrition
+      // staging guard keys on nutrimentsJson == null, and an empty map would
+      // let a zero-calorie phantom through when enrich also comes up empty.
+      if (nutrimentsJson.isEmpty) nutrimentsJson = null;
     }
 
     final contentHash = buildFoodContentHash(
