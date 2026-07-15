@@ -282,4 +282,38 @@ void main() {
       ),
     );
   });
+
+  test('a superseded (cancelled) search stays a cancel — recognizable via '
+      'CancelToken.isCancel, never a logged ApiException', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              type: DioExceptionType.cancel,
+            ),
+          );
+        },
+      ),
+    );
+
+    final client = FatSecretClient(
+      accessToken: 'test-token',
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+    );
+
+    await expectLater(
+      () async => await client.searchFoods('burger'),
+      throwsA(
+        isA<DioException>().having(
+          (error) => CancelToken.isCancel(error),
+          'isCancel',
+          isTrue,
+        ),
+      ),
+    );
+  });
 }
