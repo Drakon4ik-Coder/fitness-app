@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fitness_app/features/nutrition/data/fatsecret_mapper.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/nutrient_catalog.dart';
@@ -324,6 +326,58 @@ void main() {
       expect(item, isNotNull);
       expect(item!.gramsPerPiece, closeTo(98, 0.001));
       expect(item.pieceUnit, 'slice');
+    });
+
+    // The backend stores no piece columns; fromBackendDetail re-derives the
+    // piece from the raw blob's OFF-style serving_size text. mapDetail plants
+    // a synthetic one, so the piece default must survive ingest → reload.
+    FoodItem roundTrip(FoodItem item) {
+      final payload = item.toBackendPayload()..['id'] = 42;
+      return FoodItem.fromBackendDetail(payload);
+    }
+
+    test('piece metadata survives the backend round trip', () {
+      final item = mapper.mapDetail(_bigMacDetail())!;
+      final reloaded = roundTrip(item);
+
+      expect(reloaded.gramsPerPiece, closeTo(219, 0.001));
+      expect(reloaded.pieceUnit, 'burger');
+      expect(reloaded.servingSizeG, closeTo(219, 0.001));
+      // The verbatim FatSecret payload is still intact next to the synthetic
+      // serving text.
+      final raw = jsonDecode(reloaded.rawSourceJson) as Map<String, dynamic>;
+      expect((raw['food'] as Map)['food_id'], '33691');
+      expect(raw['serving_size'], '1 burger (219 g)');
+    });
+
+    test('a multi-piece serving (3 cookies per 210 g) round-trips to the '
+        'same per-piece weight', () {
+      final food = {
+        'food_id': '55',
+        'food_name': 'Choc Cookies',
+        'servings': {
+          'serving': {
+            'serving_description': '3 cookies',
+            'metric_serving_amount': '210.000',
+            'metric_serving_unit': 'g',
+            'number_of_units': '3.000',
+            'measurement_description': 'cookies',
+            'calories': '900',
+          },
+        },
+      };
+      final item = mapper.mapDetail(food)!;
+      expect(item.gramsPerPiece, closeTo(70, 0.001));
+
+      final reloaded = roundTrip(item);
+      expect(reloaded.gramsPerPiece, closeTo(70, 0.001));
+      expect(reloaded.pieceUnit, 'cookie');
+    });
+
+    test('a piece-less detail plants no synthetic serving_size', () {
+      final item = mapper.mapDetail(foodWithMeasurement('serving (98g)'))!;
+      final raw = jsonDecode(item.rawSourceJson) as Map<String, dynamic>;
+      expect(raw.containsKey('serving_size'), isFalse);
     });
   });
 }

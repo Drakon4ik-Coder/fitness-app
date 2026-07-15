@@ -181,17 +181,29 @@ class FatSecretMapper {
     double? gramsPerPiece;
     String? pieceUnit;
     double servingSizeG;
+    String? syntheticServingText;
     if (pieceServing != null) {
       final pieceMetric = parseNullableDouble(
         pieceServing['metric_serving_amount'],
       )!;
       final numberOfUnits =
           parseNullableDouble(pieceServing['number_of_units']) ?? 1.0;
-      gramsPerPiece = pieceMetric / (numberOfUnits > 0 ? numberOfUnits : 1.0);
+      final units = numberOfUnits > 0 ? numberOfUnits : 1.0;
+      gramsPerPiece = pieceMetric / units;
       pieceUnit = _cleanMeasurementLabel(
         pieceServing['measurement_description'],
       );
       servingSizeG = pieceMetric;
+      // The backend has no piece columns; fromBackendDetail re-derives pieces
+      // solely from an OFF-style `serving_size` text in the raw blob. Without
+      // this synthetic text the piece default would survive exactly until the
+      // first ingest and vanish on every later reload (other devices, food
+      // refresh). `food` itself stays verbatim.
+      if (pieceUnit != null) {
+        syntheticServingText =
+            '${_compactNumber(units)} $pieceUnit '
+            '(${_compactNumber(pieceMetric)} g)';
+      }
     } else {
       servingSizeG = metricAmount;
     }
@@ -231,7 +243,10 @@ class FatSecretMapper {
       gramsPerPiece: gramsPerPiece,
       pieceUnit: pieceUnit,
       completeness: null,
-      rawSourceJson: jsonEncode({'food': food}),
+      rawSourceJson: jsonEncode({
+        'food': food,
+        if (syntheticServingText != null) 'serving_size': syntheticServingText,
+      }),
       nutrimentsJson: nutrimentsJson.isEmpty ? null : nutrimentsJson,
     );
   }
@@ -293,6 +308,14 @@ class FatSecretMapper {
         .toLowerCase();
     final amount = parseNullableDouble(serving['metric_serving_amount']);
     return (unit == 'g' || unit == 'ml') && amount != null && amount > 0;
+  }
+
+  /// "219" for whole numbers, "28.35" otherwise — keeps the synthetic
+  /// serving text natural ("1 burger (219 g)", not "219.0 g").
+  String _compactNumber(double value) {
+    return value == value.roundToDouble()
+        ? value.round().toString()
+        : value.toString();
   }
 
   /// Normalized head of a measurement description: lower-cased, cut before
