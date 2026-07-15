@@ -262,8 +262,10 @@ backend-side (`FATSECRET_*` env vars, `foods/fatsecret.py`), and
 the proxy passes FatSecret's JSON through verbatim — all mapping to OFF-format
 `nutriments_json` happens in `fatsecret_mapper.dart`. Same lazy
 enrich-on-tap pattern as OFF (`foods.search` summaries → `food.get.v4`
-detail), its own `OffRateLimiter` instance (never OFF's budget), and results
-merge into the add-food ranked list as a complementary source. The free tier
+detail); one process-wide FatSecret call budget
+(`FatSecretClient.sharedLimiter` — shared by every client instance, but
+never OFF's budget); results merge into the add-food ranked list as a
+complementary source. The free tier
 requires the "Powered by FatSecret" attribution the add-food page shows
 whenever a FatSecret row is visible. Unconfigured backends return 503 and the
 app degrades to OFF-only.
