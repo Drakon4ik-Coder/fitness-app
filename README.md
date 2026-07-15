@@ -101,7 +101,7 @@ Backend listens on `http://localhost:8080`.
 ```bash
 cd apps/mobile
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://localhost:8080
+flutter run --flavor local --dart-define=API_BASE_URL=http://localhost:8080
 ```
 > **Android emulator note:** use `http://10.0.2.2:8080` instead of `localhost`.
 

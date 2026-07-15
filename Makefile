@@ -1,6 +1,8 @@
 BACKEND_DIR := apps/backend
 MOBILE_DIR := apps/mobile
-APP_ID := uk.drakon4ik.symbio
+# Local dev builds use the `local` flavor → .dev application id (KAN: Android
+# product flavors keep dev/staging/prod installable side by side).
+APP_ID := uk.drakon4ik.symbio.dev
 
 .PHONY: up migrate shell clean-db clean-mobile-db test test-docker build-prod \
 	fmt lint check check-backend check-mobile fmt-backend fmt-mobile \
@@ -21,7 +23,7 @@ dev-phone:
 dev-local:
 	docker compose up --build -d
 	@echo "Backend: http://localhost:8080"
-	cd $(MOBILE_DIR) && flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080 --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
+	cd $(MOBILE_DIR) && flutter run --flavor local --dart-define=API_BASE_URL=http://10.0.2.2:8080 --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
 
 up:
 	docker compose up --build -d

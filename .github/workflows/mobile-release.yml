@@ -80,7 +80,7 @@ jobs:
 
       - name: Build release APK
         run: |
-          flutter build apk --release \
+          flutter build apk --release --flavor prod \
             --build-number=${{ github.run_number }} \
             --dart-define=APP_ENV=prod \
             --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
@@ -88,7 +88,7 @@ jobs:
 
       - name: Build release AAB (Play Store)
         run: |
-          flutter build appbundle --release \
+          flutter build appbundle --release --flavor prod \
             --build-number=${{ github.run_number }} \
             --dart-define=APP_ENV=prod \
             --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
@@ -98,7 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab-v${{ steps.version.outputs.name }}+${{ github.run_number }}
-          path: apps/mobile/build/app/outputs/bundle/release/app-release.aab
+          path: apps/mobile/build/app/outputs/bundle/prodRelease/app-prod-release.aab
           if-no-files-found: error
 
       - name: Upload APK as GitHub Release
@@ -107,4 +107,4 @@ jobs:
           tag_name: v${{ steps.version.outputs.name }}+${{ github.run_number }}
           name: v${{ steps.version.outputs.name }}+${{ github.run_number }}
           generate_release_notes: true
-          files: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
+          files: apps/mobile/build/app/outputs/flutter-apk/app-prod-release.apk

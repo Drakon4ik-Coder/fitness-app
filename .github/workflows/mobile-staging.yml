@@ -1,0 +1,113 @@
+# Mobile Staging Distribution
+#
+# Builds the `staging` flavor APK (package uk.drakon4ik.symbio.staging,
+# pointed at the Render staging backend via APP_ENV=staging) and uploads it
+# to Firebase App Distribution, which emails every tester in the "testers"
+# group an install/update link. The staging app installs alongside the prod
+# app — different application id.
+#
+# Run it manually (Actions → Mobile Staging Distribution → Run workflow),
+# normally from `develop`.
+#
+# ONE-TIME SETUP (in addition to the keystore secrets from mobile-release.yml):
+#   1. Firebase console (https://console.firebase.google.com) → Add project
+#      (Analytics not needed).
+#   2. Project settings → Add app → Android, package name
+#      "uk.drakon4ik.symbio.staging". Skip google-services.json — the app
+#      does not ship the Firebase SDK; App Distribution only needs the
+#      registered package name.
+#   3. Copy the App ID (looks like 1:123456789:android:abc...) → add as the
+#      FIREBASE_ANDROID_APP_ID_STAGING GitHub secret.
+#   4. Release → App Distribution → Get started, then Testers & groups →
+#      create a group named "testers" and add tester emails.
+#   5. Service account for CI: Google Cloud console (the Firebase project) →
+#      IAM & Admin → Service Accounts → Create ("app-distribution-ci"),
+#      grant role "Firebase App Distribution Admin", create a JSON key →
+#      add the file's contents as the FIREBASE_SERVICE_ACCOUNT GitHub secret.
+#   6. Google Sign-In on staging builds: add an Android OAuth client in the
+#      *existing* Google Cloud project (the one holding the current OAuth
+#      clients) with package "uk.drakon4ik.symbio.staging" and the release
+#      keystore's SHA-1 (keytool -list -v -keystore release.keystore).
+
+name: Mobile Staging Distribution
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "Release notes shown to testers (default: last commit subject)"
+        required: false
+        default: ""
+
+jobs:
+  distribute:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/release.keystore
+
+      - name: Create key.properties
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=../release.keystore
+          EOF
+
+      - name: Build staging APK
+        run: |
+          flutter build apk --release --flavor staging \
+            --build-number=${{ github.run_number }} \
+            --dart-define=APP_ENV=staging \
+            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
+
+      # Notes go through an env var into a file, never through ${{ }} into
+      # script text — inputs and commit subjects are attacker/quote-laden data
+      # and must not be evaluated by the shell (GitHub script injection).
+      - name: Resolve release notes
+        env:
+          NOTES_INPUT: ${{ github.event.inputs.release_notes }}
+        run: |
+          if [ -n "$NOTES_INPUT" ]; then
+            printf '%s\n' "$NOTES_INPUT" > "$RUNNER_TEMP/release-notes.txt"
+          else
+            git log -1 --pretty=%s > "$RUNNER_TEMP/release-notes.txt"
+          fi
+
+      - name: Upload to Firebase App Distribution
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          FIREBASE_SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_ANDROID_APP_ID_STAGING }}
+        run: |
+          printf '%s' "$FIREBASE_SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          npx -y firebase-tools@latest appdistribution:distribute \
+            build/app/outputs/flutter-apk/app-staging-release.apk \
+            --app "$FIREBASE_APP_ID" \
+            --groups testers \
+            --release-notes-file "$RUNNER_TEMP/release-notes.txt"

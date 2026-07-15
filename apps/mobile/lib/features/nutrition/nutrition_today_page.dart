@@ -448,8 +448,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   Future<void> _openAddFoodSheet(
     BuildContext context, {
     MealType? initialMeal,
+    List<StagedFood> initialItems = const [],
+    DateTime? targetDate,
   }) async {
     final messenger = ScaffoldMessenger.of(context);
+    final date = targetDate ?? _selectedDate;
     // When opened from the generic "+" (no explicit meal), guess the meal from
     // the time of day and what's already been logged today.
     final meal =
@@ -459,6 +462,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           mealsLogged: _dayLog?.meals ?? const {},
           windows: _mealWindows,
         );
+    // The pop result only reports a clean submit; a partially failed one
+    // (KAN-53) has already created entries before the page is backed out,
+    // so track creations separately — the day jump below must fire for
+    // those too or the logged copies end up off-screen.
+    var loggedAny = false;
     final didAdd = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => AddFoodPage(
@@ -467,18 +475,24 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           repository: _repository,
           offClient: _offClient,
           onLogout: _handleLogout,
-          selectedDate: _selectedDate,
+          selectedDate: date,
           initialMeal: meal,
+          initialItems: initialItems,
           focusSpecs: _focusSpecs,
           catalog: _catalog,
           warnNutrients: _warnNutrients,
+          onEntryLogged: () => loggedAny = true,
         ),
       ),
     );
-    // Reload even when the page reports no clean submit: a partially failed
-    // submit (KAN-53) has already logged some items, and backing out must not
-    // leave them off the day view. A no-op refetch when nothing changed.
     if (!mounted) return;
+    // A duplicate targets today no matter which day was being browsed; jump
+    // there whenever anything was logged so the freshly logged copies are
+    // on screen.
+    if (loggedAny && !DateUtils.isSameDay(_selectedDate, date)) {
+      setState(() => _selectedDate = date);
+    }
+    // Reload even when nothing was logged: a no-op refetch when unchanged.
     await _loadDay();
     if (!mounted || didAdd != true) return;
     messenger.showSnackBar(
@@ -514,6 +528,22 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
         onAddMore: () {
           Navigator.of(context).pop();
           _openAddFoodSheet(context, initialMeal: meal.mealType);
+        },
+        // Duplicate stages the meal's foods into a fresh add-food session
+        // targeting *today* — the "eat this again" case — so a meal browsed
+        // on any past day can be re-logged (and tweaked) in one flow.
+        // Nothing is written until Log is pressed there.
+        onDuplicate: (entries) {
+          Navigator.of(context).pop();
+          _openAddFoodSheet(
+            context,
+            initialMeal: meal.mealType,
+            initialItems: [
+              for (final entry in entries)
+                (item: entry.foodItem, grams: entry.quantityG),
+            ],
+            targetDate: DateUtils.dateOnly(DateTime.now()),
+          );
         },
       ),
     );

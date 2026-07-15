@@ -48,6 +48,11 @@ List<String> categoryTagsForQuery(String queryLower) {
   return tags.toList();
 }
 
+/// One food pre-staged into the page: the item plus the grams to stage it
+/// at. The duplicate-meal flow hands a meal's foods over in this shape, each
+/// at the amount it was originally logged with.
+typedef StagedFood = ({FoodItem item, double grams});
+
 class AddFoodPage extends StatefulWidget {
   const AddFoodPage({
     super.key,
@@ -58,9 +63,11 @@ class AddFoodPage extends StatefulWidget {
     required this.onLogout,
     required this.selectedDate,
     this.initialMeal,
+    this.initialItems = const [],
     this.focusSpecs,
     this.catalog,
     this.warnNutrients = const {},
+    this.onEntryLogged,
     this.scanBarcode,
   });
 
@@ -71,6 +78,11 @@ class AddFoodPage extends StatefulWidget {
   final Future<void> Function() onLogout;
   final DateTime selectedDate;
   final MealType? initialMeal;
+
+  /// Foods staged before the page opens (duplicate meal): each lands in the
+  /// Added list at its given amount, ready to tweak or log as-is. Nothing is
+  /// written until the user submits.
+  final List<StagedFood> initialItems;
 
   /// The user's focus nutrients (goal-resolved, in display order), driving the
   /// summary card and the amount sheet's preview pills so this page tracks the
@@ -84,6 +96,13 @@ class AddFoodPage extends StatefulWidget {
   /// Catalog keys the user opted into over-goal warnings for (KAN-38),
   /// forwarded to the amount sheet's nutrition-facts breakdown.
   final Set<String> warnNutrients;
+
+  /// Fires once per staged item actually logged during submit. A mid-list
+  /// failure (KAN-53) leaves the page open with the earlier items already
+  /// created, so the pop result alone can't tell the caller whether
+  /// [selectedDate] gained entries — backing out after a partial submit
+  /// must still surface them.
+  final VoidCallback? onEntryLogged;
 
   /// Runs the barcode-scan flow and resolves with the scanned code (null =
   /// dismissed). Defaults to pushing [NutritionScanPage]; tests inject a fake
@@ -132,6 +151,21 @@ class _AddFoodPageState extends State<AddFoodPage> {
   @override
   void initState() {
     super.initState();
+    // A staged item's identity is its result key, and every staged-list
+    // operation resolves through it — so a food logged as two entries in the
+    // source meal must seed one merged row (summed grams), not two rows
+    // fighting over the same key.
+    for (final seed in widget.initialItems) {
+      final existing = _indexOfAdded(seed.item);
+      if (existing >= 0) {
+        _addedItems[existing] = _AddedFood(
+          item: _addedItems[existing].item,
+          grams: _addedItems[existing].grams + seed.grams,
+        );
+      } else {
+        _addedItems.add(_AddedFood(item: seed.item, grams: seed.grams));
+      }
+    }
     // The controller owns the shared 300ms debounce + per-query CancelToken +
     // 2-char floor (D-06/D-07/D-08). The page hands it `setState`-driven setters
     // so debounced backend/OFF results flow back into the existing merge fields.
@@ -753,6 +787,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         return;
       }
       _addedItems.remove(added);
+      widget.onEntryLogged?.call();
     }
 
     if (!mounted) return;

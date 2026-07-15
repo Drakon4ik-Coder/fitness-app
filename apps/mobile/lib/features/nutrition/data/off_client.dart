@@ -28,10 +28,12 @@ class OffClient {
     String? userAgent,
     String? country,
     OffRateLimiter? rateLimiter,
+    DateTime Function()? now,
   }) : _countryTag = _normalizeCountryTag(
          country ?? EnvironmentConfig.offCountry,
        ),
        _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
+       _now = now ?? DateTime.now,
        _dio =
            dio ??
            Dio(
@@ -54,6 +56,22 @@ class OffClient {
   // Text search uses the Search-a-licious backend instead of the legacy
   // /api/v2/search endpoint, which is chronically overloaded and returns 503s.
   static const String _searchUrl = 'https://search.openfoodfacts.org/search';
+  // Fallback when prod search-a-licious is down/overloaded: per
+  // status.openfoodfacts.org, staging has matched-or-better uptime and lower
+  // latency than prod. It sometimes requires the public "off:off" basic-auth
+  // credential (used by OFF's own uptime monitor), so that header is always
+  // sent. It is NOT API-identical to prod, though — it previews the next
+  // search-a-licious release: strict param validation rejects unknown params
+  // (no `lc`, hence that param is dropped everywhere below), and its index
+  // config doesn't expose countries_tags/categories_tags as search fields
+  // (400 QueryCheckError), so the fallback query drops tag filters and loses
+  // country/category scoping — acceptable for a degraded outage-only mode.
+  // Its product index can also lag prod by a bit. See _searchCooldownUntil
+  // for why the fallback isn't tried on every request once primary fails.
+  static const String _searchFallbackUrl =
+      'https://search.openfoodfacts.net/search';
+  static const String _searchFallbackAuth = 'Basic b2ZmOm9mZg==';
+  static const Duration _searchFallbackCooldown = Duration(minutes: 5);
   static const List<String> _fields = [
     'code',
     'product_name',
@@ -91,6 +109,11 @@ class OffClient {
   final Dio _dio;
   final String _countryTag;
   final OffRateLimiter _rateLimiter;
+  final DateTime Function() _now;
+  // Set once primary search-a-licious fails; while non-null and in the
+  // future, searches skip straight to the fallback host instead of eating a
+  // full Dio timeout (10-20s) on every keystroke of a live search.
+  DateTime? _searchCooldownUntil;
 
   Future<OffProductResponse?> fetchProduct(String barcode) async {
     final trimmedBarcode = barcode.trim();
@@ -139,17 +162,15 @@ class OffClient {
     CancelToken? cancelToken,
   }) async {
     try {
+      // One rate-limit slot covers both hosts for this logical search, so a
+      // primary-then-fallback retry can't double-spend the OFF call budget
+      // and in-flight dedup on _searchKey still collapses duplicate queries.
       final response = await _rateLimiter.run(
         _searchKey(query),
-        () => _dio.get<Map<String, dynamic>>(
-          _searchUrl,
-          queryParameters: _buildSearchParams(
-            query,
-            pageSize: pageSize,
-            categoryTag: categoryTag,
-          ),
-          // Forwarded so a superseded live search aborts the socket and frees
-          // rate-limit budget instead of completing and being discarded.
+        () => _searchWithFallback(
+          query,
+          pageSize: pageSize,
+          categoryTag: categoryTag,
           cancelToken: cancelToken,
         ),
       );
@@ -168,29 +189,111 @@ class OffClient {
     }
   }
 
+  Future<Response<Map<String, dynamic>>> _searchWithFallback(
+    String query, {
+    required int pageSize,
+    String? categoryTag,
+    CancelToken? cancelToken,
+  }) async {
+    final cooldownUntil = _searchCooldownUntil;
+    final onCooldown = cooldownUntil != null && _now().isBefore(cooldownUntil);
+    if (!onCooldown) {
+      try {
+        final response = await _dio.get<Map<String, dynamic>>(
+          _searchUrl,
+          queryParameters: _buildSearchParams(
+            query,
+            pageSize: pageSize,
+            categoryTag: categoryTag,
+          ),
+          // Forwarded so a superseded live search aborts the socket and
+          // frees rate-limit budget instead of completing and being
+          // discarded.
+          cancelToken: cancelToken,
+        );
+        _searchCooldownUntil = null;
+        return response;
+      } on DioException catch (error, stackTrace) {
+        if (CancelToken.isCancel(error) || !_isFallbackEligible(error)) {
+          rethrow;
+        }
+        logError('off.searchProducts.primaryFailed', error, stackTrace);
+        // Cooldown only for outage-shaped failures (see _isOutage) — a 4xx
+        // answers fast (no hang to protect against) and can be specific to
+        // this one query (strict param/index-config validation on the
+        // fallback host, or a user-typed Lucene special character), not a
+        // sign the whole host is down. Skipping the cooldown here keeps the
+        // *next* search on the country-scoped primary, and — if a query
+        // really is malformed — keeps `primaryFailed` logging on every
+        // search instead of once per 5-minute window, so the bug stays
+        // visible instead of being masked behind an occasional fallback hit.
+        if (_isOutage(error)) {
+          _searchCooldownUntil = _now().add(_searchFallbackCooldown);
+        }
+      }
+    }
+    return _dio.get<Map<String, dynamic>>(
+      _searchFallbackUrl,
+      // Tag filters dropped — see _searchFallbackUrl for why.
+      queryParameters: _buildSearchParams(
+        query,
+        pageSize: pageSize,
+        includeTagFilters: false,
+      ),
+      options: Options(headers: {'Authorization': _searchFallbackAuth}),
+      cancelToken: cancelToken,
+    );
+  }
+
+  // True for failures that mean the primary host itself is unavailable
+  // (no response at all — timeout/connection error — 5xx, or 429 overload).
+  // This is the narrower "is the host down" signal used to gate the
+  // cooldown; _isFallbackEligible is the broader "should this search retry
+  // on the fallback host" signal and also includes 400/422.
+  bool _isOutage(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == null) return true;
+    return statusCode >= 500 || statusCode == 429;
+  }
+
+  // Fallback-eligible primary failures: any outage (see _isOutage), plus
+  // 400/422 — the fallback host validates params more strictly than prod
+  // (see _searchFallbackUrl), so a request prod accepts can be rejected
+  // there without it being a genuinely malformed query; the fallback's own
+  // simplified params sidestep that. Other 4xx (e.g. 404) are left alone.
+  bool _isFallbackEligible(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return _isOutage(error) || statusCode == 400 || statusCode == 422;
+  }
+
   Map<String, dynamic> _buildSearchParams(
     String query, {
     required int pageSize,
     String? categoryTag,
+    bool includeTagFilters = true,
   }) {
     // Search-a-licious uses a Lucene-style query string. Tag filters are
     // appended to `q` as `field:"value"` clauses; the value must be quoted
     // because the tag values themselves contain a colon (e.g. en:beverages).
+    // No `lc`/`langs` param is sent — search defaults to English on both
+    // hosts, and the staging host 422s on unrecognized params (`lc` isn't
+    // one of its params; see _searchFallbackUrl).
     final clauses = <String>[];
     final trimmedQuery = query.trim();
     if (trimmedQuery.isNotEmpty) {
       clauses.add(trimmedQuery);
     }
-    if (_countryTag.isNotEmpty) {
-      clauses.add('countries_tags:"$_countryTag"');
-    }
-    final trimmedCategory = categoryTag?.trim();
-    if (trimmedCategory != null && trimmedCategory.isNotEmpty) {
-      clauses.add('categories_tags:"$trimmedCategory"');
+    if (includeTagFilters) {
+      if (_countryTag.isNotEmpty) {
+        clauses.add('countries_tags:"$_countryTag"');
+      }
+      final trimmedCategory = categoryTag?.trim();
+      if (trimmedCategory != null && trimmedCategory.isNotEmpty) {
+        clauses.add('categories_tags:"$trimmedCategory"');
+      }
     }
     return <String, dynamic>{
       'q': clauses.join(' '),
-      'lc': 'en',
       'fields': _fields.join(','),
       'page_size': pageSize,
     };

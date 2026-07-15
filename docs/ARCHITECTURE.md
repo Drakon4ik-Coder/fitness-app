@@ -165,13 +165,25 @@ Only `features/nutrition/` has a `data/` layer; other features are single-file p
 
 The Flutter app talks to the Django backend over HTTPS using Dio.
 Base URL is chosen at build time via `--dart-define=APP_ENV`
-(`API_BASE_URL` overrides directly):
+(`API_BASE_URL` overrides directly). Each environment is also a separate
+Android **product flavor** (`android/app/build.gradle.kts`) with its own
+application id, so all three install side by side on one device instead of
+replacing each other:
 
-| ENV | URL |
-|---|---|
-| `local` | `http://localhost:8000` |
-| `staging` | Render staging URL |
-| `prod` | `https://symbio.drakon4ik.uk` |
+| ENV / flavor | URL | Application id | Launcher label |
+|---|---|---|---|
+| `local` | `http://localhost:8000` | `uk.drakon4ik.symbio.dev` | Symbio Dev |
+| `staging` | Render staging URL | `uk.drakon4ik.symbio.staging` | Symbio Staging |
+| `prod` | `https://symbio.drakon4ik.uk` | `uk.drakon4ik.symbio` | Symbio |
+
+Every Android build/run must pass `--flavor` (bare `flutter run` fails once
+flavors exist), and the flavor must match `APP_ENV` — use `make dev-local`,
+`make dev-phone`, or the CI workflows, which pair them correctly. Google
+Sign-In is registered per (application id, signing SHA-1): each flavor's id
+needs its own Android OAuth client in the Google Cloud project. Prod ships
+via `mobile-release.yml` (GitHub Releases APK + Play AAB); staging ships via
+`mobile-staging.yml` (Firebase App Distribution — setup steps in that file's
+header comment).
 
 Each API service creates its own `Dio` instance and calls
 `authInterceptor?.attachTo(_dio)` to wire up auth.
