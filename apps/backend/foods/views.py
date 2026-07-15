@@ -359,7 +359,10 @@ class FatSecretFoodView(APIView):
         },
     )
     def get(self, request: Request, food_id: str) -> Response:
-        if not food_id.isdigit():
+        # isdigit() alone admits Unicode digits ("²", "١٢٣") that FatSecret
+        # would reject — misclassifying client garbage as a 502 partner error
+        # (and polluting the upstream-error logs). ASCII digits only.
+        if not (food_id.isascii() and food_id.isdigit()):
             return Response({"detail": "food_id must be numeric."}, status=400)
 
         try:

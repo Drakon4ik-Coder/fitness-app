@@ -270,9 +270,20 @@ def test_fatsecret_search_blank_query_returns_400() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
-def test_fatsecret_food_detail_non_numeric_id_returns_400() -> None:
+@pytest.mark.parametrize(
+    "food_id",
+    [
+        "abc",
+        "²",  # superscript: isdigit() True, but not an ASCII digit
+        "١٢٣",  # Arabic-Indic: even isdecimal() True — must still be rejected
+        "12³4",
+    ],
+)
+def test_fatsecret_food_detail_non_ascii_numeric_id_returns_400(
+    food_id: str,
+) -> None:
     client = _auth_client()
-    response = client.get("/api/v1/foods/fatsecret/food/abc")
+    response = client.get(f"/api/v1/foods/fatsecret/food/{food_id}")
     assert response.status_code == 400
 
 
