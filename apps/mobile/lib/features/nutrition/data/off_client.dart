@@ -218,7 +218,18 @@ class OffClient {
           rethrow;
         }
         logError('off.searchProducts.primaryFailed', error, stackTrace);
-        _searchCooldownUntil = _now().add(_searchFallbackCooldown);
+        // Cooldown only for outage-shaped failures (see _isOutage) — a 4xx
+        // answers fast (no hang to protect against) and can be specific to
+        // this one query (strict param/index-config validation on the
+        // fallback host, or a user-typed Lucene special character), not a
+        // sign the whole host is down. Skipping the cooldown here keeps the
+        // *next* search on the country-scoped primary, and — if a query
+        // really is malformed — keeps `primaryFailed` logging on every
+        // search instead of once per 5-minute window, so the bug stays
+        // visible instead of being masked behind an occasional fallback hit.
+        if (_isOutage(error)) {
+          _searchCooldownUntil = _now().add(_searchFallbackCooldown);
+        }
       }
     }
     return _dio.get<Map<String, dynamic>>(
@@ -234,19 +245,25 @@ class OffClient {
     );
   }
 
-  // Fallback-eligible primary failures: no response at all
-  // (timeout/connection error), 5xx, or 429 (overload) as before, plus now
+  // True for failures that mean the primary host itself is unavailable
+  // (no response at all — timeout/connection error — 5xx, or 429 overload).
+  // This is the narrower "is the host down" signal used to gate the
+  // cooldown; _isFallbackEligible is the broader "should this search retry
+  // on the fallback host" signal and also includes 400/422.
+  bool _isOutage(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == null) return true;
+    return statusCode >= 500 || statusCode == 429;
+  }
+
+  // Fallback-eligible primary failures: any outage (see _isOutage), plus
   // 400/422 — the fallback host validates params more strictly than prod
   // (see _searchFallbackUrl), so a request prod accepts can be rejected
   // there without it being a genuinely malformed query; the fallback's own
   // simplified params sidestep that. Other 4xx (e.g. 404) are left alone.
   bool _isFallbackEligible(DioException error) {
     final statusCode = error.response?.statusCode;
-    if (statusCode == null) return true;
-    return statusCode >= 500 ||
-        statusCode == 429 ||
-        statusCode == 400 ||
-        statusCode == 422;
+    return _isOutage(error) || statusCode == 400 || statusCode == 422;
   }
 
   Map<String, dynamic> _buildSearchParams(

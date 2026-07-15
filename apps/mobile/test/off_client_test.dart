@@ -152,6 +152,50 @@ void main() {
     ]);
   });
 
+  test('searchProducts falls back on a primary 400 for that search, but a 400 '
+      'does not start the cooldown — the next search still tries primary '
+      'first (so a persistent query bug keeps logging instead of being '
+      'masked once per cooldown window)', () async {
+    final dio = Dio();
+    final requestedHosts = <String>[];
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requestedHosts.add(options.uri.host);
+          if (options.uri.host == 'search.openfoodfacts.org') {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response(requestOptions: options, statusCode: 400),
+              ),
+            );
+            return;
+          }
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {'hits': <Map<String, dynamic>>[]},
+            ),
+          );
+        },
+      ),
+    );
+
+    final client = OffClient(dio: dio, rateLimiter: OffRateLimiter());
+
+    await client.searchProducts('apple');
+    await client.searchProducts('banana');
+
+    expect(requestedHosts, [
+      'search.openfoodfacts.org',
+      'search.openfoodfacts.net',
+      'search.openfoodfacts.org',
+      'search.openfoodfacts.net',
+    ]);
+  });
+
   test(
     'searchProducts does not fall back on a non-retryable 4xx from primary',
     () async {
