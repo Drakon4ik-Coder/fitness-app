@@ -11,8 +11,17 @@ from foods import fatsecret
 from foods.models import FoodItem
 
 POST = "foods.fatsecret.requests.post"
+# Most proxy tests pin the OAuth 2.0 token flow they were written against;
+# the default mode is oauth1 (signed requests, no token endpoint).
 CONFIGURED = override_settings(
-    FATSECRET_CLIENT_ID="test-id", FATSECRET_CLIENT_SECRET="test-secret"
+    FATSECRET_CLIENT_ID="test-id",
+    FATSECRET_CLIENT_SECRET="test-secret",
+    FATSECRET_AUTH="oauth2",
+)
+CONFIGURED_OAUTH1 = override_settings(
+    FATSECRET_CLIENT_ID="test-id",
+    FATSECRET_CLIENT_SECRET="test-secret",
+    FATSECRET_AUTH="oauth1",
 )
 
 
@@ -268,6 +277,65 @@ def test_fatsecret_food_detail_happy_path_passes_through_verbatim() -> None:
     api_params = api_calls[0].kwargs["data"]
     assert api_params["method"] == "food.get.v4"
     assert api_params["food_id"] == "12345"
+
+
+@pytest.mark.integration
+@CONFIGURED_OAUTH1
+def test_oauth1_signature_matches_reference_vector() -> None:
+    # Expected value computed with an independent RFC 5849 implementation that
+    # itself reproduces the OAuth Core 1.0 Appendix A.5 known-answer vector
+    # (tR3+Ty81lMeYAr/Fid0kMTYa/WM=). Guards the percent-encoding, parameter
+    # sorting, base-string, and signing-key ("secret&", no token) rules.
+    signed = fatsecret._oauth1_signed_params(
+        {
+            "method": "foods.search",
+            "search_expression": "pizza",
+            "page_number": "0",
+            "max_results": "10",
+            "format": "json",
+        },
+        nonce="fixed-nonce",
+        timestamp="1752537600",
+    )
+    assert signed["oauth_signature"] == "uDvRdIYqn1yFRDKrkVXPok5zTzo="
+    assert signed["oauth_consumer_key"] == "test-id"
+    assert signed["oauth_signature_method"] == "HMAC-SHA1"
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED_OAUTH1
+def test_fatsecret_oauth1_mode_signs_request_and_skips_token_endpoint() -> None:
+    client = _auth_client()
+    api_body = {"foods": {"food": [{"food_id": "1", "food_name": "Pizza"}]}}
+    api_resp = _mock_response(200, api_body)
+
+    with patch(POST, return_value=api_resp) as mock_post:
+        response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert response.status_code == 200
+    assert response.data == api_body
+
+    # Exactly one HTTP call: the signed platform request. No token fetch, no
+    # Bearer header — the signature in the form body is the whole auth story.
+    assert mock_post.call_count == 1
+    call = mock_post.call_args
+    assert call.args[0] == fatsecret.API_URL
+    assert call.kwargs["headers"] is None
+    api_params = call.kwargs["data"]
+    assert api_params["search_expression"] == "pizza"
+    assert api_params["oauth_consumer_key"] == "test-id"
+    assert api_params["oauth_signature_method"] == "HMAC-SHA1"
+    assert api_params["oauth_signature"]
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@override_settings(FATSECRET_CLIENT_ID="", FATSECRET_AUTH="oauth1")
+def test_fatsecret_oauth1_mode_unconfigured_returns_503() -> None:
+    client = _auth_client()
+    response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+    assert response.status_code == 503
 
 
 @pytest.mark.django_db

@@ -1,10 +1,17 @@
 """Thin client for the FatSecret Platform API.
 
-Views never touch `requests` directly — all HTTP, token caching, and error
-mapping live here so the proxy views stay a couple of lines each.
+Views never touch `requests` directly — all HTTP, auth (OAuth 1.0 signing or
+OAuth 2.0 token caching, per FATSECRET_AUTH), and error mapping live here so
+the proxy views stay a couple of lines each.
 """
 
+import base64
+import hashlib
+import hmac
 import logging
+import secrets
+import time
+from urllib.parse import quote
 
 import requests
 from django.conf import settings
@@ -75,20 +82,61 @@ def _get_token() -> str:
     return _fetch_token()
 
 
+def _oauth1_signed_params(
+    params: dict[str, str],
+    *,
+    nonce: str | None = None,
+    timestamp: str | None = None,
+) -> dict[str, str]:
+    """RFC 5849 two-legged HMAC-SHA1 signing (no token, signing key is
+    `secret&`). Every request is individually signed, which is why this mode
+    needs no IP whitelisting: FatSecret only enforces the whitelist at the
+    OAuth 2.0 token endpoint. nonce/timestamp are injectable for tests only.
+    """
+
+    signed = {
+        **params,
+        "oauth_consumer_key": settings.FATSECRET_CLIENT_ID,
+        "oauth_nonce": nonce or secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": timestamp or str(int(time.time())),
+        "oauth_version": "1.0",
+    }
+
+    def enc(value: str) -> str:
+        # RFC 5849 §3.6 percent-encoding: only ALPHA/DIGIT/-._~ unreserved.
+        return quote(str(value), safe="-._~")
+
+    pairs = sorted((enc(k), enc(v)) for k, v in signed.items())
+    param_string = "&".join(f"{k}={v}" for k, v in pairs)
+    base_string = "&".join(["POST", enc(API_URL), enc(param_string)])
+    key = f"{enc(settings.FATSECRET_CLIENT_SECRET)}&"
+    digest = hmac.new(key.encode(), base_string.encode(), hashlib.sha1).digest()
+    return {**signed, "oauth_signature": base64.b64encode(digest).decode()}
+
+
 def _call_platform(params: dict[str, str]) -> dict:
-    """POST to the platform API with a cached token, handling the 401-retry
-    and error-mapping rules shared by every method (search, food.get.v4, ...).
+    """POST to the platform API, handling the auth mode and the error-mapping
+    rules shared by every method (search, food.get.v4, ...).
     """
 
     if settings.FATSECRET_REGION:
         params = {**params, "region": settings.FATSECRET_REGION}
+
+    if settings.FATSECRET_AUTH == "oauth1":
+        if not settings.FATSECRET_CLIENT_ID or not settings.FATSECRET_CLIENT_SECRET:
+            raise FatSecretNotConfigured
+        response = _post_platform(_oauth1_signed_params(params), token=None)
+        return _parse_platform_response(response)
 
     token = _get_token()
     response = _post_platform(params, token)
 
     if response.status_code == 401:
         # Tokens can be revoked server-side before expires_in elapses; retry
-        # once with a freshly fetched token before giving up.
+        # once with a freshly fetched token before giving up. (OAuth 1.0 has
+        # no token to refresh — a 401 there falls straight through to the
+        # generic upstream-error mapping.)
         cache.delete(_TOKEN_CACHE_KEY)
         token = _fetch_token()
         response = _post_platform(params, token)
@@ -96,11 +144,11 @@ def _call_platform(params: dict[str, str]) -> dict:
     return _parse_platform_response(response)
 
 
-def _post_platform(params: dict[str, str], token: str) -> requests.Response:
+def _post_platform(params: dict[str, str], token: str | None) -> requests.Response:
     try:
         return requests.post(
             API_URL,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}"} if token else None,
             data=params,
             timeout=_TIMEOUT,
         )

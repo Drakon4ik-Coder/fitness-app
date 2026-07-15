@@ -257,8 +257,8 @@ foods server-side.
 
 OFF is barcode-driven and has near-zero restaurant/chain coverage, so
 `fatsecret_client.dart` adds FatSecret as a second live-search source. Unlike
-OFF it is never called directly from the phone: the OAuth2 client-credentials
-secret lives backend-side (`FATSECRET_*` env vars, `foods/fatsecret.py`), and
+OFF it is never called directly from the phone: the FatSecret secret lives
+backend-side (`FATSECRET_*` env vars, `foods/fatsecret.py`), and
 the proxy passes FatSecret's JSON through verbatim — all mapping to OFF-format
 `nutriments_json` happens in `fatsecret_mapper.dart`. Same lazy
 enrich-on-tap pattern as OFF (`foods.search` summaries → `food.get.v4`
@@ -267,6 +267,13 @@ merge into the add-food ranked list as a complementary source. The free tier
 requires the "Powered by FatSecret" attribution the add-food page shows
 whenever a FatSecret row is visible. Unconfigured backends return 503 and the
 app degrades to OFF-only.
+
+Auth mode is `FATSECRET_AUTH`: the default `oauth1` signs every request
+(RFC 5849 two-legged HMAC-SHA1) and needs **no IP whitelisting** — FatSecret
+only enforces its whitelist at the OAuth 2.0 token endpoint, which shared
+egress (Render) can't satisfy without a paid dedicated IP. `oauth2` switches
+to cached client-credentials tokens (`FATSECRET_SCOPE`) if OAuth 1.0 is ever
+sunset; both modes use the same console credentials.
 
 ---
 

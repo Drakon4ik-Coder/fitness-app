@@ -202,6 +202,12 @@ FATSECRET_CLIENT_ID = env("FATSECRET_CLIENT_ID", default="").strip()
 FATSECRET_CLIENT_SECRET = env("FATSECRET_CLIENT_SECRET", default="").strip()
 FATSECRET_SCOPE = env("FATSECRET_SCOPE", default="premier")
 FATSECRET_REGION = env("FATSECRET_REGION", default="GB").strip()
+# "oauth1" signs each request (RFC 5849 two-legged HMAC-SHA1) and needs no IP
+# whitelisting — FatSecret only enforces its whitelist at the OAuth 2.0 token
+# endpoint, which is unusable behind shared egress (Render) without a paid
+# dedicated IP. "oauth2" is the token flow, one env flip away if FatSecret
+# ever sunsets OAuth 1.0 and our IPs are whitelisted by then.
+FATSECRET_AUTH = env("FATSECRET_AUTH", default="oauth1").strip().lower()
 
 # Email
 # Local/dev defaults to the console backend (emails print to the runserver
