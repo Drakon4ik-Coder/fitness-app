@@ -28,10 +28,12 @@ class OffClient {
     String? userAgent,
     String? country,
     OffRateLimiter? rateLimiter,
+    DateTime Function()? now,
   }) : _countryTag = _normalizeCountryTag(
          country ?? EnvironmentConfig.offCountry,
        ),
        _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
+       _now = now ?? DateTime.now,
        _dio =
            dio ??
            Dio(
@@ -54,6 +56,18 @@ class OffClient {
   // Text search uses the Search-a-licious backend instead of the legacy
   // /api/v2/search endpoint, which is chronically overloaded and returns 503s.
   static const String _searchUrl = 'https://search.openfoodfacts.org/search';
+  // Fallback when prod search-a-licious is down/overloaded: the staging
+  // deployment runs the identical API (same q/fields/page_size params, same
+  // `hits` envelope) and per status.openfoodfacts.org has matched-or-better
+  // uptime and lower latency than prod. It sometimes requires the public
+  // "off:off" basic-auth credential (used by OFF's own uptime monitor), so
+  // that header is always sent. Its index can lag prod by a bit — acceptable
+  // for a fallback. See _searchCooldownUntil for why this isn't tried on
+  // every request.
+  static const String _searchFallbackUrl =
+      'https://search.openfoodfacts.net/search';
+  static const String _searchFallbackAuth = 'Basic b2ZmOm9mZg==';
+  static const Duration _searchFallbackCooldown = Duration(minutes: 5);
   static const List<String> _fields = [
     'code',
     'product_name',
@@ -91,6 +105,11 @@ class OffClient {
   final Dio _dio;
   final String _countryTag;
   final OffRateLimiter _rateLimiter;
+  final DateTime Function() _now;
+  // Set once primary search-a-licious fails; while non-null and in the
+  // future, searches skip straight to the fallback host instead of eating a
+  // full Dio timeout (10-20s) on every keystroke of a live search.
+  DateTime? _searchCooldownUntil;
 
   Future<OffProductResponse?> fetchProduct(String barcode) async {
     final trimmedBarcode = barcode.trim();
@@ -138,20 +157,18 @@ class OffClient {
     String? categoryTag,
     CancelToken? cancelToken,
   }) async {
+    final params = _buildSearchParams(
+      query,
+      pageSize: pageSize,
+      categoryTag: categoryTag,
+    );
     try {
+      // One rate-limit slot covers both hosts for this logical search, so a
+      // primary-then-fallback retry can't double-spend the OFF call budget
+      // and in-flight dedup on _searchKey still collapses duplicate queries.
       final response = await _rateLimiter.run(
         _searchKey(query),
-        () => _dio.get<Map<String, dynamic>>(
-          _searchUrl,
-          queryParameters: _buildSearchParams(
-            query,
-            pageSize: pageSize,
-            categoryTag: categoryTag,
-          ),
-          // Forwarded so a superseded live search aborts the socket and frees
-          // rate-limit budget instead of completing and being discarded.
-          cancelToken: cancelToken,
-        ),
+        () => _searchWithFallback(params, cancelToken),
       );
       return _parseSearchResponse(response.data);
     } on OffRateLimitException {
@@ -166,6 +183,49 @@ class OffClient {
       logError('off.searchProducts', error, stackTrace);
       throw OffException('Unable to search OFF.');
     }
+  }
+
+  Future<Response<Map<String, dynamic>>> _searchWithFallback(
+    Map<String, dynamic> params,
+    CancelToken? cancelToken,
+  ) async {
+    final cooldownUntil = _searchCooldownUntil;
+    final onCooldown = cooldownUntil != null && _now().isBefore(cooldownUntil);
+    if (!onCooldown) {
+      try {
+        final response = await _dio.get<Map<String, dynamic>>(
+          _searchUrl,
+          queryParameters: params,
+          // Forwarded so a superseded live search aborts the socket and
+          // frees rate-limit budget instead of completing and being
+          // discarded.
+          cancelToken: cancelToken,
+        );
+        _searchCooldownUntil = null;
+        return response;
+      } on DioException catch (error, stackTrace) {
+        if (CancelToken.isCancel(error) || !_isFallbackEligible(error)) {
+          rethrow;
+        }
+        logError('off.searchProducts.primaryFailed', error, stackTrace);
+        _searchCooldownUntil = _now().add(_searchFallbackCooldown);
+      }
+    }
+    return _dio.get<Map<String, dynamic>>(
+      _searchFallbackUrl,
+      queryParameters: params,
+      options: Options(headers: {'Authorization': _searchFallbackAuth}),
+      cancelToken: cancelToken,
+    );
+  }
+
+  // A bad query (4xx other than 429) will fail identically on the fallback
+  // host, so only retry on primary outage/overload signals: no response at
+  // all (timeout/connection error), 5xx, or 429.
+  bool _isFallbackEligible(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == null) return true;
+    return statusCode >= 500 || statusCode == 429;
   }
 
   Map<String, dynamic> _buildSearchParams(
