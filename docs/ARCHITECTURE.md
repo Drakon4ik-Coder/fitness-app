@@ -150,6 +150,8 @@ lib/
 │           ├── off_client.dart              # OpenFoodFacts API client
 │           ├── off_mapper.dart              # OFF response → FoodItem
 │           ├── off_image_downloader.dart / off_rate_limiter.dart
+│           ├── fatsecret_client.dart        # Backend FatSecret proxy client (KAN-67)
+│           ├── fatsecret_mapper.dart        # FatSecret response → FoodItem
 │           └── api_exceptions.dart
 ├── ui_components/               # Shared widgets (AppScaffold, fields, banners, pulse/*)
 └── ui_system/                   # lumina_health_theme.dart + tokens.dart (spacing/radius)
@@ -231,6 +233,7 @@ are noise).
 | `POST /api/v1/foods/custom`, `PATCH/DELETE /api/v1/foods/custom/<id>` | `CustomFoodView` / `CustomFoodDetailView` |
 | `GET /api/v1/foods/check` | `FoodCheckView` |
 | `POST /api/v1/foods/<id>/images` | `FoodImageUploadView` |
+| `GET /api/v1/foods/fatsecret/search`, `GET /api/v1/foods/fatsecret/food/<id>` | `FatSecretSearchView` / `FatSecretFoodView` (verbatim FatSecret passthrough, KAN-67) |
 | `POST /api/v1/nutrition/entries` | `MealEntryCreateView` |
 | `PATCH/DELETE /api/v1/nutrition/entries/<pk>` and `.../by-uuid/<uuid>` | `MealEntryDetailView` |
 | `GET /api/v1/nutrition/entries/sync` | `MealEntrySyncView` |
@@ -249,6 +252,21 @@ on-tap by design) and uploads the resulting image to the backend via
 `foods_api_service.dart`. The backend uses the same source
 (`SOURCE_OPEN_FOOD_FACTS` in `foods/models.py`) when ingesting or checking
 foods server-side.
+
+### FatSecret — proxied through the backend (KAN-67)
+
+OFF is barcode-driven and has near-zero restaurant/chain coverage, so
+`fatsecret_client.dart` adds FatSecret as a second live-search source. Unlike
+OFF it is never called directly from the phone: the OAuth2 client-credentials
+secret lives backend-side (`FATSECRET_*` env vars, `foods/fatsecret.py`), and
+the proxy passes FatSecret's JSON through verbatim — all mapping to OFF-format
+`nutriments_json` happens in `fatsecret_mapper.dart`. Same lazy
+enrich-on-tap pattern as OFF (`foods.search` summaries → `food.get.v4`
+detail), its own `OffRateLimiter` instance (never OFF's budget), and results
+merge into the add-food ranked list as a complementary source. The free tier
+requires the "Powered by FatSecret" attribution the add-food page shows
+whenever a FatSecret row is visible. Unconfigured backends return 503 and the
+app degrades to OFF-only.
 
 ---
 
