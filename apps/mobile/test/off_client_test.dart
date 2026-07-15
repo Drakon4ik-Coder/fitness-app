@@ -60,12 +60,16 @@ void main() {
   });
 
   test('searchProducts falls back to staging search-a-licious on a primary '
-      '5xx and returns its parsed hits', () async {
+      '5xx, dropping lc and tag filters the fallback host rejects, and '
+      'returns its parsed hits', () async {
     final dio = Dio();
+    final fallbackParams = <String, dynamic>{};
+    Map<String, dynamic>? primaryParams;
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
           if (options.uri.host == 'search.openfoodfacts.org') {
+            primaryParams = options.queryParameters;
             handler.reject(
               DioException(
                 requestOptions: options,
@@ -75,6 +79,7 @@ void main() {
             );
             return;
           }
+          fallbackParams.addAll(options.queryParameters);
           expect(options.headers['Authorization'], 'Basic b2ZmOm9mZg==');
           handler.resolve(
             Response(
@@ -91,11 +96,60 @@ void main() {
       ),
     );
 
-    final client = OffClient(dio: dio, rateLimiter: OffRateLimiter());
+    final client = OffClient(
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+      country: 'uk',
+    );
     final results = await client.searchProducts('apple');
 
     expect(results, hasLength(1));
     expect(results.single.product['product_name'], 'Fallback Apple');
+
+    // Primary keeps the country tag filter; the fallback host's index
+    // config doesn't expose countries_tags as a search field (400
+    // QueryCheckError), so it gets a plain query with no `lc` param either.
+    expect(primaryParams!['q'], contains('countries_tags'));
+    expect(fallbackParams['q'], 'apple');
+    expect(fallbackParams.containsKey('lc'), isFalse);
+  });
+
+  test('searchProducts falls back on a primary 422 (unrecognized-param '
+      'rejection, e.g. after a prod search-a-licious upgrade)', () async {
+    final dio = Dio();
+    final requestedHosts = <String>[];
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requestedHosts.add(options.uri.host);
+          if (options.uri.host == 'search.openfoodfacts.org') {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response(requestOptions: options, statusCode: 422),
+              ),
+            );
+            return;
+          }
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {'hits': <Map<String, dynamic>>[]},
+            ),
+          );
+        },
+      ),
+    );
+
+    final client = OffClient(dio: dio, rateLimiter: OffRateLimiter());
+    await client.searchProducts('apple');
+
+    expect(requestedHosts, [
+      'search.openfoodfacts.org',
+      'search.openfoodfacts.net',
+    ]);
   });
 
   test(
@@ -111,7 +165,7 @@ void main() {
               DioException(
                 requestOptions: options,
                 type: DioExceptionType.badResponse,
-                response: Response(requestOptions: options, statusCode: 400),
+                response: Response(requestOptions: options, statusCode: 404),
               ),
             );
           },

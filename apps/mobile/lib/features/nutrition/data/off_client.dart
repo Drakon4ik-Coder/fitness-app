@@ -56,14 +56,18 @@ class OffClient {
   // Text search uses the Search-a-licious backend instead of the legacy
   // /api/v2/search endpoint, which is chronically overloaded and returns 503s.
   static const String _searchUrl = 'https://search.openfoodfacts.org/search';
-  // Fallback when prod search-a-licious is down/overloaded: the staging
-  // deployment runs the identical API (same q/fields/page_size params, same
-  // `hits` envelope) and per status.openfoodfacts.org has matched-or-better
-  // uptime and lower latency than prod. It sometimes requires the public
-  // "off:off" basic-auth credential (used by OFF's own uptime monitor), so
-  // that header is always sent. Its index can lag prod by a bit — acceptable
-  // for a fallback. See _searchCooldownUntil for why this isn't tried on
-  // every request.
+  // Fallback when prod search-a-licious is down/overloaded: per
+  // status.openfoodfacts.org, staging has matched-or-better uptime and lower
+  // latency than prod. It sometimes requires the public "off:off" basic-auth
+  // credential (used by OFF's own uptime monitor), so that header is always
+  // sent. It is NOT API-identical to prod, though — it previews the next
+  // search-a-licious release: strict param validation rejects unknown params
+  // (no `lc`, hence that param is dropped everywhere below), and its index
+  // config doesn't expose countries_tags/categories_tags as search fields
+  // (400 QueryCheckError), so the fallback query drops tag filters and loses
+  // country/category scoping — acceptable for a degraded outage-only mode.
+  // Its product index can also lag prod by a bit. See _searchCooldownUntil
+  // for why the fallback isn't tried on every request once primary fails.
   static const String _searchFallbackUrl =
       'https://search.openfoodfacts.net/search';
   static const String _searchFallbackAuth = 'Basic b2ZmOm9mZg==';
@@ -157,18 +161,18 @@ class OffClient {
     String? categoryTag,
     CancelToken? cancelToken,
   }) async {
-    final params = _buildSearchParams(
-      query,
-      pageSize: pageSize,
-      categoryTag: categoryTag,
-    );
     try {
       // One rate-limit slot covers both hosts for this logical search, so a
       // primary-then-fallback retry can't double-spend the OFF call budget
       // and in-flight dedup on _searchKey still collapses duplicate queries.
       final response = await _rateLimiter.run(
         _searchKey(query),
-        () => _searchWithFallback(params, cancelToken),
+        () => _searchWithFallback(
+          query,
+          pageSize: pageSize,
+          categoryTag: categoryTag,
+          cancelToken: cancelToken,
+        ),
       );
       return _parseSearchResponse(response.data);
     } on OffRateLimitException {
@@ -186,16 +190,22 @@ class OffClient {
   }
 
   Future<Response<Map<String, dynamic>>> _searchWithFallback(
-    Map<String, dynamic> params,
+    String query, {
+    required int pageSize,
+    String? categoryTag,
     CancelToken? cancelToken,
-  ) async {
+  }) async {
     final cooldownUntil = _searchCooldownUntil;
     final onCooldown = cooldownUntil != null && _now().isBefore(cooldownUntil);
     if (!onCooldown) {
       try {
         final response = await _dio.get<Map<String, dynamic>>(
           _searchUrl,
-          queryParameters: params,
+          queryParameters: _buildSearchParams(
+            query,
+            pageSize: pageSize,
+            categoryTag: categoryTag,
+          ),
           // Forwarded so a superseded live search aborts the socket and
           // frees rate-limit budget instead of completing and being
           // discarded.
@@ -213,44 +223,60 @@ class OffClient {
     }
     return _dio.get<Map<String, dynamic>>(
       _searchFallbackUrl,
-      queryParameters: params,
+      // Tag filters dropped — see _searchFallbackUrl for why.
+      queryParameters: _buildSearchParams(
+        query,
+        pageSize: pageSize,
+        includeTagFilters: false,
+      ),
       options: Options(headers: {'Authorization': _searchFallbackAuth}),
       cancelToken: cancelToken,
     );
   }
 
-  // A bad query (4xx other than 429) will fail identically on the fallback
-  // host, so only retry on primary outage/overload signals: no response at
-  // all (timeout/connection error), 5xx, or 429.
+  // Fallback-eligible primary failures: no response at all
+  // (timeout/connection error), 5xx, or 429 (overload) as before, plus now
+  // 400/422 — the fallback host validates params more strictly than prod
+  // (see _searchFallbackUrl), so a request prod accepts can be rejected
+  // there without it being a genuinely malformed query; the fallback's own
+  // simplified params sidestep that. Other 4xx (e.g. 404) are left alone.
   bool _isFallbackEligible(DioException error) {
     final statusCode = error.response?.statusCode;
     if (statusCode == null) return true;
-    return statusCode >= 500 || statusCode == 429;
+    return statusCode >= 500 ||
+        statusCode == 429 ||
+        statusCode == 400 ||
+        statusCode == 422;
   }
 
   Map<String, dynamic> _buildSearchParams(
     String query, {
     required int pageSize,
     String? categoryTag,
+    bool includeTagFilters = true,
   }) {
     // Search-a-licious uses a Lucene-style query string. Tag filters are
     // appended to `q` as `field:"value"` clauses; the value must be quoted
     // because the tag values themselves contain a colon (e.g. en:beverages).
+    // No `lc`/`langs` param is sent — search defaults to English on both
+    // hosts, and the staging host 422s on unrecognized params (`lc` isn't
+    // one of its params; see _searchFallbackUrl).
     final clauses = <String>[];
     final trimmedQuery = query.trim();
     if (trimmedQuery.isNotEmpty) {
       clauses.add(trimmedQuery);
     }
-    if (_countryTag.isNotEmpty) {
-      clauses.add('countries_tags:"$_countryTag"');
-    }
-    final trimmedCategory = categoryTag?.trim();
-    if (trimmedCategory != null && trimmedCategory.isNotEmpty) {
-      clauses.add('categories_tags:"$trimmedCategory"');
+    if (includeTagFilters) {
+      if (_countryTag.isNotEmpty) {
+        clauses.add('countries_tags:"$_countryTag"');
+      }
+      final trimmedCategory = categoryTag?.trim();
+      if (trimmedCategory != null && trimmedCategory.isNotEmpty) {
+        clauses.add('categories_tags:"$trimmedCategory"');
+      }
     }
     return <String, dynamic>{
       'q': clauses.join(' '),
-      'lc': 'en',
       'fields': _fields.join(','),
       'page_size': pageSize,
     };
