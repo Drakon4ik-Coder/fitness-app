@@ -60,7 +60,10 @@ class FatSecretClient {
     CancelToken? cancelToken,
   }) {
     return _rateLimiter.run(
-      'fs-search:${query.trim().toLowerCase()}',
+      // maxResults is part of the request identity: in-flight dedup hands the
+      // same future to concurrent callers, and a caller asking for a different
+      // limit must not silently receive another caller's result count.
+      'fs-search:$maxResults:${query.trim().toLowerCase()}',
       () => mapApiErrors('Unable to search FatSecret.', () async {
         final response = await _dio.get<Map<String, dynamic>>(
           '/api/v1/foods/fatsecret/search',

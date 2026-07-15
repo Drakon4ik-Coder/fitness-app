@@ -54,6 +54,47 @@ void main() {
     );
   });
 
+  test('concurrent same-query searches with different maxResults are not '
+      'deduped into one request — each caller gets its own limit', () async {
+    final dio = Dio();
+    final requestedLimits = <String>[];
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final limit = options.queryParameters['max_results'].toString();
+          requestedLimits.add(limit);
+          // Echo the limit back as the sole hit's id so each caller's
+          // payload is attributable to its own request.
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'foods': {
+                  'food': {'food_id': limit, 'food_name': 'Echo'},
+                },
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final client = FatSecretClient(
+      accessToken: 'test-token',
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+    );
+
+    final results = await Future.wait([
+      client.searchFoods('burger', maxResults: 5),
+      client.searchFoods('burger', maxResults: 25),
+    ]);
+
+    expect(requestedLimits, unorderedEquals(['5', '25']));
+    expect(results[0].single['food_id'], '5');
+    expect(results[1].single['food_id'], '25');
+  });
+
   test(
     'searchFoods sends q/max_results and normalizes a multi-hit list',
     () async {
