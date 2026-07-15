@@ -86,24 +86,28 @@ jobs:
             --dart-define=SENTRY_DSN=${{ secrets.SENTRY_MOBILE_DSN }} \
             --dart-define=GOOGLE_SERVER_CLIENT_ID=438442823657-527aqhqbf0ivtbtv39hv7t9tucfohg68.apps.googleusercontent.com
 
+      # Notes go through an env var into a file, never through ${{ }} into
+      # script text — inputs and commit subjects are attacker/quote-laden data
+      # and must not be evaluated by the shell (GitHub script injection).
       - name: Resolve release notes
-        id: notes
+        env:
+          NOTES_INPUT: ${{ github.event.inputs.release_notes }}
         run: |
-          if [ -n "${{ github.event.inputs.release_notes }}" ]; then
-            echo "text=${{ github.event.inputs.release_notes }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$NOTES_INPUT" ]; then
+            printf '%s\n' "$NOTES_INPUT" > "$RUNNER_TEMP/release-notes.txt"
           else
-            echo "text=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
+            git log -1 --pretty=%s > "$RUNNER_TEMP/release-notes.txt"
           fi
 
       - name: Upload to Firebase App Distribution
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          FIREBASE_SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_ANDROID_APP_ID_STAGING }}
         run: |
-          cat > "$GOOGLE_APPLICATION_CREDENTIALS" <<'EOF'
-          ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          EOF
+          printf '%s' "$FIREBASE_SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
           npx -y firebase-tools@latest appdistribution:distribute \
             build/app/outputs/flutter-apk/app-staging-release.apk \
-            --app "${{ secrets.FIREBASE_ANDROID_APP_ID_STAGING }}" \
+            --app "$FIREBASE_APP_ID" \
             --groups testers \
-            --release-notes "${{ steps.notes.outputs.text }}"
+            --release-notes-file "$RUNNER_TEMP/release-notes.txt"
