@@ -49,8 +49,11 @@ class NutritionTodayPage extends StatefulWidget {
   final NutritionLocalStore? localStore;
   final OffClient? offClient;
 
-  /// Restaurant/chain search source (KAN-67). Null disables the FatSecret
-  /// live-search leg in [AddFoodPage].
+  /// Restaurant/chain search source (KAN-67). Like every service param on
+  /// this page, null means "construct the real client" — nothing upstream
+  /// (main.dart, MainShell) builds one, so the default here is what turns
+  /// the feature on in production. Tests inject a fake; to disable the leg
+  /// outright, [AddFoodPage.fatsecretApi] is the null-means-off seam.
   final FatSecretClient? fatsecretApi;
 
   /// The user's saved goals/units, owned by the shell and passed down so the
