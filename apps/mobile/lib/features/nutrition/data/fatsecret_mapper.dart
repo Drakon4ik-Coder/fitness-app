@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import 'food_models.dart';
 
-// Measurement-description words (or bare "<number> <unit>" shapes) that name
-// a mass/volume rather than a countable piece — a serving labelled "100 g" or
-// "355 ml" carries no piece identity, unlike "burger" or "slice".
+// Measurement-description heads that name a mass/volume rather than a
+// countable piece — a serving labelled "100 g" or "355 ml" carries no piece
+// identity, unlike "burger" or "slice". Matched against the normalized head
+// (see _measurementHead), so FatSecret's qualified forms ("oz, with bone,
+// cooked", "serving (98 g)") are caught by their leading unit word.
 const Set<String> _bareMassOrVolumeWords = {
   'g',
   'gram',
@@ -13,6 +15,7 @@ const Set<String> _bareMassOrVolumeWords = {
   'mg',
   'ml',
   'l',
+  'fl oz',
   'oz',
   'lb',
   'cup',
@@ -22,10 +25,6 @@ const Set<String> _bareMassOrVolumeWords = {
   'serving',
   'servings',
 };
-
-final RegExp _bareMassOrVolumeAmount = RegExp(
-  r'^\d+(\.\d+)?\s*(g|ml|oz|kg|l)$',
-);
 
 /// Maps FatSecret's `foods.search` / `food.get.v4` JSON (passed through
 /// verbatim by the backend proxy, KAN-67) into [FoodItem]s. Mirrors
@@ -276,13 +275,13 @@ class FatSecretMapper {
   }
 
   /// The serving that names a countable piece (e.g. "1 burger"), if any.
+  /// Pieceness is decided on the normalized head only: "oz, with bone,
+  /// cooked" is still a mass, and "slice, large" is still a slice.
   Map<String, dynamic>? _pickPieceServing(List<Map<String, dynamic>> servings) {
     for (final serving in servings) {
-      final measurement = (serving['measurement_description'] as String?)
-          ?.trim()
-          .toLowerCase();
-      if (measurement == null || measurement.isEmpty) continue;
-      if (_looksLikeBareMassOrVolume(measurement)) continue;
+      final head = _measurementHead(serving['measurement_description']);
+      if (head == null) continue;
+      if (_bareMassOrVolumeWords.contains(head)) continue;
       if (_hasMetricMass(serving)) return serving;
     }
     return null;
@@ -296,19 +295,25 @@ class FatSecretMapper {
     return (unit == 'g' || unit == 'ml') && amount != null && amount > 0;
   }
 
-  bool _looksLikeBareMassOrVolume(String measurement) {
-    if (_bareMassOrVolumeWords.contains(measurement)) return true;
-    return _bareMassOrVolumeAmount.hasMatch(measurement);
+  /// Normalized head of a measurement description: lower-cased, cut before
+  /// any comma or parenthetical qualifier, leading count stripped ("3.5 oz
+  /// (100 g)" -> "oz", "slice, large" -> "slice"). FatSecret qualifies units
+  /// freely, so only the head carries the piece-vs-mass identity — and only
+  /// the head is fit to show as a unit label.
+  String? _measurementHead(dynamic value) {
+    if (value is! String) return null;
+    var head = value.trim().toLowerCase().split(RegExp(r'[,(]')).first.trim();
+    head = head.replaceFirst(RegExp(r'^\d+(\.\d+)?\s*'), '');
+    return head.isEmpty ? null : head;
   }
 
   /// Singular, lower-cased label for one piece ("burgers" -> "burger"),
   /// mirroring the singularization `parseLeadingPiece` applies to OFF's
-  /// free-text servings.
+  /// free-text servings. Qualifiers are dropped with the rest of the tail —
+  /// the amount sheet pluralizes this label, so it must be a clean noun.
   String? _cleanMeasurementLabel(dynamic value) {
-    if (value is! String) return null;
-    var label = value.trim().toLowerCase();
-    if (label.isEmpty) return null;
-    label = label.replaceFirst(RegExp(r'^\d+(\.\d+)?\s*'), '');
+    var label = _measurementHead(value);
+    if (label == null) return null;
     if (label.length > 3 && label.endsWith('s')) {
       label = label.substring(0, label.length - 1);
     }

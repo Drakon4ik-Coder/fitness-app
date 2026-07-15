@@ -279,5 +279,51 @@ void main() {
       food['food_id'] = '';
       expect(mapper.mapDetail(food), isNull);
     });
+
+    Map<String, dynamic> foodWithMeasurement(String measurement) => {
+      'food_id': '7',
+      'food_name': 'Roast Chicken',
+      'servings': {
+        'serving': {
+          'serving_description': '1 $measurement',
+          'metric_serving_amount': '98.000',
+          'metric_serving_unit': 'g',
+          'number_of_units': '1.000',
+          'measurement_description': measurement,
+          'calories': '160',
+        },
+      },
+    };
+
+    test('a qualified mass description ("oz, with bone, cooked ...") is not '
+        'a countable piece — no piece unit is offered', () {
+      final item = mapper.mapDetail(
+        foodWithMeasurement('oz, with bone, cooked (yield after bone removed)'),
+      );
+
+      expect(item, isNotNull);
+      expect(item!.gramsPerPiece, isNull);
+      expect(item.pieceUnit, isNull);
+      // Falls back to the serving's metric mass for the default amount.
+      expect(item.servingSizeG, closeTo(98, 0.001));
+    });
+
+    test('"serving (98g)" is a portion size, not a piece', () {
+      final item = mapper.mapDetail(foodWithMeasurement('serving (98g)'));
+
+      expect(item, isNotNull);
+      expect(item!.gramsPerPiece, isNull);
+      expect(item.pieceUnit, isNull);
+      expect(item.servingSizeG, closeTo(98, 0.001));
+    });
+
+    test('a qualified piece ("slice, large") stays a piece and its unit '
+        'label is the clean head noun', () {
+      final item = mapper.mapDetail(foodWithMeasurement('slice, large'));
+
+      expect(item, isNotNull);
+      expect(item!.gramsPerPiece, closeTo(98, 0.001));
+      expect(item.pieceUnit, 'slice');
+    });
   });
 }
