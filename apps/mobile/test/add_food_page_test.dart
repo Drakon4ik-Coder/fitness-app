@@ -120,6 +120,7 @@ class _FakeFatSecretClient extends FatSecretClient {
   _FakeFatSecretClient({
     this.searchResults = const [],
     this.foodsById = const {},
+    this.getFoodError,
   }) : super(
          accessToken: 'test-token',
          dio: Dio(),
@@ -137,9 +138,15 @@ class _FakeFatSecretClient extends FatSecretClient {
     CancelToken? cancelToken,
   }) async => searchResults;
 
+  /// Thrown from [getFood] when set (e.g. a 401 [ApiException] to exercise
+  /// the enrich path's session-expiry routing).
+  final Object? getFoodError;
+
   @override
   Future<Map<String, dynamic>?> getFood(String foodId) async {
     fetchedFoodIds.add(foodId);
+    final error = getFoodError;
+    if (error != null) throw error;
     return foodsById[foodId];
   }
 }
@@ -291,6 +298,7 @@ void main() {
     _FakeFatSecretClient? fatsecretApi,
     List<StagedFood> initialItems = const [],
     Future<String?> Function(BuildContext)? scanBarcode,
+    Future<void> Function()? onLogout,
   }) async {
     late Future<bool?> result;
     await tester.pumpWidget(
@@ -309,7 +317,7 @@ void main() {
                     // Null unless a test opts in — feature off by default,
                     // matching AddFoodPage's own nullable fatsecretApi.
                     fatsecretApi: fatsecretApi,
-                    onLogout: () async {},
+                    onLogout: onLogout ?? () async {},
                     selectedDate: DateUtils.dateOnly(DateTime.now()),
                     initialItems: initialItems,
                     scanBarcode: scanBarcode,
@@ -736,6 +744,43 @@ void main() {
       // (400 kcal), normalized to 200 kcal/100g and back for the 200 g piece.
       expect(fatsecret.fetchedFoodIds, ['1']);
       expect(find.text('1 burger (200 g) • 400 kcal'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a 401 during FatSecret enrich routes to onLogout — a dead session must '
+    'not be dressed up as "no nutrition data"',
+    (WidgetTester tester) async {
+      final fatsecret = _FakeFatSecretClient(
+        searchResults: [
+          makeFatSecretSearchHit(
+            foodId: '1',
+            name: 'Diner Burger',
+            description: 'Per 1 burger - Calories: 400kcal',
+          ),
+        ],
+        // A 401 surfacing here means the interceptor's refresh already
+        // failed — the session is dead for every backend call.
+        getFoodError: ApiException('Session expired.', statusCode: 401),
+      );
+      var loggedOut = false;
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        fatsecretApi: fatsecret,
+        onLogout: () async => loggedOut = true,
+      );
+
+      await search(tester, 'burger');
+      final card = find.text('Diner Burger', skipOffstage: false).first;
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      expect(fatsecret.fetchedFoodIds, ['1']);
+      expect(loggedOut, isTrue);
     },
   );
 

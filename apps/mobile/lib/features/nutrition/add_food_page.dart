@@ -376,7 +376,14 @@ class _AddFoodPageState extends State<AddFoodPage> {
         // through `_applyOffLimit` (that would block the OFF barcode-scan
         // path over a FatSecret budget exhaustion, two unrelated concerns).
         return item;
-      } on ApiException {
+      } on ApiException catch (error) {
+        // Unlike the OFF branch below, this enrich crosses our authenticated
+        // proxy. A surfaced 401 means the interceptor's token refresh already
+        // failed — route to logout like every other backend call site instead
+        // of dressing a dead session up as "no nutrition data".
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+        }
         return item;
       }
     }
