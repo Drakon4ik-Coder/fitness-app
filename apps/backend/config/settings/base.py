@@ -5,6 +5,7 @@ from typing import Any
 
 import environ
 import sentry_sdk
+from django.core.exceptions import ImproperlyConfigured
 
 env = environ.Env()
 environ.Env.read_env(os.path.join(Path(__file__).resolve().parents[2], ".env"))
@@ -208,6 +209,13 @@ FATSECRET_REGION = env("FATSECRET_REGION", default="GB").strip()
 # dedicated IP. "oauth2" is the token flow, one env flip away if FatSecret
 # ever sunsets OAuth 1.0 and our IPs are whitelisted by then.
 FATSECRET_AUTH = env("FATSECRET_AUTH", default="oauth1").strip().lower()
+if FATSECRET_AUTH not in {"oauth1", "oauth2"}:
+    # Fail at startup, not at request time: the client treats everything
+    # except "oauth1" as the token flow, so a typo here would silently pick
+    # OAuth 2.0 and surface only as inexplicable 502s behind shared egress.
+    raise ImproperlyConfigured(
+        f"FATSECRET_AUTH must be 'oauth1' or 'oauth2', got {FATSECRET_AUTH!r}."
+    )
 
 # Email
 # Local/dev defaults to the console backend (emails print to the runserver

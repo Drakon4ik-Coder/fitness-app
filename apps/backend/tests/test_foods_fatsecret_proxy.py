@@ -280,6 +280,28 @@ def test_fatsecret_food_detail_happy_path_passes_through_verbatim() -> None:
 
 
 @pytest.mark.integration
+def test_mistyped_fatsecret_auth_fails_at_settings_import(monkeypatch) -> None:
+    # The client treats every value except "oauth1" as the token flow, so a
+    # typo must die loudly at startup instead of silently selecting OAuth 2.0
+    # (which 502s behind non-whitelisted egress). Validation lives in the
+    # settings module because that import is the only check gunicorn runs.
+    import importlib
+
+    from django.core.exceptions import ImproperlyConfigured
+
+    from config.settings import base as base_settings
+
+    monkeypatch.setenv("FATSECRET_AUTH", "oauth-1")
+    try:
+        with pytest.raises(ImproperlyConfigured, match="FATSECRET_AUTH"):
+            importlib.reload(base_settings)
+    finally:
+        # Restore the module's globals before other tests import from it.
+        monkeypatch.delenv("FATSECRET_AUTH", raising=False)
+        importlib.reload(base_settings)
+
+
+@pytest.mark.integration
 @CONFIGURED
 @pytest.mark.parametrize(
     ("expires_in", "expected_ttl"),
