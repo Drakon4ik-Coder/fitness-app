@@ -23,6 +23,14 @@ class FatSecretClient {
              BaseOptions(
                baseUrl: EnvironmentConfig.apiBaseUrl,
                headers: {'Authorization': 'Bearer $accessToken'},
+               // Dio defaults to NO timeouts. This client drives loading UI
+               // (live-search progress line, enrich-on-tap spinner); a stalled
+               // connection would pin those on forever. Same standard values
+               // as off_client / auth_service / off_image_downloader; the
+               // proxy's own upstream budget (5s connect + 15s read) fits
+               // inside them, so a slow-but-alive proxy still answers first.
+               connectTimeout: const Duration(seconds: 10),
+               receiveTimeout: const Duration(seconds: 20),
              ),
            ) {
     authInterceptor?.attachTo(_dio);
