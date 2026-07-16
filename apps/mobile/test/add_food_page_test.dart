@@ -703,6 +703,35 @@ void main() {
   );
 
   testWidgets(
+    'a previously ingested FatSecret food dedups against its live FatSecret '
+    'search hit instead of appearing twice',
+    (WidgetTester tester) async {
+      // The typeahead copy of an ingested FatSecret food carries a backendId;
+      // the live hit carries none. Both must share the (source, external_id)
+      // identity or the same food renders twice and both rows can be staged.
+      final ingested = makeTestFood(
+        name: 'Diner Burger',
+        backendId: 77,
+      ).copyWith(source: fatsecretSource, externalId: '1');
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        foodsApi: _FakeFoodsApi(typeaheadResults: [ingested]),
+        fatsecretApi: _FakeFatSecretClient(
+          searchResults: [
+            makeFatSecretSearchHit(foodId: '1', name: 'Diner Burger'),
+          ],
+        ),
+      );
+
+      await search(tester, 'burger');
+
+      expect(find.text('Diner Burger', skipOffstage: false), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'tapping a serving-less FatSecret result enriches it first (getFood) and '
     'stages it with the piece default',
     (WidgetTester tester) async {

@@ -962,13 +962,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
     if (item.barcode != null && item.barcode!.isNotEmpty) {
       return 'barcode:${item.barcode}';
     }
-    if (item.backendId != null) return 'backend:${item.backendId}';
-    // Source-qualified: OFF summaries key by barcode (above), so this only
-    // disambiguates FatSecret's externalId space from custom foods' UUID
+    // Catalog identity (source, external_id) outranks backendId: a live
+    // FatSecret result carries no backendId while the typeahead/local copy
+    // of the same ingested food does, so keying the latter by backendId
+    // would show the food twice and let both be staged. Source-qualified to
+    // keep FatSecret's externalId space apart from custom foods' UUID
     // space. Page-lifetime only — never persisted.
     if (item.externalId.isNotEmpty) {
       return 'external:${item.source}:${item.externalId}';
     }
+    if (item.backendId != null) return 'backend:${item.backendId}';
     return null;
   }
 
