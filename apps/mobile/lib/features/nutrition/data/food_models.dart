@@ -67,7 +67,18 @@ double? parseNullableDouble(dynamic value) {
 /// hash on the backend's /foods/check). Shared by every mapper (OFF,
 /// FatSecret, ...) so they agree byte-for-byte on the same inputs — existing
 /// stored rows are keyed on this hash, so the field set and normalization
-/// must not change here without a migration.
+/// must not change here without accepting a one-time re-ingest wave (the
+/// first check per food mismatches and re-uploads; the wave is the
+/// migration).
+///
+/// The derived piece fields and the cooked-basis marker are hashed even
+/// though the backend has no columns for them: they round-trip only through
+/// raw_source_json (fromBackendDetail re-derives them), so a source update
+/// that changes them without moving any stored column — "2 eggs (100 g)" →
+/// "4 slices (100 g)", a category re-tag flipping cooked basis — must not be
+/// skipped as up-to-date, or every later reload re-derives the stale state.
+/// Hashing the *derived* values, not their raw text, keeps cosmetic source
+/// churn from forcing pointless re-ingests.
 String buildFoodContentHash({
   required String source,
   required String externalId,
@@ -81,6 +92,9 @@ String buildFoodContentHash({
   required double? fiber,
   required double? salt,
   required double? servingSizeG,
+  required double? gramsPerPiece,
+  required String? pieceUnit,
+  required String? nutritionBasis,
   required String? imageSignature,
 }) {
   final payload = <String, String>{
@@ -96,6 +110,9 @@ String buildFoodContentHash({
     'fiber_g_100g': _normalizeHashNumber(fiber),
     'salt_g_100g': _normalizeHashNumber(salt),
     'serving_size_g': _normalizeHashNumber(servingSizeG),
+    'grams_per_piece': _normalizeHashNumber(gramsPerPiece),
+    'piece_unit': pieceUnit?.trim().toLowerCase() ?? '',
+    'nutrition_basis': nutritionBasis?.trim() ?? '',
     'image_signature': imageSignature?.trim() ?? '',
   };
   final encoded = jsonEncode(payload);

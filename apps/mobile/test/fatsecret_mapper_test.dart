@@ -396,5 +396,25 @@ void main() {
       final raw = jsonDecode(item.rawSourceJson) as Map<String, dynamic>;
       expect(raw.containsKey('serving_size'), isFalse);
     });
+
+    test('content hash changes when the measurement description changes '
+        'with an unchanged metric amount', () {
+      final base = _bigMacDetail();
+      final renamed = _bigMacDetail();
+      ((renamed['servings'] as Map)['serving']
+              as Map<String, dynamic>)['measurement_description'] =
+          'sandwich';
+
+      final original = mapper.mapDetail(base)!;
+      final updated = mapper.mapDetail(renamed)!;
+
+      // Same 219 g portion, different piece noun: the synthetic serving_size
+      // in rawSourceJson changes too, so the hash must change or the check
+      // flow would leave the stale text on the backend and reloads would
+      // resurrect the old piece unit.
+      expect(original.servingSizeG, updated.servingSizeG);
+      expect(original.pieceUnit, isNot(updated.pieceUnit));
+      expect(original.contentHash, isNot(updated.contentHash));
+    });
   });
 }

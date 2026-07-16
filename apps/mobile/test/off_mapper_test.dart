@@ -1,3 +1,4 @@
+import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/off_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -163,6 +164,71 @@ void main() {
       localeLanguage: 'en',
     );
 
+    expect(original.contentHash, isNot(updated.contentHash));
+  });
+
+  test('content hash changes when the serving text piece identity changes '
+      'with unchanged total grams', () {
+    final mapper = OffMapper();
+    final base = {
+      'code': '1234567890',
+      'product_name': 'Egg Box',
+      'brands': 'Test Brand',
+      'serving_size': '2 eggs (100 g)',
+    };
+    final retexted = {...base, 'serving_size': '4 slices (100 g)'};
+
+    final original = mapper.mapProduct(product: base, rawJson: '{}');
+    final updated = mapper.mapProduct(product: retexted, rawJson: '{}');
+
+    // Same grams, different piece: without the piece fields in the hash the
+    // check flow would skip re-ingest and every later reload would re-derive
+    // the stale "2 eggs" from the old raw serving text.
+    expect(original.servingSizeG, updated.servingSizeG);
+    expect(original.contentHash, isNot(updated.contentHash));
+  });
+
+  test('content hash ignores cosmetic serving-text changes that keep the '
+      'same piece descriptor', () {
+    final mapper = OffMapper();
+    final base = {
+      'code': '1234567890',
+      'product_name': 'Egg Box',
+      'brands': 'Test Brand',
+      'serving_size': '2 eggs (100 g)',
+    };
+    final cosmetic = {...base, 'serving_size': '2 Eggs (100g)'};
+
+    final original = mapper.mapProduct(product: base, rawJson: '{}');
+    final updated = mapper.mapProduct(product: cosmetic, rawJson: '{}');
+
+    // The derived descriptor is hashed, not the raw text, so cosmetic OFF
+    // edits must not force a pointless re-ingest.
+    expect(original.contentHash, updated.contentHash);
+  });
+
+  test('content hash changes when a category re-tag flips the cooked basis '
+      'with unchanged macros', () {
+    final mapper = OffMapper();
+    final base = {
+      'code': '1234567890',
+      'product_name': 'Chicken Breast',
+      'brands': 'Test Brand',
+      'nutriments': {'proteins_100g': 30},
+    };
+    final retagged = {
+      ...base,
+      'categories_tags': ['en:meats', 'en:poultries'],
+    };
+
+    final original = mapper.mapProduct(product: base, rawJson: '{}');
+    final updated = mapper.mapProduct(product: retagged, rawJson: '{}');
+
+    // Cooked basis round-trips only through raw_source_json (categories +
+    // Agribalyse match), so a flip with unchanged macros must re-ingest or
+    // other devices keep applying the wrong raw/cooked yield factor.
+    expect(original.nutritionBasis, isNull);
+    expect(updated.nutritionBasis, cookedNutritionBasis);
     expect(original.contentHash, isNot(updated.contentHash));
   });
 

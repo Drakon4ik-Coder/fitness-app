@@ -109,6 +109,9 @@ class OffMapper {
       fiber: fiber,
       salt: salt,
       servingSizeG: servingSize,
+      gramsPerPiece: piece?.gramsPerPiece,
+      pieceUnit: piece?.unit,
+      nutritionBasis: cookedBasis ? cookedNutritionBasis : null,
       imageSignature: imageSignature,
     );
 

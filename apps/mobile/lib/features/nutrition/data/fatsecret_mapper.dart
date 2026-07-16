@@ -80,6 +80,11 @@ class FatSecretMapper {
       fiber: null,
       salt: null,
       servingSizeG: null,
+      // Search summaries carry no serving data (see class doc), so there is
+      // never a piece descriptor to protect here.
+      gramsPerPiece: null,
+      pieceUnit: null,
+      nutritionBasis: null,
       imageSignature: null,
     );
 
@@ -221,6 +226,12 @@ class FatSecretMapper {
       fiber: fiber,
       salt: salt,
       servingSizeG: servingSizeG,
+      // The piece fields also pin the synthetic serving_size text embedded in
+      // rawSourceJson: a measurement_description change with an unchanged
+      // metric amount must re-ingest, or reloads re-derive the old piece.
+      gramsPerPiece: gramsPerPiece,
+      pieceUnit: pieceUnit,
+      nutritionBasis: null,
       imageSignature: null,
     );
 
