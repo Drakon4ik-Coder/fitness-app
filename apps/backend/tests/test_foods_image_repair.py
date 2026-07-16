@@ -74,10 +74,15 @@ def test_dry_run_reports_but_does_not_change(tmp_path) -> None:
     with override_settings(MEDIA_ROOT=tmp_path):
         item = _create_item("repair-dry-001")
         _mark_image_ok(item, write_file=False)
+        original_image_name = item.image.name
+        original_downloaded_at = item.image_downloaded_at
 
         out = io.StringIO()
         call_command("repair_food_images", "--dry-run", stdout=out)
 
         item.refresh_from_db()
         assert item.image_status == FoodItem.IMAGE_STATUS_OK
+        assert item.image.name == original_image_name
+        assert item.image_downloaded_at == original_downloaded_at
+        assert item.image_signature == "front_en.1"
         assert "would reset 1" in out.getvalue()
