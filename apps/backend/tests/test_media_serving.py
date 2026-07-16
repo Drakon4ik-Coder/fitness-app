@@ -1,5 +1,8 @@
+import importlib
+
 import pytest
 from django.test import Client, override_settings
+from django.urls import clear_url_caches
 from django.utils.http import http_date
 
 
@@ -45,3 +48,32 @@ def test_missing_media_returns_404(tmp_path) -> None:
         response = Client().get("/media/foods/nope.jpg")
 
     assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_media_route_follows_media_url(tmp_path) -> None:
+    # The route regex is derived from MEDIA_URL at URLconf import, so URL
+    # generation (ImageField.url) and serving stay aligned if a deployment
+    # relocates the media prefix. The URLconf is reloaded under the overridden
+    # setting; ROOT_URLCONF in the override makes Django drop its resolver
+    # cache on both enter and exit.
+    (tmp_path / "foods").mkdir()
+    (tmp_path / "foods" / "front.jpg").write_bytes(b"jpegbytes")
+
+    import config.urls as config_urls
+
+    try:
+        with override_settings(
+            MEDIA_URL="/files/",
+            MEDIA_ROOT=tmp_path,
+            DEBUG=False,
+            ROOT_URLCONF="config.urls",
+        ):
+            importlib.reload(config_urls)
+            client = Client()
+            assert client.get("/files/foods/front.jpg").status_code == 200
+            assert client.get("/media/foods/front.jpg").status_code == 404
+    finally:
+        # Rebuild the real /media/ route for the rest of the suite.
+        importlib.reload(config_urls)
+        clear_url_caches()

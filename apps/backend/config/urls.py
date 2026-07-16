@@ -1,3 +1,6 @@
+import re
+from urllib.parse import urlsplit
+
 from django.conf import settings
 from django.contrib import admin
 from django.http import HttpRequest, HttpResponseBase, JsonResponse
@@ -62,6 +65,17 @@ def _serve_media(request: HttpRequest, path: str) -> HttpResponseBase:
     return serve(request, path, document_root=str(settings.MEDIA_ROOT))
 
 
-urlpatterns += [
-    re_path(r"^media/(?P<path>.*)$", _serve_media),
-]
+# The prefix is derived from MEDIA_URL — the same derivation as
+# django.conf.urls.static.static, which can't be used here because it no-ops
+# when DEBUG is off — so URL generation (ImageField.url) and serving can't
+# drift apart if a deployment relocates the media prefix. A MEDIA_URL with a
+# netloc means a CDN/object store fronts the images and there is nothing
+# local to serve. MEDIA_ROOT, by contrast, stays a per-request read inside
+# _serve_media.
+if settings.MEDIA_URL and not urlsplit(settings.MEDIA_URL).netloc:
+    urlpatterns += [
+        re_path(
+            rf"^{re.escape(settings.MEDIA_URL.lstrip('/'))}(?P<path>.*)$",
+            _serve_media,
+        ),
+    ]
