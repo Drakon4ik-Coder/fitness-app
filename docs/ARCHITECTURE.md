@@ -150,6 +150,8 @@ lib/
 │           ├── off_client.dart              # OpenFoodFacts API client
 │           ├── off_mapper.dart              # OFF response → FoodItem
 │           ├── off_image_downloader.dart / off_rate_limiter.dart
+│           ├── fatsecret_client.dart        # Backend FatSecret proxy client (KAN-67)
+│           ├── fatsecret_mapper.dart        # FatSecret response → FoodItem
 │           └── api_exceptions.dart
 ├── ui_components/               # Shared widgets (AppScaffold, fields, banners, pulse/*)
 └── ui_system/                   # lumina_health_theme.dart + tokens.dart (spacing/radius)
@@ -231,6 +233,7 @@ are noise).
 | `POST /api/v1/foods/custom`, `PATCH/DELETE /api/v1/foods/custom/<id>` | `CustomFoodView` / `CustomFoodDetailView` |
 | `GET /api/v1/foods/check` | `FoodCheckView` |
 | `POST /api/v1/foods/<id>/images` | `FoodImageUploadView` |
+| `GET /api/v1/foods/fatsecret/search`, `GET /api/v1/foods/fatsecret/food/<id>` | `FatSecretSearchView` / `FatSecretFoodView` (verbatim FatSecret passthrough, KAN-67) |
 | `POST /api/v1/nutrition/entries` | `MealEntryCreateView` |
 | `PATCH/DELETE /api/v1/nutrition/entries/<pk>` and `.../by-uuid/<uuid>` | `MealEntryDetailView` |
 | `GET /api/v1/nutrition/entries/sync` | `MealEntrySyncView` |
@@ -257,6 +260,30 @@ writes, volume loss) are healed by
 `manage.py repair_food_images [--dry-run]`: it resets the image bookkeeping
 so serializers fall back to the original source `image_url` and clients can
 re-upload.
+
+### FatSecret — proxied through the backend (KAN-67)
+
+OFF is barcode-driven and has near-zero restaurant/chain coverage, so
+`fatsecret_client.dart` adds FatSecret as a second live-search source. Unlike
+OFF it is never called directly from the phone: the FatSecret secret lives
+backend-side (`FATSECRET_*` env vars, `foods/fatsecret.py`), and
+the proxy passes FatSecret's JSON through verbatim — all mapping to OFF-format
+`nutriments_json` happens in `fatsecret_mapper.dart`. Same lazy
+enrich-on-tap pattern as OFF (`foods.search` summaries → `food.get.v4`
+detail); one process-wide FatSecret call budget
+(`FatSecretClient.sharedLimiter` — shared by every client instance, but
+never OFF's budget); results merge into the add-food ranked list as a
+complementary source. The free tier
+requires the "Powered by FatSecret" attribution the add-food page shows
+whenever a FatSecret row is visible. Unconfigured backends return 503 and the
+app degrades to OFF-only.
+
+Auth mode is `FATSECRET_AUTH`: the default `oauth1` signs every request
+(RFC 5849 two-legged HMAC-SHA1) and needs **no IP whitelisting** — FatSecret
+only enforces its whitelist at the OAuth 2.0 token endpoint, which shared
+egress (Render) can't satisfy without a paid dedicated IP. `oauth2` switches
+to cached client-credentials tokens (`FATSECRET_SCOPE`) if OAuth 1.0 is ever
+sunset; both modes use the same console credentials.
 
 ---
 

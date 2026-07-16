@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:fitness_app/features/nutrition/data/api_exceptions.dart';
+import 'package:fitness_app/features/nutrition/data/fatsecret_client.dart';
 import 'package:fitness_app/features/nutrition/data/food_models.dart';
 import 'package:fitness_app/features/nutrition/data/foods_api_service.dart';
 import 'package:fitness_app/features/nutrition/data/off_client.dart';
@@ -61,6 +63,40 @@ class _FakeOffClient extends OffClient {
   }
 }
 
+/// Hand-rolled fake FatSecret client, mirroring `_FakeOffClient`'s shape: it
+/// records the query + CancelToken, resolves only when the test completes
+/// it, and can be told to reject via [throwOnSearch] instead.
+class _FakeFatSecretClient extends FatSecretClient {
+  _FakeFatSecretClient({OffRateLimiter? rateLimiter})
+    : super(
+        accessToken: 'test-token',
+        dio: Dio(),
+        rateLimiter: rateLimiter ?? OffRateLimiter(),
+      );
+
+  final List<String> searchQueries = [];
+  final List<CancelToken?> tokens = [];
+  Completer<List<Map<String, dynamic>>>? pending;
+  Object? throwOnSearch;
+
+  @override
+  Future<List<Map<String, dynamic>>> searchFoods(
+    String query, {
+    int maxResults = 10,
+    CancelToken? cancelToken,
+  }) {
+    searchQueries.add(query);
+    tokens.add(cancelToken);
+    final error = throwOnSearch;
+    if (error != null) {
+      return Future<List<Map<String, dynamic>>>.error(error);
+    }
+    final completer = Completer<List<Map<String, dynamic>>>();
+    pending = completer;
+    return completer.future;
+  }
+}
+
 /// Rate limiter stub whose `timeUntilNextAllowed()` is forced to a fixed value,
 /// so a test can simulate an exhausted budget (non-null) deterministically
 /// without pre-spending real timestamps.
@@ -76,20 +112,39 @@ class _StubRateLimiter extends OffRateLimiter {
 LiveSearchController _build({
   required _FakeOffClient off,
   required _FakeFoodsApi backend,
+  _FakeFatSecretClient? fatsecret,
   List<FoodItem> Function(List<FoodItem>)? onBackend,
   List<FoodItem> Function(List<FoodItem>)? onOff,
+  List<FoodItem> Function(List<FoodItem>)? onFatSecret,
   void Function()? onUnauthorized,
   OffRateLimiter? rateLimiter,
-  void Function({required bool backend, required bool off})? onLoadingChanged,
+  void Function({
+    required bool backend,
+    required bool off,
+    required bool fatsecret,
+  })?
+  onLoadingChanged,
 }) {
   return LiveSearchController(
     offClient: off,
     foodsApi: backend,
+    fatsecretClient: fatsecret,
     rateLimiter: rateLimiter ?? OffRateLimiter(),
     onBackendResults: (results) => onBackend?.call(results),
     onOffResults: (results) => onOff?.call(results),
-    onLoadingChanged: ({required bool backend, required bool off}) =>
-        onLoadingChanged?.call(backend: backend, off: off),
+    // Only wired when a fatsecret client is actually supplied, matching how
+    // the real add-food page only passes a non-null callback when
+    // widget.fatsecretApi is non-null.
+    onFatSecretResults: fatsecret == null
+        ? null
+        : (results) => onFatSecret?.call(results),
+    onLoadingChanged:
+        ({required bool backend, required bool off, required bool fatsecret}) =>
+            onLoadingChanged?.call(
+              backend: backend,
+              off: off,
+              fatsecret: fatsecret,
+            ),
     onUnauthorized: () async => onUnauthorized?.call(),
   );
 }
@@ -340,8 +395,12 @@ void main() {
         off: off,
         backend: backend,
         rateLimiter: _StubRateLimiter(const Duration(seconds: 5)),
-        onLoadingChanged: ({required bool backend, required bool off}) =>
-            offLoadingStates.add(off),
+        onLoadingChanged:
+            ({
+              required bool backend,
+              required bool off,
+              required bool fatsecret,
+            }) => offLoadingStates.add(off),
       );
 
       controller.onQueryChanged('yogurt');
@@ -429,8 +488,12 @@ void main() {
           offResultsReceived.add(results);
           return results;
         },
-        onLoadingChanged: ({required bool backend, required bool off}) =>
-            offLoadingStates.add(off),
+        onLoadingChanged:
+            ({
+              required bool backend,
+              required bool off,
+              required bool fatsecret,
+            }) => offLoadingStates.add(off),
       );
 
       controller.onQueryChanged('yogurt');
@@ -455,6 +518,318 @@ void main() {
         isFalse,
         reason: 'OFF loading flag must reset to false after a swallowed error',
       );
+
+      controller.dispose();
+    });
+  });
+
+  // --- FatSecret leg (KAN-67) ------------------------------------------------
+
+  test('the FatSecret leg fires alongside backend/OFF and delivers mapped '
+      'results', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient();
+      final fatsecretResultsReceived = <List<FoodItem>>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) {
+          fatsecretResultsReceived.add(results);
+          return results;
+        },
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+
+      expect(fatsecret.searchQueries, ['burger']);
+      fatsecret.pending!.complete([
+        {'food_id': '1', 'food_name': 'Cheeseburger', 'brand_name': 'Diner'},
+      ]);
+      async.flushMicrotasks();
+
+      expect(fatsecretResultsReceived, isNotEmpty);
+      expect(fatsecretResultsReceived.last, hasLength(1));
+      expect(fatsecretResultsReceived.last.single.name, 'Cheeseburger');
+      expect(fatsecretResultsReceived.last.single.source, 'fatsecret');
+
+      controller.dispose();
+    });
+  });
+
+  test(
+    'the FatSecret leg never fires when no client is wired (feature off)',
+    () {
+      fakeAsync((async) {
+        final off = _FakeOffClient();
+        final backend = _FakeFoodsApi();
+        final loadingStates = <bool>[];
+        final controller = _build(
+          off: off,
+          backend: backend,
+          onLoadingChanged:
+              ({
+                required bool backend,
+                required bool off,
+                required bool fatsecret,
+              }) => loadingStates.add(fatsecret),
+        );
+
+        controller.onQueryChanged('burger');
+        async.elapse(const Duration(milliseconds: 300));
+        async.flushMicrotasks();
+
+        // The fatsecret loading flag never goes true — the leg was never armed.
+        expect(loadingStates, everyElement(isFalse));
+
+        controller.dispose();
+      });
+    },
+  );
+
+  test('the FatSecret leg does not fire when the client is set but the '
+      'results callback is not — both must be non-null', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient();
+      final controller = LiveSearchController(
+        offClient: off,
+        foodsApi: backend,
+        fatsecretClient: fatsecret,
+        onBackendResults: (_) {},
+        onOffResults: (_) {},
+        onLoadingChanged:
+            ({
+              required bool backend,
+              required bool off,
+              required bool fatsecret,
+            }) {},
+        onUnauthorized: () async {},
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+
+      expect(fatsecret.searchQueries, isEmpty);
+
+      controller.dispose();
+    });
+  });
+
+  test('a half-wired controller (callback without client) never emits '
+      'FatSecret callbacks — not even the clear-on-empty/short-query ones', () {
+    fakeAsync((async) {
+      final calls = <List<FoodItem>>[];
+      final controller = LiveSearchController(
+        offClient: _FakeOffClient(),
+        foodsApi: _FakeFoodsApi(),
+        // No fatsecretClient: the leg is off, so caller-owned FatSecret
+        // state must stay untouched even though the callback is wired.
+        onFatSecretResults: calls.add,
+        onBackendResults: (_) {},
+        onOffResults: (_) {},
+        onLoadingChanged:
+            ({
+              required bool backend,
+              required bool off,
+              required bool fatsecret,
+            }) {},
+        onUnauthorized: () async {},
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+      controller.onQueryChanged('b'); // below the 2-char floor
+      async.elapse(const Duration(milliseconds: 300));
+      controller.onQueryChanged(''); // empty-query clear path
+      async.elapse(const Duration(milliseconds: 300));
+
+      expect(calls, isEmpty);
+
+      controller.dispose();
+    });
+  });
+
+  test('a non-401 ApiException from FatSecret is swallowed silently — '
+      'backend/OFF results still flow', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient()
+        ..throwOnSearch = ApiException('Unable to search FatSecret.');
+      final fatsecretResultsReceived = <List<FoodItem>>[];
+      final backendResultsReceived = <List<FoodItem>>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) {
+          fatsecretResultsReceived.add(results);
+          return results;
+        },
+        onBackend: (results) {
+          backendResultsReceived.add(results);
+          return results;
+        },
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+      async.flushMicrotasks();
+      backend.pending!.complete(const []);
+      async.flushMicrotasks();
+
+      expect(fatsecretResultsReceived, isEmpty);
+      expect(backendResultsReceived, isNotEmpty);
+
+      controller.dispose();
+    });
+  });
+
+  test('a 401 ApiException from FatSecret routes to onUnauthorized, same as '
+      'the backend typeahead leg', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient()
+        ..throwOnSearch = ApiException('Unauthorized.', statusCode: 401);
+      var unauthorizedCalls = 0;
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) => results,
+        onUnauthorized: () => unauthorizedCalls++,
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+      async.flushMicrotasks();
+
+      expect(unauthorizedCalls, 1);
+
+      controller.dispose();
+    });
+  });
+
+  test('onLoadingChanged reports the fatsecret flag through the full '
+      'true-then-false cycle (loading triple)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient();
+      final states = <bool>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) => results,
+        onLoadingChanged:
+            ({
+              required bool backend,
+              required bool off,
+              required bool fatsecret,
+            }) => states.add(fatsecret),
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+
+      expect(states, isNotEmpty);
+      expect(
+        states.first,
+        isTrue,
+        reason: 'fatsecret starts loading with the others',
+      );
+
+      fatsecret.pending!.complete(const []);
+      backend.pending!.complete(const []);
+      async.flushMicrotasks();
+
+      expect(
+        states.last,
+        isFalse,
+        reason: 'fatsecret loading resets once it resolves',
+      );
+
+      controller.dispose();
+    });
+  });
+
+  test('superseding a query cancels the FatSecret leg\'s in-flight token, and '
+      'a late result for the superseded query is dropped', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient();
+      final fatsecretResultsReceived = <List<FoodItem>>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) {
+          fatsecretResultsReceived.add(results);
+          return results;
+        },
+      );
+
+      controller.onQueryChanged('apple');
+      async.elapse(const Duration(milliseconds: 300));
+      final firstToken = fatsecret.tokens[0]!;
+      final firstPending = fatsecret.pending!;
+      expect(firstToken.isCancelled, isFalse);
+
+      controller.onQueryChanged('apples');
+      expect(
+        firstToken.isCancelled,
+        isTrue,
+        reason: 'keystroke must cancel the in-flight FatSecret token instantly',
+      );
+      async.elapse(const Duration(milliseconds: 300));
+
+      firstPending.complete([
+        {'food_id': '1', 'food_name': 'Stale Apple'},
+      ]);
+      async.flushMicrotasks();
+
+      expect(
+        fatsecretResultsReceived,
+        isEmpty,
+        reason: 'late FatSecret result for a superseded query must be dropped',
+      );
+
+      controller.dispose();
+    });
+  });
+
+  test('a budget-exhausted FatSecret limiter skips the call silently and '
+      'keeps prior results (D-01, mirrored for FatSecret)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient(
+        rateLimiter: _StubRateLimiter(const Duration(seconds: 5)),
+      );
+      final fatsecretResultsReceived = <List<FoodItem>>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) {
+          fatsecretResultsReceived.add(results);
+          return results;
+        },
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(const Duration(milliseconds: 300));
+
+      expect(fatsecret.searchQueries, isEmpty);
+      expect(fatsecretResultsReceived, isEmpty);
 
       controller.dispose();
     });

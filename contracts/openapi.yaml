@@ -495,6 +495,79 @@ paths:
           description: Unauthorized
         '404':
           description: Not found
+  /api/v1/foods/fatsecret/food/{food_id}:
+    get:
+      operationId: v1_foods_fatsecret_food_retrieve
+      parameters:
+      - in: path
+        name: food_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Verbatim FatSecret food.get.v4 JSON passthrough.
+        '400':
+          description: food_id must be numeric
+        '401':
+          description: Unauthorized
+        '429':
+          description: Food search partner is rate limited
+        '502':
+          description: Food search partner error
+        '503':
+          description: Food search partner is not configured
+  /api/v1/foods/fatsecret/search:
+    get:
+      operationId: v1_foods_fatsecret_search_retrieve
+      parameters:
+      - in: query
+        name: max_results
+        schema:
+          type: integer
+        description: Max results per page, 1-50 (default 10).
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Zero-based page number (default 0).
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search query (restaurant/menu item name).
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Verbatim FatSecret foods.search JSON passthrough.
+        '400':
+          description: q is required
+        '401':
+          description: Unauthorized
+        '429':
+          description: Food search partner is rate limited
+        '502':
+          description: Food search partner error
+        '503':
+          description: Food search partner is not configured
   /api/v1/foods/ingest:
     post:
       operationId: v1_foods_ingest_create
@@ -982,7 +1055,7 @@ components:
           readOnly: true
         source:
           allOf:
-          - $ref: '#/components/schemas/SourceAc2Enum'
+          - $ref: '#/components/schemas/SourceEfeEnum'
           default: openfoodfacts
         external_id:
           type: string
@@ -1078,7 +1151,7 @@ components:
       properties:
         source:
           allOf:
-          - $ref: '#/components/schemas/Source22dEnum'
+          - $ref: '#/components/schemas/SourceAf9Enum'
           default: openfoodfacts
         external_id:
           type: string
@@ -1116,7 +1189,7 @@ components:
           readOnly: true
         source:
           allOf:
-          - $ref: '#/components/schemas/SourceAc2Enum'
+          - $ref: '#/components/schemas/SourceEfeEnum'
           default: openfoodfacts
         external_id:
           type: string
@@ -1161,7 +1234,7 @@ components:
       properties:
         source:
           allOf:
-          - $ref: '#/components/schemas/Source22dEnum'
+          - $ref: '#/components/schemas/SourceAf9Enum'
           default: openfoodfacts
         external_id:
           type: string
@@ -1503,19 +1576,24 @@ components:
           format: email
       required:
       - email
-    Source22dEnum:
+    SourceAf9Enum:
       enum:
       - openfoodfacts
+      - fatsecret
       type: string
-      description: '* `openfoodfacts` - Open Food Facts'
-    SourceAc2Enum:
+      description: |-
+        * `openfoodfacts` - Open Food Facts
+        * `fatsecret` - FatSecret
+    SourceEfeEnum:
       enum:
       - openfoodfacts
       - custom
+      - fatsecret
       type: string
       description: |-
         * `openfoodfacts` - Open Food Facts
         * `custom` - Custom
+        * `fatsecret` - FatSecret
     SyncEntry:
       type: object
       description: |-

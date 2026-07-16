@@ -8,6 +8,7 @@ import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'add_food_page.dart';
 import 'data/api_exceptions.dart';
+import 'data/fatsecret_client.dart';
 import 'data/food_local_db.dart';
 import 'data/food_models.dart';
 import 'data/foods_api_service.dart';
@@ -35,6 +36,7 @@ class NutritionTodayPage extends StatefulWidget {
     this.nutritionApi,
     this.localStore,
     this.offClient,
+    this.fatsecretApi,
     this.preferences,
   });
 
@@ -46,6 +48,13 @@ class NutritionTodayPage extends StatefulWidget {
   final NutritionApiService? nutritionApi;
   final NutritionLocalStore? localStore;
   final OffClient? offClient;
+
+  /// Restaurant/chain search source (KAN-67). Like every service param on
+  /// this page, null means "construct the real client" — nothing upstream
+  /// (main.dart, MainShell) builds one, so the default here is what turns
+  /// the feature on in production. Tests inject a fake; to disable the leg
+  /// outright, [AddFoodPage.fatsecretApi] is the null-means-off seam.
+  final FatSecretClient? fatsecretApi;
 
   /// The user's saved goals/units, owned by the shell and passed down so the
   /// day's macros/calories reflect edits made on the account tab. Null while
@@ -67,6 +76,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
   late final bool _ownsLocalStore;
   late final NutritionRepository _repository;
   late final OffClient _offClient;
+  late final FatSecretClient _fatsecretApi;
 
   NutritionDayLog? _dayLog;
   // The locally known day before the selected one, feeding the empty-meal
@@ -112,6 +122,12 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     _localStore = widget.localStore ?? NutritionLocalStore();
     _repository = NutritionRepository(api: _nutritionApi, store: _localStore);
     _offClient = widget.offClient ?? OffClient();
+    _fatsecretApi =
+        widget.fatsecretApi ??
+        FatSecretClient(
+          accessToken: widget.accessToken,
+          authInterceptor: widget.authInterceptor,
+        );
     _loadDay();
     _loadMealTimes();
   }
@@ -159,6 +175,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     if (oldWidget.accessToken != widget.accessToken) {
       _foodsApi.updateToken(widget.accessToken);
       _nutritionApi.updateToken(widget.accessToken);
+      _fatsecretApi.updateToken(widget.accessToken);
     }
   }
 
@@ -474,6 +491,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           foodsApi: _foodsApi,
           repository: _repository,
           offClient: _offClient,
+          fatsecretApi: _fatsecretApi,
           onLogout: _handleLogout,
           selectedDate: date,
           initialMeal: meal,

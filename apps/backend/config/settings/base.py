@@ -5,6 +5,7 @@ from typing import Any
 
 import environ
 import sentry_sdk
+from django.core.exceptions import ImproperlyConfigured
 
 env = environ.Env()
 environ.Env.read_env(os.path.join(Path(__file__).resolve().parents[2], ".env"))
@@ -192,6 +193,32 @@ if SENTRY_DSN and SENTRY_ENVIRONMENT != "local":
     )
 
 GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
+
+# FatSecret Platform API (KAN-67): a thin backend proxy so the client secret
+# never ships to the phone. "premier" is the Premier Free tier scope; override
+# per-account if the FatSecret plan changes. Region defaults to blank (omit
+# the param → US dataset) because localization is a paid entitlement that no
+# free-tier key has — a default that requests GB would break or mis-serve
+# every fresh deployment. Set GB explicitly once FatSecret grants it; that
+# matches the OFF client's en:united-kingdom normalization so the two food
+# sources stay regionally consistent.
+FATSECRET_CLIENT_ID = env("FATSECRET_CLIENT_ID", default="").strip()
+FATSECRET_CLIENT_SECRET = env("FATSECRET_CLIENT_SECRET", default="").strip()
+FATSECRET_SCOPE = env("FATSECRET_SCOPE", default="premier")
+FATSECRET_REGION = env("FATSECRET_REGION", default="").strip()
+# "oauth1" signs each request (RFC 5849 two-legged HMAC-SHA1) and needs no IP
+# whitelisting — FatSecret only enforces its whitelist at the OAuth 2.0 token
+# endpoint, which is unusable behind shared egress (Render) without a paid
+# dedicated IP. "oauth2" is the token flow, one env flip away if FatSecret
+# ever sunsets OAuth 1.0 and our IPs are whitelisted by then.
+FATSECRET_AUTH = env("FATSECRET_AUTH", default="oauth1").strip().lower()
+if FATSECRET_AUTH not in {"oauth1", "oauth2"}:
+    # Fail at startup, not at request time: the client treats everything
+    # except "oauth1" as the token flow, so a typo here would silently pick
+    # OAuth 2.0 and surface only as inexplicable 502s behind shared egress.
+    raise ImproperlyConfigured(
+        f"FATSECRET_AUTH must be 'oauth1' or 'oauth2', got {FATSECRET_AUTH!r}."
+    )
 
 # Email
 # Local/dev defaults to the console backend (emails print to the runserver

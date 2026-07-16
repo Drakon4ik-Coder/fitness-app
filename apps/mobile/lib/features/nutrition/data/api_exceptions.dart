@@ -36,6 +36,12 @@ Future<T> mapApiErrors<T>(
   } on ApiException {
     rethrow;
   } on DioException catch (error, stackTrace) {
+    // A cancelled request is our own control flow (live search superseding a
+    // stale keystroke), not an API failure. It must stay a cancel — same rule
+    // as OffClient — so callers can recognize it via CancelToken.isCancel;
+    // wrapping it would log a phantom error per cancelled keystroke and
+    // mislabel it isNetworkError (the offline-replay class).
+    if (CancelToken.isCancel(error)) rethrow;
     logError(friendlyMessage, error, stackTrace);
     throw ApiException(
       friendlyMessage,

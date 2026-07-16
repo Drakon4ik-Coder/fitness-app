@@ -1,16 +1,20 @@
 import 'dart:async' show unawaited;
 
 class OffRateLimitException implements Exception {
-  OffRateLimitException(this.retryAfter);
+  // [serviceName] defaults to 'OpenFoodFacts' so every existing call site
+  // (and its tests) keeps the exact same message; a limiter fronting a
+  // different partner (e.g. FatSecret, KAN-67) passes its own name instead.
+  OffRateLimitException(this.retryAfter, [this.serviceName = 'OpenFoodFacts']);
 
   final Duration retryAfter;
+  final String serviceName;
 
   String get message {
     final seconds = retryAfter.inSeconds;
     if (seconds <= 1) {
-      return 'OpenFoodFacts is temporarily rate limited. Try again in a moment.';
+      return '$serviceName is temporarily rate limited. Try again in a moment.';
     }
-    return 'OpenFoodFacts is temporarily rate limited. Try again in ${seconds}s.';
+    return '$serviceName is temporarily rate limited. Try again in ${seconds}s.';
   }
 
   @override
@@ -21,13 +25,16 @@ class OffRateLimiter {
   OffRateLimiter({
     this.maxCalls = 9,
     this.window = const Duration(seconds: 60),
+    String serviceName = 'OpenFoodFacts',
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+  }) : _serviceName = serviceName,
+       _now = now ?? DateTime.now;
 
   static final OffRateLimiter shared = OffRateLimiter();
 
   final int maxCalls;
   final Duration window;
+  final String _serviceName;
   final DateTime Function() _now;
   final List<DateTime> _timestamps = [];
   final Map<String, Future<dynamic>> _inFlight = {};
@@ -58,6 +65,7 @@ class OffRateLimiter {
       final retryAfter = window - now.difference(oldest);
       throw OffRateLimitException(
         retryAfter.isNegative ? Duration.zero : retryAfter,
+        _serviceName,
       );
     }
     final future = action();
