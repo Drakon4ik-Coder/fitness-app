@@ -1,7 +1,3 @@
-import 'dart:convert';
-
-import 'package:crypto/crypto.dart';
-
 import 'food_models.dart';
 
 const String _offImageBase = 'https://images.openfoodfacts.org/images/products';
@@ -100,7 +96,7 @@ class OffMapper {
     // so low-quality duplicates (often with miscoded calories) sink or drop out.
     final completeness = parseNullableDouble(product['completeness']);
     final imageSignature = result.signature;
-    final contentHash = _buildContentHash(
+    final contentHash = buildFoodContentHash(
       source: offSource,
       externalId: barcode ?? '',
       name: name,
@@ -238,48 +234,6 @@ class OffMapper {
       return joined.isEmpty ? null : joined;
     }
     return _stringValue(value);
-  }
-
-  String _buildContentHash({
-    required String source,
-    required String externalId,
-    required String name,
-    required String brands,
-    required double? kcal100g,
-    required double? protein,
-    required double? carbs,
-    required double? fat,
-    required double? sugars,
-    required double? fiber,
-    required double? salt,
-    required double? servingSizeG,
-    required String? imageSignature,
-  }) {
-    final payload = <String, String>{
-      'source': source,
-      'external_id': externalId.trim(),
-      'name': name.trim(),
-      'brands': brands.trim(),
-      'kcal_100g': _normalizeNumber(kcal100g),
-      'protein_g_100g': _normalizeNumber(protein),
-      'carbs_g_100g': _normalizeNumber(carbs),
-      'fat_g_100g': _normalizeNumber(fat),
-      'sugars_g_100g': _normalizeNumber(sugars),
-      'fiber_g_100g': _normalizeNumber(fiber),
-      'salt_g_100g': _normalizeNumber(salt),
-      'serving_size_g': _normalizeNumber(servingSizeG),
-      'image_signature': imageSignature?.trim() ?? '',
-    };
-    final encoded = jsonEncode(payload);
-    return sha256.convert(utf8.encode(encoded)).toString();
-  }
-
-  String _normalizeNumber(double? value) {
-    if (value == null) return '';
-    final fixed = value.toStringAsFixed(3);
-    return fixed
-        .replaceFirst(RegExp(r'\.0+$'), '')
-        .replaceFirst(RegExp(r'(\.\d*[1-9])0+$'), r'$1');
   }
 
   String _bestName(Map<String, dynamic> product) {

@@ -46,6 +46,27 @@ void main() {
     );
   });
 
+  test('a cancelled request is rethrown as-is, never wrapped', () async {
+    // Live search cancels superseded keystrokes; those must stay
+    // CancelToken.isCancel-recognizable for the controller's silent-swallow
+    // branch, not become logged ApiException "failures".
+    await expectLater(
+      mapApiErrors<void>('friendly', () async {
+        throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.cancel,
+        );
+      }),
+      throwsA(
+        isA<DioException>().having(
+          (e) => CancelToken.isCancel(e),
+          'isCancel',
+          isTrue,
+        ),
+      ),
+    );
+  });
+
   test(
     'ApiException from inside the request passes through untouched',
     () async {
