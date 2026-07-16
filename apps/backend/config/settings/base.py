@@ -154,6 +154,14 @@ REST_FRAMEWORK: dict[str, Any] = {
         # Same posture as account_delete: the current-password re-auth check
         # must not be brute-forceable with a stolen access token.
         "password_change": "5/hour",
+        # Shared by both FatSecret proxy endpoints (search + food detail):
+        # every call spends the app-wide partner quota, so the default user
+        # rate would let a single account burn 100/min of everyone's budget —
+        # the mobile client's politeness limiter is courtesy, not enforcement.
+        # The app stays under 9 calls/min per device, so 20/min leaves
+        # multi-device headroom; aggregate exhaustion across accounts still
+        # surfaces as the handled partner 429.
+        "fatsecret": "20/min",
     },
 }
 

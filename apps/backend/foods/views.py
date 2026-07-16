@@ -11,6 +11,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from foods import fatsecret
@@ -279,6 +280,12 @@ class FoodCheckView(APIView):
 
 class FatSecretSearchView(APIView):
     permission_classes = [IsAuthenticated]
+    # Shared "fatsecret" scope with FatSecretFoodView: every proxied call
+    # spends the app-wide partner quota, so one account must be capped well
+    # below the default user rate (see DEFAULT_THROTTLE_RATES) or it can
+    # starve the shared budget and 429 every other user.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "fatsecret"
 
     @extend_schema(
         parameters=[
@@ -344,6 +351,10 @@ class FatSecretSearchView(APIView):
 
 class FatSecretFoodView(APIView):
     permission_classes = [IsAuthenticated]
+    # Same shared "fatsecret" scope as FatSecretSearchView — one partner
+    # budget, one bucket.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "fatsecret"
 
     @extend_schema(
         responses={

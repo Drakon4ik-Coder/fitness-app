@@ -32,5 +32,6 @@ REST_FRAMEWORK = {
         "google": None,
         "account_delete": None,
         "password_change": None,
+        "fatsecret": None,
     },
 }

@@ -424,6 +424,37 @@ def test_fatsecret_oauth1_mode_unconfigured_returns_503() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.integration
+@CONFIGURED
+def test_fatsecret_proxy_is_rate_limited_across_both_endpoints(monkeypatch) -> None:
+    # Every proxied call spends the app-wide FatSecret quota, so the shared
+    # "fatsecret" scope must cap a single account well below the default user
+    # rate — search and detail draw from one bucket. DRF binds the rate table
+    # as a class attribute at import, so patch it there (same as the accounts
+    # throttle tests). The client is built first: login's own ScopedRateThrottle
+    # would raise ImproperlyConfigured on a rate table without its scope.
+    from rest_framework.throttling import ScopedRateThrottle
+
+    client = _auth_client()
+    monkeypatch.setattr(ScopedRateThrottle, "THROTTLE_RATES", {"fatsecret": "2/min"})
+
+    token_resp = _token_response()
+    search_resp = _mock_response(200, {"foods": {"food": []}})
+    detail_resp = _mock_response(200, {"food": {"food_id": "1"}})
+
+    # Only two upstream responses are queued: if the third request were not
+    # throttled before reaching the handler, the mock would raise StopIteration.
+    with patch(
+        POST, side_effect=_post_side_effect([token_resp], [search_resp, detail_resp])
+    ):
+        assert client.get("/api/v1/foods/fatsecret/search?q=pizza").status_code == 200
+        assert client.get("/api/v1/foods/fatsecret/food/1").status_code == 200
+        throttled = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert throttled.status_code == 429
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
 def test_foods_ingest_accepts_fatsecret_source() -> None:
     client = _auth_client()
     payload = {
