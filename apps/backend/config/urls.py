@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
-from django.http import FileResponse, HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponseBase, JsonResponse
 from django.urls import include, path, re_path
 from django.views.static import serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
@@ -53,7 +53,10 @@ urlpatterns = [
 # DEBUG is off. django.views.static.serve is discouraged for high-traffic
 # media, but these are pre-validated ≤5 MB re-encoded JPEGs at hobby scale;
 # revisit if a CDN/object store ever fronts the images.
-def _serve_media(request: HttpRequest, path: str) -> FileResponse:
+# HttpResponseBase, not FileResponse: a conditional GET (If-Modified-Since)
+# returns HttpResponseNotModified, which sits on the other branch of the
+# response hierarchy.
+def _serve_media(request: HttpRequest, path: str) -> HttpResponseBase:
     # MEDIA_ROOT is read per-request (not captured at URLconf import) so
     # override_settings works in tests.
     return serve(request, path, document_root=str(settings.MEDIA_ROOT))
