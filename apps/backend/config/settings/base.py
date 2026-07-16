@@ -212,7 +212,7 @@ GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
 # sources stay regionally consistent.
 FATSECRET_CLIENT_ID = env("FATSECRET_CLIENT_ID", default="").strip()
 FATSECRET_CLIENT_SECRET = env("FATSECRET_CLIENT_SECRET", default="").strip()
-FATSECRET_SCOPE = env("FATSECRET_SCOPE", default="premier")
+FATSECRET_SCOPE = env("FATSECRET_SCOPE", default="premier").strip()
 FATSECRET_REGION = env("FATSECRET_REGION", default="").strip()
 # "oauth1" signs each request (RFC 5849 two-legged HMAC-SHA1) and needs no IP
 # whitelisting — FatSecret only enforces its whitelist at the OAuth 2.0 token
