@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -81,7 +82,7 @@ class FoodLocalDb {
     final existing = await _findExisting(db, item);
     final merged = existing == null
         ? item
-        : _mergeFood(existing, item).copyWith(localId: existing.localId);
+        : mergeFood(existing, item).copyWith(localId: existing.localId);
 
     if (existing != null && existing.localId != null) {
       await db.update(
@@ -230,7 +231,9 @@ class FoodLocalDb {
     return FoodItem.fromDbMap(rows.first);
   }
 
-  FoodItem _mergeFood(FoodItem existing, FoodItem incoming) {
+  // Pure merge policy, public so tests can pin it without a real database.
+  @visibleForTesting
+  FoodItem mergeFood(FoodItem existing, FoodItem incoming) {
     // Custom foods replace wholesale: the incoming item is the owner's edit,
     // so a field they cleared must stay cleared. Field-by-field ?? merging
     // below is for OFF rows, where incoming nulls mean "not fetched", not
@@ -268,6 +271,8 @@ class FoodLocalDb {
       fiberG100g: incoming.fiberG100g ?? existing.fiberG100g,
       saltG100g: incoming.saltG100g ?? existing.saltG100g,
       servingSizeG: incoming.servingSizeG ?? existing.servingSizeG,
+      gramsPerPiece: incoming.gramsPerPiece ?? existing.gramsPerPiece,
+      pieceUnit: incoming.pieceUnit ?? existing.pieceUnit,
       nutritionBasis: incoming.nutritionBasis ?? existing.nutritionBasis,
       communityVerifiedAt:
           incoming.communityVerifiedAt ?? existing.communityVerifiedAt,
