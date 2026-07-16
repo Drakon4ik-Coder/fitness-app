@@ -120,7 +120,7 @@ class FatSecretMapper {
 
     final servingsWrapper = food['servings'];
     final servings = servingsWrapper is Map
-        ? _asMapList(servingsWrapper['serving'])
+        ? asFatSecretMapList(servingsWrapper['serving'])
         : const <Map<String, dynamic>>[];
     if (servings.isEmpty) return null;
 
@@ -357,14 +357,17 @@ class FatSecretMapper {
     }
     return label.isEmpty ? null : label;
   }
+}
 
-  /// FatSecret returns a single object (not a one-element list) when a list
-  /// field has exactly one entry.
-  List<Map<String, dynamic>> _asMapList(dynamic value) {
-    if (value is List) {
-      return value.whereType<Map<String, dynamic>>().toList();
-    }
-    if (value is Map) return [value.cast<String, dynamic>()];
-    return const [];
+/// FatSecret returns a single object (not a one-element list) when a list
+/// field has exactly one entry, and omits the key entirely for zero. The one
+/// normalizer for every such field — search's `foods.food` (client) and
+/// detail's `servings.serving` (mapper) — so shape fixes can't diverge
+/// between the two response paths.
+List<Map<String, dynamic>> asFatSecretMapList(dynamic value) {
+  if (value is List) {
+    return value.whereType<Map<String, dynamic>>().toList();
   }
+  if (value is Map) return [value.cast<String, dynamic>()];
+  return const [];
 }

@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../../core/auth_interceptor.dart';
 import '../../../core/environment.dart';
 import 'api_exceptions.dart';
+import 'fatsecret_mapper.dart' show asFatSecretMapList;
 import 'off_rate_limiter.dart';
 
 /// Thin client for the backend's FatSecret proxy endpoints
@@ -86,7 +87,7 @@ class FatSecretClient {
         );
         final foods = response.data?['foods'];
         if (foods is! Map) return const <Map<String, dynamic>>[];
-        return _asMapList(foods['food']);
+        return asFatSecretMapList(foods['food']);
       }),
     );
   }
@@ -105,13 +106,5 @@ class FatSecretClient {
         return food is Map<String, dynamic> ? food : null;
       }),
     );
-  }
-
-  List<Map<String, dynamic>> _asMapList(dynamic value) {
-    if (value is List) {
-      return value.whereType<Map<String, dynamic>>().toList();
-    }
-    if (value is Map) return [value.cast<String, dynamic>()];
-    return const [];
   }
 }
