@@ -166,7 +166,7 @@ class OffClient {
       // primary-then-fallback retry can't double-spend the OFF call budget
       // and in-flight dedup on _searchKey still collapses duplicate queries.
       final response = await _rateLimiter.run(
-        _searchKey(query),
+        _searchKey(query, cancelToken),
         () => _searchWithFallback(
           query,
           pageSize: pageSize,
@@ -328,5 +328,11 @@ class OffClient {
 
   String _barcodeKey(String barcode) => 'barcode:${barcode.trim()}';
 
-  String _searchKey(String query) => 'search:${query.trim().toLowerCase()}';
+  // The cancel token's identity is part of the key: a deduped future stays
+  // governed by the original caller's token, so handing it across tokens
+  // would let one search's supersede-cancel silently kill another caller's
+  // fresh search (same reasoning as FatSecretClient.searchFoods).
+  String _searchKey(String query, CancelToken? token) =>
+      'search:${token == null ? '' : identityHashCode(token)}:'
+      '${query.trim().toLowerCase()}';
 }

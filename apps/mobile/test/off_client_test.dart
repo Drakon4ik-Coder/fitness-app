@@ -366,4 +366,54 @@ void main() {
       ),
     );
   });
+
+  test('concurrent same-query searches with different cancel tokens are not '
+      'deduped — a superseded caller\'s cancel must not kill the fresh '
+      'search', () async {
+    final dio = Dio();
+    var requests = 0;
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests += 1;
+          if (requests == 1) {
+            // The first caller is superseded mid-flight: complete its request
+            // as a cancel, exactly as a live-search keystroke would.
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+              ),
+            );
+            return;
+          }
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'hits': [
+                  {'code': '123', 'product_name': 'Fresh Apple'},
+                ],
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final client = OffClient(dio: dio, rateLimiter: OffRateLimiter());
+
+    // Both calls start in the same synchronous stretch, so the first request
+    // is still in the limiter's in-flight map when the second one asks — the
+    // exact window where a query-only dedup key hands back the doomed future.
+    final doomed = client
+        .searchProducts('apple', cancelToken: CancelToken())
+        .then<Object>((hits) => hits, onError: (Object error) => error);
+    final fresh = client.searchProducts('apple', cancelToken: CancelToken());
+
+    expect(await doomed, isA<DioException>());
+    expect((await fresh).single.product['product_name'], 'Fresh Apple');
+    expect(requests, 2);
+  });
 }

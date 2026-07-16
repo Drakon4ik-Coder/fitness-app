@@ -67,11 +67,17 @@ class FatSecretClient {
     int maxResults = 10,
     CancelToken? cancelToken,
   }) {
+    // The cancel token's identity is part of the request identity: a deduped
+    // future stays governed by the ORIGINAL caller's token, so handing it to
+    // a caller with a different token would let the first caller's
+    // supersede-cancel kill the second caller's search — it completes as a
+    // cancel, which live search drops silently and never reissues.
+    final tokenId = cancelToken == null ? '' : identityHashCode(cancelToken);
     return _rateLimiter.run(
       // maxResults is part of the request identity: in-flight dedup hands the
       // same future to concurrent callers, and a caller asking for a different
       // limit must not silently receive another caller's result count.
-      'fs-search:$maxResults:${query.trim().toLowerCase()}',
+      'fs-search:$maxResults:$tokenId:${query.trim().toLowerCase()}',
       () => mapApiErrors('Unable to search FatSecret.', () async {
         final response = await _dio.get<Map<String, dynamic>>(
           '/api/v1/foods/fatsecret/search',

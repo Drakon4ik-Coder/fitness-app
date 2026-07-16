@@ -95,6 +95,98 @@ void main() {
     expect(results[1].single['food_id'], '25');
   });
 
+  test('concurrent same-query searches with different cancel tokens are not '
+      'deduped — a superseded caller\'s cancel must not kill the fresh '
+      'search', () async {
+    final dio = Dio();
+    var requests = 0;
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests += 1;
+          if (requests == 1) {
+            // The first caller is superseded mid-flight: complete its request
+            // as a cancel, exactly as a live-search keystroke would.
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+              ),
+            );
+            return;
+          }
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'foods': {
+                  'food': {'food_id': '7', 'food_name': 'Fresh'},
+                },
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final client = FatSecretClient(
+      accessToken: 'test-token',
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+    );
+
+    // Both calls start in the same synchronous stretch, so the first request
+    // is still in the limiter's in-flight map when the second one asks — the
+    // exact window where a query-only dedup key hands back the doomed future.
+    final doomed = client
+        .searchFoods('burger', cancelToken: CancelToken())
+        .then<Object>((hits) => hits, onError: (Object error) => error);
+    final fresh = client.searchFoods('burger', cancelToken: CancelToken());
+
+    expect(await doomed, isA<DioException>());
+    expect((await fresh).single['food_id'], '7');
+    expect(requests, 2);
+  });
+
+  test('concurrent same-query searches with the same cancel token still '
+      'dedup into one request', () async {
+    final dio = Dio();
+    var requests = 0;
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests += 1;
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'foods': {
+                  'food': {'food_id': '1', 'food_name': 'Shared'},
+                },
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final client = FatSecretClient(
+      accessToken: 'test-token',
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+    );
+
+    final token = CancelToken();
+    final results = await Future.wait([
+      client.searchFoods('burger', cancelToken: token),
+      client.searchFoods('burger', cancelToken: token),
+    ]);
+
+    expect(requests, 1);
+    expect(results[0].single['food_id'], '1');
+    expect(results[1].single['food_id'], '1');
+  });
+
   test(
     'searchFoods sends q/max_results and normalizes a multi-hit list',
     () async {
