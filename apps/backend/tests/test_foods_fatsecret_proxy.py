@@ -338,9 +338,13 @@ def test_mistyped_fatsecret_auth_fails_at_settings_import(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("expires_in", "expected_ttl"),
     [
-        (86400, 86100),  # normal: 5-min early-refresh margin
+        # All cases assume the mocked 2s token-request round trip below:
+        # expires_in counts from response minting, so 2s of lifetime is
+        # already gone by the time the token is cached.
+        (86400, 86098),  # normal: 5-min early-refresh margin
         (200, 60),  # short: margin would go negative, floor keeps caching
-        (30, 30),  # tiny: TTL must never exceed the token's lifetime
+        (30, 28),  # tiny: TTL capped at the post-round-trip lifetime
+        (2, 0),  # degenerate: lifetime consumed in transit -> never cached
     ],
 )
 def test_token_cache_ttl_never_outlives_the_token(
@@ -349,6 +353,9 @@ def test_token_cache_ttl_never_outlives_the_token(
     token_resp = _token_response(expires_in=expires_in)
     with (
         patch(POST, return_value=token_resp),
+        # _fetch_token samples monotonic() before the request and after the
+        # response: pin a 2s round trip so the TTL is deterministic.
+        patch("foods.fatsecret.time.monotonic", side_effect=[100.0, 102.0]),
         patch("foods.fatsecret.cache.set") as mock_set,
     ):
         fatsecret._fetch_token()

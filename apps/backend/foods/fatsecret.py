@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import math
 import secrets
 import time
 from urllib.parse import quote
@@ -46,6 +47,7 @@ def _fetch_token() -> str:
     if not settings.FATSECRET_CLIENT_ID or not settings.FATSECRET_CLIENT_SECRET:
         raise FatSecretNotConfigured
 
+    request_started = time.monotonic()
     try:
         response = requests.post(
             TOKEN_URL,
@@ -69,14 +71,18 @@ def _fetch_token() -> str:
             "FatSecret authentication failed", status=status
         ) from exc
 
+    # expires_in counts from when FatSecret minted the response, not from
+    # when we cached it — the request round trip has already spent part of
+    # the lifetime. Deduct it (ceil, measured from before the request: a
+    # strictly conservative bound) so the lifetime cap below can't quietly
+    # serve a token past its true expiry.
+    remaining = max(expires_in - math.ceil(time.monotonic() - request_started), 0)
     # Refresh 5 minutes early so an in-flight request never races an
     # expiring token; floor at 60s so a modest expires_in can't defeat
-    # caching — but never cache past the token's actual lifetime, or every
+    # caching — but never cache past the token's remaining lifetime, or every
     # request in the stale window would burn a guaranteed 401 round trip
     # before the retry path recovers.
-    cache.set(
-        _TOKEN_CACHE_KEY, token, timeout=min(max(expires_in - 300, 60), expires_in)
-    )
+    cache.set(_TOKEN_CACHE_KEY, token, timeout=min(max(remaining - 300, 60), remaining))
     return token
 
 
