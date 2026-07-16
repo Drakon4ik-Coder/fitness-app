@@ -326,7 +326,11 @@ class FatSecretMapper {
   String? _measurementHead(dynamic value) {
     if (value is! String) return null;
     var head = value.trim().toLowerCase().split(RegExp(r'[,(]')).first.trim();
-    head = head.replaceFirst(RegExp(r'^\d+(\.\d+)?\s*'), '');
+    // One character class, not a number pattern: counts arrive as decimals
+    // ("1.5"), fractions ("1/2"), and mixed numbers ("1 1/2") — a partial
+    // strip would leave "/2 cup", which dodges the mass/volume set and
+    // becomes a bogus piece unit.
+    head = head.replaceFirst(RegExp(r'^[\d\s./]+'), '');
     return head.isEmpty ? null : head;
   }
 

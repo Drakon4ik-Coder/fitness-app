@@ -319,6 +319,23 @@ void main() {
       expect(item.servingSizeG, closeTo(98, 0.001));
     });
 
+    test('fractional measure counts ("1/2 cup", "1 1/2 cups") are still '
+        'masses, not pieces', () {
+      for (final measurement in ['1/2 cup', '1 1/2 cups']) {
+        final item = mapper.mapDetail(foodWithMeasurement(measurement));
+        expect(item, isNotNull, reason: measurement);
+        expect(item!.gramsPerPiece, isNull, reason: measurement);
+        expect(item.pieceUnit, isNull, reason: measurement);
+      }
+    });
+
+    test('a fractional count on a genuine piece noun ("1/2 slice") keeps '
+        'the piece and the clean label', () {
+      final item = mapper.mapDetail(foodWithMeasurement('1/2 slice'));
+      expect(item, isNotNull);
+      expect(item!.pieceUnit, 'slice');
+    });
+
     test('a qualified piece ("slice, large") stays a piece and its unit '
         'label is the clean head noun', () {
       final item = mapper.mapDetail(foodWithMeasurement('slice, large'));
