@@ -5,6 +5,7 @@ import '../../../ui_system/tokens.dart';
 import '../data/api_exceptions.dart';
 import '../data/preferences_api_service.dart';
 import '../data/user_preferences.dart';
+import 'settings_action_bar.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for measurement units. Saves only the unit fields
@@ -79,6 +80,13 @@ class _UnitsSettingsPageState extends State<UnitsSettingsPage> {
         safeArea: true,
         padding: EdgeInsets.zero,
         appBar: AppBar(title: const Text('Units'), centerTitle: false),
+        bottomNavigationBar: SettingsActionBar(
+          child: AppPrimaryButton(
+            onPressed: _saving ? null : _save,
+            isLoading: _saving,
+            child: const Text('Save changes'),
+          ),
+        ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
@@ -120,12 +128,6 @@ class _UnitsSettingsPageState extends State<UnitsSettingsPage> {
               value: _energyUnit,
               options: const {'kcal': 'kcal', 'kj': 'kJ'},
               onChanged: (v) => setState(() => _energyUnit = v),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            AppPrimaryButton(
-              onPressed: _saving ? null : _save,
-              isLoading: _saving,
-              child: const Text('Save changes'),
             ),
           ],
         ),

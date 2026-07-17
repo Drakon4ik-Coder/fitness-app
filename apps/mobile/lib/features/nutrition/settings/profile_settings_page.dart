@@ -7,6 +7,7 @@ import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/lumina_health_theme.dart';
 import '../../../ui_system/tokens.dart';
 import 'change_password_page.dart';
+import 'settings_action_bar.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for account identity: editable display name and
@@ -240,6 +241,13 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
         safeArea: true,
         padding: EdgeInsets.zero,
         appBar: AppBar(title: const Text('Profile'), centerTitle: false),
+        bottomNavigationBar: SettingsActionBar(
+          child: AppPrimaryButton(
+            onPressed: _saving ? null : _save,
+            isLoading: _saving,
+            child: const Text('Save changes'),
+          ),
+        ),
         body: Form(
           key: _formKey,
           child: ListView(
@@ -313,16 +321,10 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.xl),
-              AppPrimaryButton(
-                onPressed: _saving ? null : _save,
-                isLoading: _saving,
-                child: const Text('Save changes'),
-              ),
               // Password change (KAN-50) — only password accounts have a
               // credential to change; OAuth-only accounts sign in via Google.
               if (_hasPassword) ...[
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.xl),
                 TextButton.icon(
                   onPressed: () {
                     Navigator.of(context).push(

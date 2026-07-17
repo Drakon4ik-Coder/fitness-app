@@ -6,6 +6,7 @@ import '../data/api_exceptions.dart';
 import '../data/nutrient_catalog.dart';
 import '../data/preferences_api_service.dart';
 import '../data/user_preferences.dart';
+import 'settings_action_bar.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for the opt-in over-goal warnings (KAN-38). By default
@@ -100,6 +101,13 @@ class _WarningsSettingsPageState extends State<WarningsSettingsPage> {
           title: const Text('Over-goal warnings'),
           centerTitle: false,
         ),
+        bottomNavigationBar: SettingsActionBar(
+          child: AppPrimaryButton(
+            onPressed: _saving ? null : _save,
+            isLoading: _saving,
+            child: const Text('Save changes'),
+          ),
+        ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
@@ -152,12 +160,6 @@ class _WarningsSettingsPageState extends State<WarningsSettingsPage> {
                 ],
               ),
             ],
-            const SizedBox(height: AppSpacing.xl),
-            AppPrimaryButton(
-              onPressed: _saving ? null : _save,
-              isLoading: _saving,
-              child: const Text('Save changes'),
-            ),
           ],
         ),
       ),

@@ -6,6 +6,7 @@ import '../data/api_exceptions.dart';
 import '../data/nutrient_catalog.dart';
 import '../data/preferences_api_service.dart';
 import '../data/user_preferences.dart';
+import 'settings_action_bar.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for picking which 1-4 nutrients the today page
@@ -112,6 +113,13 @@ class _FocusNutrientsSettingsPageState
           title: const Text('Focus nutrients'),
           centerTitle: false,
         ),
+        bottomNavigationBar: SettingsActionBar(
+          child: AppPrimaryButton(
+            onPressed: _saving || _selected.isEmpty ? null : _save,
+            isLoading: _saving,
+            child: const Text('Save changes'),
+          ),
+        ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.lg,
@@ -192,12 +200,6 @@ class _FocusNutrientsSettingsPageState
                 ],
               ),
             ],
-            const SizedBox(height: AppSpacing.xl),
-            AppPrimaryButton(
-              onPressed: _saving || _selected.isEmpty ? null : _save,
-              isLoading: _saving,
-              child: const Text('Save changes'),
-            ),
           ],
         ),
       ),
