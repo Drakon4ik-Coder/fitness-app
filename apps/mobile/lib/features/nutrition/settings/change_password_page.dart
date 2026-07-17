@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/auth_service.dart';
 import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/tokens.dart';
+import 'settings_action_bar.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for changing the account password while signed in
@@ -118,6 +119,13 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
           title: const Text('Change password'),
           centerTitle: false,
         ),
+        bottomNavigationBar: SettingsActionBar(
+          child: AppPrimaryButton(
+            onPressed: _saving ? null : _submit,
+            isLoading: _saving,
+            child: const Text('Change password'),
+          ),
+        ),
         body: Form(
           key: _formKey,
           child: ListView(
@@ -186,12 +194,6 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                 validator: (raw) => (raw ?? '') != _newController.text
                     ? 'Passwords do not match.'
                     : null,
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              AppPrimaryButton(
-                onPressed: _saving ? null : _submit,
-                isLoading: _saving,
-                child: const Text('Change password'),
               ),
             ],
           ),

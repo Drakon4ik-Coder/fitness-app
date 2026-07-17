@@ -8,6 +8,7 @@ import '../data/nutrient_catalog.dart';
 import '../data/preferences_api_service.dart';
 import '../data/user_preferences.dart';
 import '../widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
+import 'settings_action_bar.dart';
 import 'unsaved_changes_scope.dart';
 
 /// Nested settings page for the daily energy and per-nutrient goals. Goals
@@ -163,6 +164,13 @@ class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
             ),
           ],
         ),
+        bottomNavigationBar: SettingsActionBar(
+          child: AppPrimaryButton(
+            onPressed: _saving ? null : _save,
+            isLoading: _saving,
+            child: const Text('Save changes'),
+          ),
+        ),
         body: Form(
           key: _formKey,
           child: ListView(
@@ -205,12 +213,6 @@ class _GoalsSettingsPageState extends State<GoalsSettingsPage> {
                   ],
                   controllers: _goalControllers,
                 ),
-              const SizedBox(height: AppSpacing.xl),
-              AppPrimaryButton(
-                onPressed: _saving ? null : _save,
-                isLoading: _saving,
-                child: const Text('Save changes'),
-              ),
             ],
           ),
         ),

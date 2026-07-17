@@ -437,7 +437,7 @@ void main() {
     await tester.tap(find.byKey(const Key('warnChoice_sodium')));
     await tester.pump();
 
-    await tester.ensureVisible(find.text('Save changes'));
+    // Pinned outside the list (KAN-94) — tappable without scrolling.
     await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
 

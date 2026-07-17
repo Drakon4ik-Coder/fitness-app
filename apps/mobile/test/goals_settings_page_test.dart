@@ -78,8 +78,9 @@ void main() {
     matching: find.byType(TextFormField),
   );
 
+  // The save button is pinned outside the list (KAN-94), so no scrolling into
+  // view is needed regardless of how long the goals form is.
   Future<void> save(WidgetTester tester) async {
-    await tester.ensureVisible(find.text('Save changes'));
     await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
   }
