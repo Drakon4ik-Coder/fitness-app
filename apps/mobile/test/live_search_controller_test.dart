@@ -117,6 +117,8 @@ LiveSearchController _build({
   List<FoodItem> Function(List<FoodItem>)? onOff,
   List<FoodItem> Function(List<FoodItem>)? onFatSecret,
   void Function()? onUnauthorized,
+  void Function(Duration retryAfter)? onOffRateLimited,
+  void Function(Duration retryAfter)? onFatSecretRateLimited,
   OffRateLimiter? rateLimiter,
   void Function({
     required bool backend,
@@ -138,6 +140,8 @@ LiveSearchController _build({
     onFatSecretResults: fatsecret == null
         ? null
         : (results) => onFatSecret?.call(results),
+    onOffRateLimited: onOffRateLimited,
+    onFatSecretRateLimited: onFatSecretRateLimited,
     onLoadingChanged:
         ({required bool backend, required bool off, required bool fatsecret}) =>
             onLoadingChanged?.call(
@@ -471,6 +475,117 @@ void main() {
         isNotEmpty,
         reason: 'backend results must still flow when OFF throttles',
       );
+
+      controller.dispose();
+    });
+  });
+
+  test('pre-flight OFF budget exhaustion reports its retry-after to the page '
+      '(KAN-96)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final reported = <Duration>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        rateLimiter: _StubRateLimiter(const Duration(seconds: 20)),
+        onOffRateLimited: reported.add,
+      );
+
+      controller.onQueryChanged('apple');
+      async.elapse(LiveSearchController.defaultDebounce);
+      async.flushMicrotasks();
+
+      // The call itself stays skipped (D-01); only the signal is new.
+      expect(off.searchQueries, isEmpty);
+      expect(reported, [const Duration(seconds: 20)]);
+
+      controller.dispose();
+    });
+  });
+
+  test('mid-flight OffRateLimitException reports its retry-after to the page '
+      '(KAN-96)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient()
+        ..throwOnSearch = OffRateLimitException(const Duration(seconds: 7));
+      final backend = _FakeFoodsApi();
+      final reported = <Duration>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        onOffRateLimited: reported.add,
+      );
+
+      controller.onQueryChanged('apple');
+      async.elapse(LiveSearchController.defaultDebounce);
+      async.flushMicrotasks();
+
+      expect(reported, [const Duration(seconds: 7)]);
+
+      controller.dispose();
+    });
+  });
+
+  test('FatSecret budget exhaustion reports through its own callback, never '
+      "OFF's (KAN-96)", () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient(
+        rateLimiter: _StubRateLimiter(const Duration(seconds: 40)),
+      );
+      final offReported = <Duration>[];
+      final fatsecretReported = <Duration>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) => results,
+        onOffRateLimited: offReported.add,
+        onFatSecretRateLimited: fatsecretReported.add,
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(LiveSearchController.defaultDebounce);
+      async.flushMicrotasks();
+
+      // FatSecret's leg is skipped and reported; OFF's own budget is
+      // untouched, so its leg still fires and its callback stays quiet.
+      expect(fatsecret.searchQueries, isEmpty);
+      expect(fatsecretReported, [const Duration(seconds: 40)]);
+      expect(off.searchQueries, ['burger']);
+      expect(offReported, isEmpty);
+
+      controller.dispose();
+    });
+  });
+
+  test('mid-flight FatSecret OffRateLimitException reports its retry-after '
+      '(KAN-96)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final fatsecret = _FakeFatSecretClient()
+        ..throwOnSearch = OffRateLimitException(
+          const Duration(seconds: 9),
+          'FatSecret',
+        );
+      final reported = <Duration>[];
+      final controller = _build(
+        off: off,
+        backend: backend,
+        fatsecret: fatsecret,
+        onFatSecret: (results) => results,
+        onFatSecretRateLimited: reported.add,
+      );
+
+      controller.onQueryChanged('burger');
+      async.elapse(LiveSearchController.defaultDebounce);
+      async.flushMicrotasks();
+
+      expect(reported, [const Duration(seconds: 9)]);
 
       controller.dispose();
     });
