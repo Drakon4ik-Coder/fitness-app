@@ -17,7 +17,7 @@ from config.well_known import assetlinks
 
 
 def health(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"status": "ok", "version": "0.1.0"})
+    return JsonResponse({"status": "ok", "version": settings.APP_VERSION})
 
 
 urlpatterns = [

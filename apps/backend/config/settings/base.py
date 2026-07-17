@@ -1,4 +1,5 @@
 import os
+import tomllib
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,12 @@ env = environ.Env()
 environ.Env.read_env(os.path.join(Path(__file__).resolve().parents[2], ".env"))
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+
+# Single source of truth for the backend version (docs/RELEASE.md): the
+# health endpoint and the OpenAPI info.version both read this, so a release
+# bump only ever touches pyproject.toml.
+with open(BASE_DIR / "pyproject.toml", "rb") as _pyproject:
+    APP_VERSION: str = tomllib.load(_pyproject)["project"]["version"]
 
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-not-secure")
 DEBUG = env.bool("DEBUG", default=True)
@@ -182,7 +189,7 @@ SIMPLE_JWT = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Fitness API",
     "DESCRIPTION": "Fitness App API",
-    "VERSION": "0.1.0",
+    "VERSION": APP_VERSION,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
     "SERVE_AUTHENTICATION": [],
 }
