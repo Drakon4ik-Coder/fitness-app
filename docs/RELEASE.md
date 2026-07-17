@@ -40,8 +40,15 @@ a feature milestone, or an API change clients must care about.
 3. Land it on `main` through the normal PR flow.
 4. Run the **Mobile Release** workflow — the tag becomes `vX.Y.Z+<run>` with
    the new version. Do not create a bare `vX.Y.Z` tag by hand.
-5. Optionally edit that GitHub Release's generated notes into the template
-   below.
+
+## Release notes
+
+Every release publishes with GitHub's auto-generated notes (PR-title list +
+compare link). After each release, curate them into the template below: a
+brief human-readable summary of `git log <prev tag>..<new tag>`, keeping the
+auto-generated "What's Changed" list and compare link at the bottom. Apply
+with `gh release edit <tag> --notes-file <file>`. (Asking Claude to "curate
+the release notes" does exactly this.)
 
 ## Release notes template
 
