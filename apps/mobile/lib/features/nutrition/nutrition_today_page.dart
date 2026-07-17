@@ -593,7 +593,7 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
       MaterialPageRoute<void>(
         builder: (_) => NutritionDetailPage(
           dateLabel: _dateLabel(),
-          eatenKcal: _dayLog?.totals.kcal.round() ?? 0,
+          eatenKcal: displayKcalTotal(entries),
           entries: entries,
           serverNutrients: _dayLog?.nutrients,
           nutrientGoals: widget.preferences?.nutrientGoals,
@@ -749,7 +749,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final totals = _dayLog?.totals;
-    final eatenKcal = totals?.kcal.round() ?? 0;
+    // Derived from the entries, not totals.kcal: the ring must equal the sum
+    // of the meal cards, which round per entry (KAN-99).
+    final eatenKcal = displayKcalTotal(
+      _dayLog?.meals.values.expand((list) => list) ?? const <NutritionEntry>[],
+    );
     final int? burnedKcal = _burnedKcal;
     // Exercise adds to the day's budget; "remaining" can go negative, which
     // we surface as an over-budget amount rather than clamping to zero.
@@ -1810,6 +1814,5 @@ class _MealSummary {
   final Color color;
   final List<NutritionEntry> entries;
 
-  int get totalKcal =>
-      entries.fold<int>(0, (total, entry) => total + entry.kcal.round());
+  int get totalKcal => displayKcalTotal(entries);
 }

@@ -116,7 +116,7 @@ class _MealDetailSheetState extends State<MealDetailSheet> {
     _entries = List.of(widget.entries);
   }
 
-  int get _totalKcal => _entries.fold<int>(0, (sum, e) => sum + e.kcal.round());
+  int get _totalKcal => displayKcalTotal(_entries);
 
   bool get _busy => _busyEntryId != null || _movingAll;
 
