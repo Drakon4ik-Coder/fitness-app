@@ -47,6 +47,14 @@ class NutritionEntry {
   final DateTime? updatedAt;
 }
 
+/// Kcal total for display. Entry rows show each entry's kcal rounded, so every
+/// aggregate surface (meal cards, meal sheet, the day ring) must round per
+/// entry and then sum — summing the raw doubles and rounding once can disagree
+/// with the sum of the visible parts by a few kcal (KAN-99). Not for nutrition
+/// math: raw totals stay in [NutritionTotals].
+int displayKcalTotal(Iterable<NutritionEntry> entries) =>
+    entries.fold(0, (total, entry) => total + entry.kcal.round());
+
 /// One row of the delta feed: an entry plus its tombstone flag.
 class SyncEntry {
   const SyncEntry({required this.entry, required this.deleted});

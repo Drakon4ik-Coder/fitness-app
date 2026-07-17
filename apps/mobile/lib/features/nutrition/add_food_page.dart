@@ -1061,12 +1061,15 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
     // Totals scale each item's per-100g values by its chosen amount. The
     // summary tracks the user's focus nutrients, mirroring the today page.
-    double totalEnergy = 0;
+    // Kcal rounds per item then sums, matching each staged row's own label
+    // (and the logged entries' display) so the total equals its visible
+    // parts (KAN-99).
+    var totalKcal = 0;
     final focusTotals = List<double>.filled(_focusSpecs.length, 0);
 
     for (final entry in _addedItems) {
       final factor = entry.grams / 100.0;
-      totalEnergy += (entry.item.kcal100g ?? 0.0) * factor;
+      totalKcal += ((entry.item.kcal100g ?? 0.0) * factor).round();
       for (var i = 0; i < _focusSpecs.length; i++) {
         final per100 = nutrientPer100gForItem(_focusSpecs[i], entry.item);
         focusTotals[i] += (per100 ?? 0.0) * factor;
@@ -1118,7 +1121,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
             ? const SizedBox.shrink()
             : _LogBar(
                 itemCount: _addedItems.length,
-                totalKcal: totalEnergy.round(),
+                totalKcal: totalKcal,
                 mealLabel: mealLabel,
                 isSubmitting: _isSubmitting,
                 onSubmit: canSubmit ? _submitItems : null,
@@ -1143,7 +1146,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   _SummaryBento(
-                    totalEnergy: totalEnergy,
+                    totalKcal: totalKcal,
                     focusSpecs: _focusSpecs,
                     focusTotals: focusTotals,
                   ),
@@ -1479,12 +1482,12 @@ class _MealTypeSelectorTile extends StatelessWidget {
 /// focus-nutrient totals (same nutrients the today page tracks).
 class _SummaryBento extends StatelessWidget {
   const _SummaryBento({
-    required this.totalEnergy,
+    required this.totalKcal,
     required this.focusSpecs,
     required this.focusTotals,
   });
 
-  final double totalEnergy;
+  final int totalKcal;
   final List<NutrientSpec> focusSpecs;
   final List<double> focusTotals;
 
@@ -1528,7 +1531,7 @@ class _SummaryBento extends StatelessWidget {
                       textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(
-                          totalEnergy.round().toString(),
+                          totalKcal.toString(),
                           style: theme.textTheme.displayMedium?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: scheme.primary,

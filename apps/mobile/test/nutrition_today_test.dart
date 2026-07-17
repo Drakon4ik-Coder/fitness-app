@@ -75,7 +75,32 @@ Map<String, dynamic> _dayPayload({required String date, required num kcal}) {
   return {
     'date': date,
     'totals': {'kcal': kcal, 'protein_g': 0, 'carbs_g': 0, 'fat_g': 0},
-    'meals': {'breakfast': [], 'lunch': [], 'dinner': [], 'snacks': []},
+    // The eaten figure sums per-entry rounded kcal (KAN-99), so a non-empty
+    // day carries a matching entry — like real server payloads, where totals
+    // are computed from the entries.
+    'meals': {
+      'breakfast': [],
+      'lunch': [if (kcal != 0) _entryPayload(date: date, kcal: kcal)],
+      'dinner': [],
+      'snacks': [],
+    },
+  };
+}
+
+Map<String, dynamic> _entryPayload({
+  required String date,
+  required num kcal,
+  int id = 1,
+  String mealType = 'lunch',
+}) {
+  return {
+    'id': id,
+    'client_uuid': 'seed-$mealType-$id',
+    'meal_type': mealType,
+    'consumed_at': '${date}T12:00:00Z',
+    'quantity_g': 100,
+    'kcal': kcal,
+    'food_item': {'id': 7, 'name': 'Seed Food', 'kcal_100g': kcal},
   };
 }
 
@@ -154,7 +179,7 @@ void main() {
                   },
                   'meals': {
                     'breakfast': [],
-                    'lunch': [],
+                    'lunch': [_entryPayload(date: '2024-01-01', kcal: 2520)],
                     'dinner': [],
                     'snacks': [],
                   },
@@ -650,6 +675,82 @@ void main() {
     expect(find.text('2000'), findsOneWidget);
     expect(store.payloadWrites, contains(_todayKey()));
   });
+
+  testWidgets(
+    'eaten kcal equals the sum of the meal cards for fractional entries '
+    '(KAN-99)',
+    (WidgetTester tester) async {
+      // Three 100.4-kcal entries: the raw sum (301.2) rounds to 301, but each
+      // visible row rounds to 100 — every surface must agree on 300 (round
+      // per entry, then sum), or the ring disagrees with the meal cards.
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': _todayKey(),
+                  'totals': {
+                    'kcal': 301.2,
+                    'protein_g': 0,
+                    'carbs_g': 0,
+                    'fat_g': 0,
+                  },
+                  'meals': {
+                    'breakfast': [
+                      _entryPayload(
+                        date: _todayKey(),
+                        kcal: 100.4,
+                        id: 1,
+                        mealType: 'breakfast',
+                      ),
+                      _entryPayload(
+                        date: _todayKey(),
+                        kcal: 100.4,
+                        id: 2,
+                        mealType: 'breakfast',
+                      ),
+                    ],
+                    'lunch': [
+                      _entryPayload(
+                        date: _todayKey(),
+                        kcal: 100.4,
+                        id: 3,
+                        mealType: 'lunch',
+                      ),
+                    ],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Ring: 200 (breakfast) + 100 (lunch), not totals.kcal rounded to 301.
+      expect(find.text('300'), findsOneWidget);
+      expect(find.text('301'), findsNothing);
+      expect(find.text('200 kcal', skipOffstage: false), findsOneWidget);
+      expect(find.text('100 kcal', skipOffstage: false), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'pinned date bar stays visible on scroll and Today chip returns to today',
