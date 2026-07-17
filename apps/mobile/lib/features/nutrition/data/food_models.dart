@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'ciqual_raw_refs.dart';
 
 const String offSource = 'openfoodfacts';
@@ -8,6 +10,12 @@ const String offSource = 'openfoodfacts';
 /// their creator) and synced through /foods/custom rather than the OFF
 /// ingest/check flow; `externalId` is a client-generated id.
 const String customSource = 'custom';
+
+/// Source for FatSecret restaurant/chain results (KAN-67). Backend check/
+/// ingest already accept it like any other global source, so
+/// `ensureGlobalBackendId` works unmodified — only the search-side client +
+/// mapper are new.
+const String fatsecretSource = 'fatsecret';
 
 /// The four meal slots a day log is grouped into.
 ///
@@ -52,6 +60,71 @@ double? parseNullableDouble(dynamic value) {
     return double.tryParse(trimmed);
   }
   return null;
+}
+
+/// Builds a food's content hash: a normalized snapshot of the fields that
+/// determine whether a re-ingest is a no-op (paired with a stored row's
+/// hash on the backend's /foods/check). Shared by every mapper (OFF,
+/// FatSecret, ...) so they agree byte-for-byte on the same inputs — existing
+/// stored rows are keyed on this hash, so the field set and normalization
+/// must not change here without accepting a one-time re-ingest wave (the
+/// first check per food mismatches and re-uploads; the wave is the
+/// migration).
+///
+/// The derived piece fields and the cooked-basis marker are hashed even
+/// though the backend has no columns for them: they round-trip only through
+/// raw_source_json (fromBackendDetail re-derives them), so a source update
+/// that changes them without moving any stored column — "2 eggs (100 g)" →
+/// "4 slices (100 g)", a category re-tag flipping cooked basis — must not be
+/// skipped as up-to-date, or every later reload re-derives the stale state.
+/// Hashing the *derived* values, not their raw text, keeps cosmetic source
+/// churn from forcing pointless re-ingests.
+String buildFoodContentHash({
+  required String source,
+  required String externalId,
+  required String name,
+  required String brands,
+  required double? kcal100g,
+  required double? protein,
+  required double? carbs,
+  required double? fat,
+  required double? sugars,
+  required double? fiber,
+  required double? salt,
+  required double? servingSizeG,
+  required double? gramsPerPiece,
+  required String? pieceUnit,
+  required String? nutritionBasis,
+  required String? imageSignature,
+}) {
+  final payload = <String, String>{
+    'source': source,
+    'external_id': externalId.trim(),
+    'name': name.trim(),
+    'brands': brands.trim(),
+    'kcal_100g': _normalizeHashNumber(kcal100g),
+    'protein_g_100g': _normalizeHashNumber(protein),
+    'carbs_g_100g': _normalizeHashNumber(carbs),
+    'fat_g_100g': _normalizeHashNumber(fat),
+    'sugars_g_100g': _normalizeHashNumber(sugars),
+    'fiber_g_100g': _normalizeHashNumber(fiber),
+    'salt_g_100g': _normalizeHashNumber(salt),
+    'serving_size_g': _normalizeHashNumber(servingSizeG),
+    'grams_per_piece': _normalizeHashNumber(gramsPerPiece),
+    'piece_unit': pieceUnit?.trim().toLowerCase() ?? '',
+    'nutrition_basis': nutritionBasis?.trim() ?? '',
+    'image_signature': imageSignature?.trim() ?? '',
+  };
+  final encoded = jsonEncode(payload);
+  return sha256.convert(utf8.encode(encoded)).toString();
+}
+
+String _normalizeHashNumber(double? value) {
+  if (value == null) return '';
+  final fixed = value.toStringAsFixed(3);
+  return fixed
+      .replaceFirst(RegExp(r'\.0+$'), '')
+      .replaceFirst(RegExp(r'(\.\d*[1-9])0+$'), r'$1');
 }
 
 Object _decodeRawSourceJson(String rawSourceJson) {

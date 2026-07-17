@@ -10,6 +10,7 @@ import '../ui_system/lumina_health_theme.dart';
 import '../ui_system/tokens.dart';
 import 'nutrition/account_page.dart';
 import 'nutrition/data/api_exceptions.dart';
+import 'nutrition/data/fatsecret_client.dart';
 import 'nutrition/data/food_local_db.dart';
 import 'nutrition/data/foods_api_service.dart';
 import 'nutrition/data/local_db_paths.dart';
@@ -36,6 +37,7 @@ class MainShell extends StatefulWidget {
     this.foodsApi,
     this.localStore,
     this.offClient,
+    this.fatsecretApi,
     this.localDb,
   });
 
@@ -48,6 +50,9 @@ class MainShell extends StatefulWidget {
   final FoodsApiService? foodsApi;
   final NutritionLocalStore? localStore;
   final OffClient? offClient;
+
+  /// Restaurant/chain search source (KAN-67), forwarded to the nutrition tab.
+  final FatSecretClient? fatsecretApi;
   final FoodLocalDb? localDb;
 
   @override
@@ -153,6 +158,7 @@ class _MainShellState extends State<MainShell> {
             foodsApi: widget.foodsApi,
             localStore: _localStore,
             offClient: widget.offClient,
+            fatsecretApi: widget.fatsecretApi,
             localDb: _localDb,
           ),
           AccountPage(

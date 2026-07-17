@@ -24,9 +24,11 @@ def food_image_upload_path(instance: "FoodItem", filename: str) -> str:
 class FoodItem(models.Model):
     SOURCE_OPEN_FOOD_FACTS = "openfoodfacts"
     SOURCE_CUSTOM = "custom"
+    SOURCE_FATSECRET = "fatsecret"
     SOURCE_CHOICES = [
         (SOURCE_OPEN_FOOD_FACTS, "Open Food Facts"),
         (SOURCE_CUSTOM, "Custom"),
+        (SOURCE_FATSECRET, "FatSecret"),
     ]
 
     IMAGE_STATUS_OK = "ok"

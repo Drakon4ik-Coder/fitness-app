@@ -1,13 +1,20 @@
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from foods import fatsecret
 from foods.images import images_ok, safe_signature, validate_and_normalize_image
 from foods.models import FoodItem
 from foods.serializers import (
@@ -18,6 +25,23 @@ from foods.serializers import (
     FoodItemIngestSerializer,
     FoodItemSerializer,
 )
+
+
+def _fatsecret_error_response(exc: Exception) -> Response:
+    # Real upstream detail (partner error codes/messages, connection errors)
+    # is already logged in foods.fatsecret — only a generic detail crosses
+    # the client boundary here.
+    if isinstance(exc, fatsecret.FatSecretNotConfigured):
+        return Response(
+            {"detail": "Food search partner is not configured."}, status=503
+        )
+    if isinstance(exc, fatsecret.FatSecretUpstreamError):
+        if exc.status == 429:
+            return Response(
+                {"detail": "Food search partner is rate limited."}, status=429
+            )
+        return Response({"detail": "Food search partner error."}, status=502)
+    raise exc
 
 
 class FoodTypeaheadView(APIView):
@@ -252,3 +276,111 @@ class FoodCheckView(APIView):
                 "images_ok": images_ok_value,
             }
         )
+
+
+class FatSecretSearchView(APIView):
+    permission_classes = [IsAuthenticated]
+    # Shared "fatsecret" scope with FatSecretFoodView: every proxied call
+    # spends the app-wide partner quota, so one account must be capped well
+    # below the default user rate (see DEFAULT_THROTTLE_RATES) or it can
+    # starve the shared budget and 429 every other user.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "fatsecret"
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="q",
+                required=True,
+                type=str,
+                description="Search query (restaurant/menu item name).",
+            ),
+            OpenApiParameter(
+                name="page",
+                required=False,
+                type=int,
+                description="Zero-based page number (default 0).",
+            ),
+            OpenApiParameter(
+                name="max_results",
+                required=False,
+                type=int,
+                description="Max results per page, 1-50 (default 10).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Verbatim FatSecret foods.search JSON passthrough.",
+            ),
+            400: OpenApiResponse(description="q is required"),
+            401: OpenApiResponse(description="Unauthorized"),
+            429: OpenApiResponse(description="Food search partner is rate limited"),
+            502: OpenApiResponse(description="Food search partner error"),
+            503: OpenApiResponse(description="Food search partner is not configured"),
+        },
+    )
+    def get(self, request: Request) -> Response:
+        q = request.query_params.get("q", "").strip()
+        if not q:
+            return Response({"detail": "q is required."}, status=400)
+
+        page_raw = request.query_params.get("page")
+        try:
+            page = int(page_raw) if page_raw is not None else 0
+        except (TypeError, ValueError):
+            page = 0
+        page = max(0, page)
+
+        max_results_raw = request.query_params.get("max_results")
+        try:
+            max_results = int(max_results_raw) if max_results_raw is not None else 10
+        except (TypeError, ValueError):
+            max_results = 10
+        max_results = max(1, min(max_results, 50))
+
+        try:
+            data = fatsecret.search_foods(q, page=page, max_results=max_results)
+        except (
+            fatsecret.FatSecretNotConfigured,
+            fatsecret.FatSecretUpstreamError,
+        ) as exc:
+            return _fatsecret_error_response(exc)
+        return Response(data)
+
+
+class FatSecretFoodView(APIView):
+    permission_classes = [IsAuthenticated]
+    # Same shared "fatsecret" scope as FatSecretSearchView — one partner
+    # budget, one bucket.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "fatsecret"
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Verbatim FatSecret food.get.v4 JSON passthrough.",
+            ),
+            400: OpenApiResponse(description="food_id must be numeric"),
+            401: OpenApiResponse(description="Unauthorized"),
+            429: OpenApiResponse(description="Food search partner is rate limited"),
+            502: OpenApiResponse(description="Food search partner error"),
+            503: OpenApiResponse(description="Food search partner is not configured"),
+        },
+    )
+    def get(self, request: Request, food_id: str) -> Response:
+        # isdigit() alone admits Unicode digits ("²", "١٢٣") that FatSecret
+        # would reject — misclassifying client garbage as a 502 partner error
+        # (and polluting the upstream-error logs). ASCII digits only.
+        if not (food_id.isascii() and food_id.isdigit()):
+            return Response({"detail": "food_id must be numeric."}, status=400)
+
+        try:
+            data = fatsecret.get_food(food_id)
+        except (
+            fatsecret.FatSecretNotConfigured,
+            fatsecret.FatSecretUpstreamError,
+        ) as exc:
+            return _fatsecret_error_response(exc)
+        return Response(data)

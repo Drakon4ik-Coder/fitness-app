@@ -4,12 +4,15 @@ import 'dart:math' show min;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'custom_food_page.dart';
 import 'data/api_exceptions.dart';
+import 'data/fatsecret_client.dart';
+import 'data/fatsecret_mapper.dart';
 import 'data/food_local_db.dart';
 import 'data/food_models.dart';
 import 'data/food_sync.dart';
@@ -26,6 +29,9 @@ import 'nutrition_scan_page.dart';
 import 'widgets/amount_sheet.dart';
 import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
 import 'widgets/swipe_delete_background.dart';
+
+/// FatSecret's free-tier attribution link (KAN-67 legal requirement).
+const String kFatSecretAttributionUrl = 'https://platform.fatsecret.com';
 
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
@@ -60,6 +66,7 @@ class AddFoodPage extends StatefulWidget {
     required this.foodsApi,
     required this.repository,
     required this.offClient,
+    this.fatsecretApi,
     required this.onLogout,
     required this.selectedDate,
     this.initialMeal,
@@ -75,6 +82,11 @@ class AddFoodPage extends StatefulWidget {
   final FoodsApiService foodsApi;
   final NutritionRepository repository;
   final OffClient offClient;
+
+  /// Restaurant/chain search source (KAN-67). Null disables the whole
+  /// FatSecret leg — live search, merge, enrich, attribution footer — so
+  /// every existing test-construction site keeps compiling unchanged.
+  final FatSecretClient? fatsecretApi;
   final Future<void> Function() onLogout;
   final DateTime selectedDate;
   final MealType? initialMeal;
@@ -116,6 +128,7 @@ class AddFoodPage extends StatefulWidget {
 class _AddFoodPageState extends State<AddFoodPage> {
   final TextEditingController _searchController = TextEditingController();
   final OffMapper _offMapper = OffMapper();
+  final FatSecretMapper _fatsecretMapper = FatSecretMapper();
   final OffImageDownloader _imageDownloader = OffImageDownloader();
   late final LiveSearchController _liveSearch;
   Timer? _offBlockTimer;
@@ -138,6 +151,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   bool _isBackendLoading = false;
   bool _isOffLoading = false;
+  bool _isFatSecretLoading = false;
   bool _isSubmitting = false;
   bool _ignoreSearchChange = false;
 
@@ -147,6 +161,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   List<FoodItem> _localResults = [];
   List<FoodItem> _backendResults = [];
   List<FoodItem> _offResults = [];
+  List<FoodItem> _fatsecretResults = [];
 
   @override
   void initState() {
@@ -173,6 +188,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
       offClient: widget.offClient,
       foodsApi: widget.foodsApi,
       offMapper: _offMapper,
+      fatsecretClient: widget.fatsecretApi,
+      fatsecretMapper: _fatsecretMapper,
       onBackendResults: (results) {
         if (!mounted) return;
         setState(() => _backendResults = results);
@@ -181,13 +198,28 @@ class _AddFoodPageState extends State<AddFoodPage> {
         if (!mounted) return;
         setState(() => _offResults = results);
       },
-      onLoadingChanged: ({required bool backend, required bool off}) {
-        if (!mounted) return;
-        setState(() {
-          _isBackendLoading = backend;
-          _isOffLoading = off;
-        });
-      },
+      // Null unless widget.fatsecretApi is set — the controller only fires
+      // the leg when both client and callback are non-null (feature off
+      // otherwise).
+      onFatSecretResults: widget.fatsecretApi == null
+          ? null
+          : (results) {
+              if (!mounted) return;
+              setState(() => _fatsecretResults = results);
+            },
+      onLoadingChanged:
+          ({
+            required bool backend,
+            required bool off,
+            required bool fatsecret,
+          }) {
+            if (!mounted) return;
+            setState(() {
+              _isBackendLoading = backend;
+              _isOffLoading = off;
+              _isFatSecretLoading = fatsecret;
+            });
+          },
       onUnauthorized: widget.onLogout,
     );
     _searchController.addListener(_handleSearchChange);
@@ -232,10 +264,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
       setState(() {
         _backendResults = [];
         _offResults = [];
+        _fatsecretResults = [];
         _message = null;
         _messageTone = null;
         _isBackendLoading = false;
         _isOffLoading = false;
+        _isFatSecretLoading = false;
       });
       _loadFilterResults();
       return;
@@ -244,6 +278,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
     setState(() {
       _offResults = [];
       _backendResults = [];
+      _fatsecretResults = [];
       _message = null;
       _messageTone = null;
     });
@@ -313,15 +348,45 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // OFF text search can't return serving data, so an OFF result starts without a
   // serving/piece size. Fetch the full product the moment it's tapped so the
   // amount sheet can offer pieces/servings and the quick-add default is sane.
+  // FatSecret's search is the same story (no serving data), but it has its
+  // own throttle — never gated on `_isOffRateLimited`, which is OFF's budget.
   bool _needsEnrich(_FoodResult result) {
-    return result.origin == _FoodResultOrigin.off &&
-        result.item.barcode != null &&
-        result.item.barcode!.isNotEmpty &&
-        result.item.servingSizeG == null &&
-        !_isOffRateLimited;
+    if (result.origin == _FoodResultOrigin.off) {
+      return result.item.barcode != null &&
+          result.item.barcode!.isNotEmpty &&
+          result.item.servingSizeG == null &&
+          !_isOffRateLimited;
+    }
+    if (result.origin == _FoodResultOrigin.fatsecret) {
+      return result.item.servingSizeG == null && widget.fatsecretApi != null;
+    }
+    return false;
   }
 
   Future<FoodItem> _enrich(FoodItem item) async {
+    if (item.source == fatsecretSource) {
+      final api = widget.fatsecretApi;
+      if (api == null) return item;
+      try {
+        final food = await api.getFood(item.externalId);
+        if (food == null || !mounted) return item;
+        return _fatsecretMapper.mapDetail(food) ?? item;
+      } on OffRateLimitException {
+        // FatSecret's own throttle — silent, and deliberately not routed
+        // through `_applyOffLimit` (that would block the OFF barcode-scan
+        // path over a FatSecret budget exhaustion, two unrelated concerns).
+        return item;
+      } on ApiException catch (error) {
+        // Unlike the OFF branch below, this enrich crosses our authenticated
+        // proxy. A surfaced 401 means the interceptor's token refresh already
+        // failed — route to logout like every other backend call site instead
+        // of dressing a dead session up as "no nutrition data".
+        if (error.isUnauthorized) {
+          await widget.onLogout();
+        }
+        return item;
+      }
+    }
     final barcode = item.barcode;
     if (barcode == null || barcode.isEmpty) return item;
     try {
@@ -356,6 +421,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
 
     var item = result.item;
+    final wasFatSecretEnrich =
+        _needsEnrich(result) && result.origin == _FoodResultOrigin.fatsecret;
     if (_needsEnrich(result)) {
       final key = _resultKey(item);
       if (key == null || _enrichingKey != null) return;
@@ -365,6 +432,26 @@ class _AddFoodPageState extends State<AddFoodPage> {
       setState(() => _enrichingKey = null);
       // The user may have navigated/removed in the meantime; re-check.
       if (_indexOfAdded(item) >= 0) return;
+    }
+
+    // A FatSecret item whose enrich fetch found no per-100g-mappable serving
+    // (see FatSecretMapper.mapDetail) carries no nutrition at all — quick-add
+    // would silently stage a zero-calorie phantom that corrupts the day's
+    // totals, so refuse and tell the user instead of adding it.
+    if (wasFatSecretEnrich &&
+        item.kcal100g == null &&
+        item.nutrimentsJson == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('No nutrition data available for this item.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+      }
+      return;
     }
 
     unawaited(HapticFeedback.selectionClick());
@@ -621,6 +708,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         _localResults = [override];
         _backendResults = [];
         _offResults = [];
+        _fatsecretResults = [];
         _message = null;
         _messageTone = null;
       });
@@ -661,6 +749,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         _offResults = [item];
         _backendResults = [];
         _localResults = [];
+        _fatsecretResults = [];
         _isOffLoading = false;
         // Auto add scanned item? Maybe not, let user tap it.
       });
@@ -843,6 +932,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
     addItems(_localResults, _FoodResultOrigin.local);
     addItems(_backendResults, _FoodResultOrigin.backend);
     addItems(_offResultsForDisplay(), _FoodResultOrigin.off);
+    // No completeness floor here — FatSecret carries no completeness field.
+    addItems(_fatsecretResults, _FoodResultOrigin.fatsecret);
     final queryLower = trimmed.toLowerCase();
     results.sort((a, b) {
       final scoreA = _resultScore(a, queryLower);
@@ -871,8 +962,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
     if (item.barcode != null && item.barcode!.isNotEmpty) {
       return 'barcode:${item.barcode}';
     }
+    // Catalog identity (source, external_id) outranks backendId: a live
+    // FatSecret result carries no backendId while the typeahead/local copy
+    // of the same ingested food does, so keying the latter by backendId
+    // would show the food twice and let both be staged. Source-qualified to
+    // keep FatSecret's externalId space apart from custom foods' UUID
+    // space. Page-lifetime only — never persisted.
+    if (item.externalId.isNotEmpty) {
+      return 'external:${item.source}:${item.externalId}';
+    }
     if (item.backendId != null) return 'backend:${item.backendId}';
-    if (item.externalId.isNotEmpty) return 'external:${item.externalId}';
     return null;
   }
 
@@ -899,6 +998,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
     switch (result.origin) {
       case _FoodResultOrigin.off:
         score += 5;
+        break;
+      // Between OFF's +5 and backend's +3, with no completeness bonus below
+      // (FatSecret has no completeness field) — keeps OFF's best-filled
+      // duplicates competitive while restaurant hits still rank by name match.
+      case _FoodResultOrigin.fatsecret:
+        score += 4;
         break;
       case _FoodResultOrigin.backend:
         score += 3;
@@ -1059,7 +1164,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
             child: _SearchHeader(
               controller: _searchController,
               onScan: _isOffRateLimited ? null : _openScanPage,
-              isLoading: _isBackendLoading || _isOffLoading,
+              isLoading:
+                  _isBackendLoading || _isOffLoading || _isFatSecretLoading,
               message: _message,
               messageTone: _messageTone,
             ),
@@ -1131,10 +1237,18 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 },
               ),
             ),
+          // Free-tier attribution requirement (KAN-67): only over the
+          // search-results view, and only once a FatSecret row is actually
+          // visible — never over the Recent/Favorites default view.
+          if (hasQuery && results.any(_isFatSecretResult))
+            const SliverToBoxAdapter(child: _FatSecretAttributionFooter()),
         ],
       ),
     );
   }
+
+  static bool _isFatSecretResult(_FoodResult result) =>
+      result.origin == _FoodResultOrigin.fatsecret;
 }
 
 /// The "ADDED ITEMS" label plus staged tiles, extracted from build() while
@@ -1683,7 +1797,7 @@ String _focusValueText(double value, String unit) =>
 // personalized) daily target, so the bars track the user's own goals.
 const double _mealShareOfDailyTarget = 0.3;
 
-enum _FoodResultOrigin { local, backend, off }
+enum _FoodResultOrigin { local, backend, off, fatsecret }
 
 class _FoodResult {
   const _FoodResult({required this.item, required this.origin});
@@ -1842,6 +1956,50 @@ class _FoodCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Free-tier attribution FatSecret's platform terms require (KAN-67).
+/// Extracted per the size-discipline rule; muted labelSmall/onSurfaceVariant
+/// styling so it reads as a footnote, not another result.
+class _FatSecretAttributionFooter extends StatelessWidget {
+  const _FatSecretAttributionFooter();
+
+  Future<void> _open() {
+    return url_launcher.launchUrl(
+      Uri.parse(kFatSecretAttributionUrl),
+      mode: url_launcher.LaunchMode.externalApplication,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      child: Center(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _open,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
+              child: Text(
+                'Powered by FatSecret',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),

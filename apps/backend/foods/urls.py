@@ -3,6 +3,8 @@ from django.urls import path
 from foods.views import (
     CustomFoodDetailView,
     CustomFoodView,
+    FatSecretFoodView,
+    FatSecretSearchView,
     FoodCheckView,
     FoodImageUploadView,
     FoodIngestView,
@@ -16,4 +18,6 @@ urlpatterns = [
     path("custom/<int:food_item_id>", CustomFoodDetailView.as_view()),
     path("check", FoodCheckView.as_view()),
     path("<int:food_item_id>/images", FoodImageUploadView.as_view()),
+    path("fatsecret/search", FatSecretSearchView.as_view()),
+    path("fatsecret/food/<str:food_id>", FatSecretFoodView.as_view()),
 ]
