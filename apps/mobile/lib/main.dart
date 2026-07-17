@@ -9,6 +9,8 @@ import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'core/environment.dart';
+import 'core/update_gate.dart';
+import 'core/version_check_service.dart';
 import 'features/login_page.dart';
 import 'features/main_shell.dart';
 import 'ui_components/ui_components.dart';
@@ -53,7 +55,10 @@ Future<void> main() async {
 }
 
 class FitnessApp extends StatelessWidget {
-  const FitnessApp({super.key});
+  const FitnessApp({super.key, this.versionService});
+
+  /// Injected by tests; defaults to the real /health/ probe (KAN-100).
+  final VersionCheckService? versionService;
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +67,9 @@ class FitnessApp extends StatelessWidget {
       // Dark-only design system: `theme` (the light slot) is set to the dark
       // theme so the app always renders dark regardless of OS brightness.
       theme: LuminaHealthTheme.dark(),
-      home: const AuthGate(),
+      // The forced-update gate wraps the whole app (not just the signed-in
+      // shell) so a too-old build is blocked before login can even start.
+      home: UpdateGate(versionService: versionService, child: const AuthGate()),
     );
   }
 }

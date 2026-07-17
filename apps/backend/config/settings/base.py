@@ -19,6 +19,13 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 with open(BASE_DIR / "pyproject.toml", "rb") as _pyproject:
     APP_VERSION: str = tomllib.load(_pyproject)["project"]["version"]
 
+# Minimum Android versionCode (the monotonic +<run> build number, not the
+# X.Y.Z name) this API still supports, served via /health/ for the in-app
+# forced-update gate (KAN-100). Env-only on purpose: ops can lock out builds
+# that predate a breaking API change without a code deploy. 0 disables the
+# gate — no installed build is ever blocked.
+MIN_SUPPORTED_APP_BUILD: int = env.int("MIN_SUPPORTED_APP_BUILD", default=0)
+
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-not-secure")
 DEBUG = env.bool("DEBUG", default=True)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
