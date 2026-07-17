@@ -23,16 +23,17 @@
 
 name: Mobile Release
 
+# Dispatch-only: releases are cut deliberately (docs/RELEASE.md), not per
+# merge — testers get builds from mobile-staging.yml instead. Check that
+# main is green before dispatching; this workflow does not wait for CI.
 on:
-  workflow_run:
-    workflows: ["Mobile CI"]
-    branches: [main]
-    types: [completed]
   workflow_dispatch:
 
 jobs:
   release:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    # main only — dispatching from another branch would tag and publish an
+    # APK that never went through the develop -> main PR flow.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

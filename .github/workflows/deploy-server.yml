@@ -9,7 +9,9 @@ on:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # event == 'push' matters: Backend CI also runs on a weekly cron, and a
+    # green scheduled run would otherwise rebuild/restart prod every Monday.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: self-hosted
 
     steps:

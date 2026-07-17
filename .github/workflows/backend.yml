@@ -88,3 +88,38 @@ jobs:
       - name: Test
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: poetry run pytest --ds=config.settings.test --maxfail=1 --disable-warnings -q
+
+  # The backend deploys to prod on every green main push while mobile
+  # releases are dispatch-only, so prod's API must stay backward-compatible
+  # with the *last released* app — not just with current main (which the
+  # contract-drift step above covers). This diffs the contract against the
+  # one at the latest release tag and fails on breaking changes. For a
+  # deliberate break (e.g. an endpoint no released build ever called), pass
+  # an --err-ignore file per oasdiff's breaking-changes docs.
+  contract-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so release tags are reachable
+      - name: Extract contract at last release
+        id: released
+        run: |
+          # Run numbers are monotonic across version bumps, so sorting by
+          # the +N suffix alone always finds the newest release.
+          TAG=$(git tag -l 'v*' | sort -t+ -k2 -n | tail -1)
+          if [ -z "$TAG" ]; then
+            echo "No release tags yet; skipping."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Comparing against $TAG"
+          git show "$TAG:contracts/openapi.yaml" > /tmp/released-openapi.yaml
+          echo "found=true" >> "$GITHUB_OUTPUT"
+      - name: Breaking-change check (oasdiff)
+        if: steps.released.outputs.found == 'true'
+        run: |
+          docker run --rm \
+            -v /tmp/released-openapi.yaml:/base.yaml:ro \
+            -v "$GITHUB_WORKSPACE/contracts/openapi.yaml":/revision.yaml:ro \
+            tufin/oasdiff breaking /base.yaml /revision.yaml --fail-on ERR
