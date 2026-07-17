@@ -22,7 +22,8 @@ import 'data/off_rate_limiter.dart';
 ///
 /// Responsibilities (moved out of the page):
 /// - the single shared debounce timer that fires backend typeahead + OFF
-///   (+ FatSecret, KAN-67) together (~300ms, D-06);
+///   (+ FatSecret, KAN-67) together ([defaultDebounce], D-06; 600ms per
+///   KAN-97 — 300ms fired mid-typing);
 /// - the active-query [CancelToken] that is cancelled the instant a newer
 ///   keystroke supersedes it so the in-flight OFF socket is actually aborted
 ///   (D-08 / SRCH-02);
@@ -32,6 +33,11 @@ import 'data/off_rate_limiter.dart';
 /// The page keeps the instant, un-debounced local-cache search and feeds this
 /// controller's callbacks back into its `setState`-driven result fields.
 class LiveSearchController {
+  /// Wait after the last keystroke before the online sources fire. 600ms
+  /// (KAN-97): 300ms triggered searches while the user was still typing,
+  /// wasting the OFF rate budget on queries nobody wanted answered.
+  static const Duration defaultDebounce = Duration(milliseconds: 600);
+
   LiveSearchController({
     required OffClient offClient,
     required FoodsApiService foodsApi,
@@ -44,7 +50,7 @@ class LiveSearchController {
     OffMapper? offMapper,
     FatSecretMapper? fatsecretMapper,
     OffRateLimiter? rateLimiter,
-    Duration debounce = const Duration(milliseconds: 300),
+    Duration debounce = defaultDebounce,
     int minQueryLength = 2,
     String localeLanguage = 'en',
   }) : _offClient = offClient,
@@ -133,7 +139,7 @@ class LiveSearchController {
 
     // Supersede the previous query's in-flight request at keystroke time, not
     // when the debounce fires (D-08 / SRCH-02): otherwise a late response for
-    // the old query can land inside the 300ms window, still match
+    // the old query can land inside the debounce window, still match
     // `_activeToken`/`_activeQuery`, pass the stale guard, and repopulate the
     // page under a newer visible query.
     _activeToken?.cancel('superseded by "$query"');

@@ -161,7 +161,10 @@ void main() {
         controller.onQueryChanged('a');
         controller.onQueryChanged('ap');
         // Nothing fires before the debounce elapses.
-        async.elapse(const Duration(milliseconds: 299));
+        async.elapse(
+          LiveSearchController.defaultDebounce -
+              const Duration(milliseconds: 1),
+        );
         expect(off.searchQueries, isEmpty);
         expect(backend.typeaheadQueries, isEmpty);
 
@@ -184,12 +187,12 @@ void main() {
         final controller = _build(off: off, backend: backend);
 
         controller.onQueryChanged('a');
-        async.elapse(const Duration(milliseconds: 300));
+        async.elapse(LiveSearchController.defaultDebounce);
         expect(off.searchQueries, isEmpty);
         expect(backend.typeaheadQueries, isEmpty);
 
         controller.onQueryChanged('ap');
-        async.elapse(const Duration(milliseconds: 300));
+        async.elapse(LiveSearchController.defaultDebounce);
         expect(off.searchQueries, ['ap']);
         expect(backend.typeaheadQueries, ['ap']);
 
@@ -206,14 +209,14 @@ void main() {
       final controller = _build(off: off, backend: backend);
 
       controller.onQueryChanged('apple');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       expect(off.tokens.length, 1);
       final firstToken = off.tokens[0]!;
       expect(firstToken.isCancelled, isFalse);
 
       // A newer query supersedes the first before it resolves.
       controller.onQueryChanged('apples');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       expect(off.tokens.length, 2);
       final secondToken = off.tokens[1]!;
 
@@ -246,12 +249,12 @@ void main() {
         );
 
         controller.onQueryChanged('apple');
-        async.elapse(const Duration(milliseconds: 300));
+        async.elapse(LiveSearchController.defaultDebounce);
         final firstPending = off.pending!;
 
         // Supersede with a newer query.
         controller.onQueryChanged('apples');
-        async.elapse(const Duration(milliseconds: 300));
+        async.elapse(LiveSearchController.defaultDebounce);
 
         // The first (superseded) query now resolves late with a product.
         firstPending.complete([
@@ -299,13 +302,13 @@ void main() {
       );
 
       controller.onQueryChanged('apple');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       final firstToken = off.tokens[0]!;
       final firstOffPending = off.pending!;
       final firstBackendPending = backend.pending!;
 
       // Supersede WITHOUT elapsing the new debounce: the keystroke itself
-      // must cancel the in-flight token, not the debounce firing 300ms
+      // must cancel the in-flight token, not the debounce firing 600ms
       // later.
       controller.onQueryChanged('apples');
       expect(
@@ -364,7 +367,7 @@ void main() {
         );
 
         controller.onQueryChanged('yogurt');
-        async.elapse(const Duration(milliseconds: 300));
+        async.elapse(LiveSearchController.defaultDebounce);
 
         // OFF was never called — the pre-flight check short-circuited it.
         expect(
@@ -404,7 +407,7 @@ void main() {
       );
 
       controller.onQueryChanged('yogurt');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       async.flushMicrotasks();
 
       // The OFF loading flag must have settled back to false — a skipped query
@@ -448,7 +451,7 @@ void main() {
       );
 
       controller.onQueryChanged('yogurt');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       async.flushMicrotasks();
 
       // Backend completes normally and its results still flow through.
@@ -497,7 +500,7 @@ void main() {
       );
 
       controller.onQueryChanged('yogurt');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       async.flushMicrotasks();
 
       // The OFF error never surfaces as a result/error and the loading flag
@@ -543,7 +546,7 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
 
       expect(fatsecret.searchQueries, ['burger']);
       fatsecret.pending!.complete([
@@ -579,7 +582,7 @@ void main() {
         );
 
         controller.onQueryChanged('burger');
-        async.elapse(const Duration(milliseconds: 300));
+        async.elapse(LiveSearchController.defaultDebounce);
         async.flushMicrotasks();
 
         // The fatsecret loading flag never goes true — the leg was never armed.
@@ -612,7 +615,7 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
 
       expect(fatsecret.searchQueries, isEmpty);
 
@@ -642,11 +645,11 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       controller.onQueryChanged('b'); // below the 2-char floor
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       controller.onQueryChanged(''); // empty-query clear path
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
 
       expect(calls, isEmpty);
 
@@ -678,7 +681,7 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       async.flushMicrotasks();
       backend.pending!.complete(const []);
       async.flushMicrotasks();
@@ -707,7 +710,7 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       async.flushMicrotasks();
 
       expect(unauthorizedCalls, 1);
@@ -737,7 +740,7 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
 
       expect(states, isNotEmpty);
       expect(
@@ -778,7 +781,7 @@ void main() {
       );
 
       controller.onQueryChanged('apple');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
       final firstToken = fatsecret.tokens[0]!;
       final firstPending = fatsecret.pending!;
       expect(firstToken.isCancelled, isFalse);
@@ -789,7 +792,7 @@ void main() {
         isTrue,
         reason: 'keystroke must cancel the in-flight FatSecret token instantly',
       );
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
 
       firstPending.complete([
         {'food_id': '1', 'food_name': 'Stale Apple'},
@@ -826,7 +829,7 @@ void main() {
       );
 
       controller.onQueryChanged('burger');
-      async.elapse(const Duration(milliseconds: 300));
+      async.elapse(LiveSearchController.defaultDebounce);
 
       expect(fatsecret.searchQueries, isEmpty);
       expect(fatsecretResultsReceived, isEmpty);
