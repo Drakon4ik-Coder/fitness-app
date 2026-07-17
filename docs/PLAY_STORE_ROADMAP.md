@@ -7,8 +7,8 @@ Status of the app as of 2026-07-06, followed by a phased plan to get
 
 **Already in good shape**
 - Signed release builds: keystore-based signing wired in `app/build.gradle.kts`,
-  `mobile-release.yml` builds a signed APK per push to `main` and publishes it
-  as a GitHub Release. `print-signing-sha.yml` exists for OAuth fingerprints.
+  `mobile-release.yml` builds a signed APK on manual dispatch (`main` only)
+  and publishes it as a GitHub Release. `print-signing-sha.yml` exists for OAuth fingerprints.
 - Target/min SDK: merged release manifest targets API 36 (Android 16),
   minSdk 24 — comfortably above Google's 2026 target-API requirement.
 - Unique application id (`uk.drakon4ik.symbio`), launcher icons + adaptive

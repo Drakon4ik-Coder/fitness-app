@@ -12,9 +12,11 @@ exactly two files that must move together:
   OpenAPI `info.version` follow automatically. A bump therefore changes
   `contracts/openapi.yaml` — run `make backend-contract` in the same commit.
 
-## Build releases (automatic — every push to `main`)
+## Cutting a release (manual — Actions → Mobile Release)
 
-When Mobile CI goes green on `main`, `mobile-release.yml`:
+Releases are dispatch-only: run the **Mobile Release** workflow on `main`
+(it refuses other branches). Verify `main` is green (Backend CI, Mobile CI)
+first — dispatch does not wait for CI. The workflow:
 
 1. builds a signed APK and AAB with `versionCode = GitHub run number`
    (monotonic, required by Play),
@@ -22,21 +24,22 @@ When Mobile CI goes green on `main`, `mobile-release.yml`:
 3. publishes a GitHub Release with auto-generated notes and the APK attached;
    the AAB is uploaded as a workflow artifact for the Play Store.
 
-These are build releases: no manual steps, no version bump, no CHANGELOG
-movement.
+Tester builds don't go through this — use `mobile-staging.yml` (Firebase App
+Distribution). The backend has no release step at all: `deploy-server.yml`
+deploys `main` to production automatically after every green Backend CI
+push run.
 
-## Version releases (manual — user-facing milestones)
+## Version bumps (user-facing milestones)
 
 Bump `X.Y.Z` when shipping something worth signalling: a Play Store rollout,
 a feature milestone, or an API change clients must care about.
 
-1. Verify `main` is green in CI (Backend CI, Mobile CI, Meta CI).
-2. Bump both version sources listed above; re-export the contract
+1. Bump both version sources listed above; re-export the contract
    (`make backend-contract`).
-3. Move CHANGELOG `Unreleased` items into a new `[X.Y.Z]` section.
-4. Land it on `main` through the normal PR flow. The next `main` build tags
-   `vX.Y.Z+<run number>` with the new version automatically — do not create
-   a bare `vX.Y.Z` tag by hand.
+2. Move CHANGELOG `Unreleased` items into a new `[X.Y.Z]` section.
+3. Land it on `main` through the normal PR flow.
+4. Run the **Mobile Release** workflow — the tag becomes `vX.Y.Z+<run>` with
+   the new version. Do not create a bare `vX.Y.Z` tag by hand.
 5. Optionally edit that GitHub Release's generated notes into the template
    below.
 
