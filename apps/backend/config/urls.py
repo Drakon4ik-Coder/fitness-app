@@ -17,7 +17,15 @@ from config.well_known import assetlinks
 
 
 def health(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"status": "ok", "version": settings.APP_VERSION})
+    return JsonResponse(
+        {
+            "status": "ok",
+            "version": settings.APP_VERSION,
+            # Forced-update gate (KAN-100): installed apps whose versionCode
+            # is below this show a blocking update dialog on startup.
+            "min_supported_build": settings.MIN_SUPPORTED_APP_BUILD,
+        }
+    )
 
 
 urlpatterns = [

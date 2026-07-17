@@ -100,7 +100,7 @@ Root URLconf: `config/urls.py`
 | `/api/v1/preferences/` | `preferences.urls` |
 | `/api/schema/`, `/api/docs/` | drf-spectacular schema + Swagger UI |
 | `/admin/` | Django admin |
-| `/health/` | JSON healthcheck |
+| `/health/` | JSON healthcheck: backend version + `min_supported_build` for the forced-update gate (KAN-100) |
 | `/.well-known/assetlinks.json` | Android app-link / shared-credential affiliation |
 | `/delete-account` | Logged-out web account-deletion request + emailed confirm link |
 | `/privacy` | Hosted privacy policy (linked from Settings → About and the store listing) |
@@ -119,7 +119,9 @@ lib/
 │   ├── auth_interceptor.dart    # Dio interceptor: attaches token, deduplicated 401 refresh
 │   ├── auth_storage.dart        # flutter_secure_storage wrapper (access + refresh keys)
 │   ├── google_auth_service.dart # google_sign_in wrapper
-│   └── environment.dart         # apiBaseUrl etc. from --dart-define
+│   ├── environment.dart         # apiBaseUrl etc. from --dart-define
+│   ├── version_check_service.dart # /health/ min_supported_build probe (KAN-100)
+│   └── update_gate.dart         # startup forced-update gate + blocking dialog (fail-open)
 ├── features/
 │   ├── login_page.dart / register_page.dart / forgot_password_page.dart
 │   ├── main_shell.dart          # Signed-in bottom-nav shell; owns shared UserPreferences

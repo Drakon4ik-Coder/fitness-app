@@ -38,8 +38,29 @@ latest `v*` tag: additive changes only — new response fields are fine
 endpoints/fields/enum values a released build uses are never removed or
 repurposed. Backend CI's `contract-compat` job enforces this with `oasdiff
 breaking` against the contract at the latest release tag; a genuinely
-breaking change needs `/api/v2/` (or a forced-update mechanism, which does
-not exist yet).
+breaking change needs `/api/v2/` or the forced-update deprecation window
+below.
+
+### Forced update / deprecation window
+
+`/health/` also serves `min_supported_build`: the minimum Android
+`versionCode` (the monotonic `+<run>` build number, not the `X.Y.Z` name)
+the backend still supports. It is read from the `MIN_SUPPORTED_APP_BUILD`
+environment variable on the backend host (default 0 = nothing blocked), so
+ops can raise it without a code deploy. On startup the app compares its own
+`versionCode` against it and, when below, shows a non-dismissible update
+dialog linking to the Play listing. The check fails open — an unreachable
+backend or malformed payload starts the app normally (offline-first); only
+a definitive too-old verdict blocks.
+
+This turns the contract-compat block above into a deprecation window
+instead of a permanent freeze: ship a release (build `N`) that no longer
+depends on the old behavior, set `MIN_SUPPORTED_APP_BUILD=N`, and once
+every older install is locked out the old behavior can be retired. That
+removal will still trip `contract-compat` against the pre-removal tag — at
+that point the failure is a deliberate sign-off rather than a hard stop,
+and the job goes green again once the next release is tagged with the
+slimmed contract.
 
 ## Version bumps (user-facing milestones)
 
