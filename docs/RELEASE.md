@@ -29,6 +29,18 @@ Distribution). The backend has no release step at all: `deploy-server.yml`
 deploys `main` to production automatically after every green Backend CI
 push run.
 
+## API compatibility
+
+Because the backend deploys continuously but installed apps lag behind the
+last release, the API on `main` must stay backward-compatible with the
+latest `v*` tag: additive changes only — new response fields are fine
+(clients ignore unknown keys), new request fields must be optional, and
+endpoints/fields/enum values a released build uses are never removed or
+repurposed. Backend CI's `contract-compat` job enforces this with `oasdiff
+breaking` against the contract at the latest release tag; a genuinely
+breaking change needs `/api/v2/` (or a forced-update mechanism, which does
+not exist yet).
+
 ## Version bumps (user-facing milestones)
 
 Bump `X.Y.Z` when shipping something worth signalling: a Play Store rollout,
