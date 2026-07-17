@@ -47,6 +47,8 @@ class LiveSearchController {
     required this.onUnauthorized,
     FatSecretClient? fatsecretClient,
     this.onFatSecretResults,
+    this.onOffRateLimited,
+    this.onFatSecretRateLimited,
     OffMapper? offMapper,
     FatSecretMapper? fatsecretMapper,
     OffRateLimiter? rateLimiter,
@@ -84,6 +86,17 @@ class LiveSearchController {
   /// FatSecret results (already mapped to [FoodItem]) for the latest query.
   /// Both this and [_fatsecretClient] must be non-null for the leg to fire.
   final void Function(List<FoodItem> results)? onFatSecretResults;
+
+  /// OFF budget exhausted (KAN-96): fires on the pre-flight silent skip and
+  /// when the limiter throws mid-flight, with the time until the budget
+  /// frees. Results/loading behavior is unchanged (the skip stays
+  /// result-silent, D-01/D-02) — this only lets the page show its paused
+  /// notice. Deliberately NOT stale-guarded: the budget is global state, not
+  /// a per-query result, so a hit on a superseded query is still true.
+  final void Function(Duration retryAfter)? onOffRateLimited;
+
+  /// Same signal for the FatSecret leg's own budget (never OFF's).
+  final void Function(Duration retryAfter)? onFatSecretRateLimited;
 
   /// Loading-flag updates. Drives the existing thin progress line; never an
   /// error banner (D-01/D-02).
@@ -215,7 +228,9 @@ class LiveSearchController {
     // Why no timestamp refund: per RESEARCH Pitfall 1 the spent limiter slot is
     // the intended polite behavior — we never try to "give back" budget. Do not
     // "fix" this by refunding; the silent skip IS the rate-limit response.
-    if (_rateLimiter.timeUntilNextAllowed() != null) {
+    final offWait = _rateLimiter.timeUntilNextAllowed();
+    if (offWait != null) {
+      onOffRateLimited?.call(offWait);
       if (!_isStale(query, token)) {
         _setLoading(
           backend: _backendLoading,
@@ -243,9 +258,11 @@ class LiveSearchController {
       // surface as an error (D-01/D-02 / SRCH-02 happy path).
       if (CancelToken.isCancel(error)) return;
       // Other OFF transport errors are also swallowed in the live path.
-    } on OffRateLimitException {
-      // Throttle is silent in the live path (D-02); the progress line is the
-      // only hint. Full silent-skip hardening lands in plan 01-02.
+    } on OffRateLimitException catch (error) {
+      // Budget exhausted mid-flight (raced the pre-flight check): results and
+      // loading stay as if silently skipped (D-02), but the page still hears
+      // about the pause so the countdown notice can show (KAN-96).
+      onOffRateLimited?.call(error.retryAfter);
     } on OffException {
       // Live-search OFF errors do not surface as a banner (D-02).
     } catch (_) {
@@ -271,7 +288,9 @@ class LiveSearchController {
     if (client == null) return;
     // Same pre-flight silent-skip politeness as OFF (D-01): never spend the
     // call just to catch the throttle throw, and never clear prior results.
-    if (client.rateLimiter.timeUntilNextAllowed() != null) {
+    final fatsecretWait = client.rateLimiter.timeUntilNextAllowed();
+    if (fatsecretWait != null) {
+      onFatSecretRateLimited?.call(fatsecretWait);
       if (!_isStale(query, token)) {
         _setLoading(
           backend: _backendLoading,
@@ -298,9 +317,11 @@ class LiveSearchController {
     } on DioException catch (error) {
       // A superseded/cancelled request must read clean, same as OFF.
       if (CancelToken.isCancel(error)) return;
-    } on OffRateLimitException {
+    } on OffRateLimitException catch (error) {
       // Budget exhausted mid-flight (raced the pre-flight check above);
-      // silent, same as OFF's throttle handling.
+      // result-silent like OFF's throttle handling, but the page still hears
+      // about the pause (KAN-96).
+      onFatSecretRateLimited?.call(error.retryAfter);
     } catch (_) {
       // Defensive catch-all; live path stays error-silent.
     } finally {

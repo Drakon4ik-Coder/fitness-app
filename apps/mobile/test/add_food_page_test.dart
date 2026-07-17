@@ -93,11 +93,18 @@ class _FakeOffClient extends OffClient {
   _FakeOffClient({
     this.searchResults = const [],
     this.productsByBarcode = const {},
+    this.searchError,
+    this.fetchProductError,
   }) : super(dio: Dio(), rateLimiter: OffRateLimiter());
 
   final List<OffProductResponse> searchResults;
   final Map<String, OffProductResponse> productsByBarcode;
   final List<String> fetchedBarcodes = [];
+
+  /// Thrown from [searchProducts] / [fetchProduct] when set, e.g. an
+  /// [OffRateLimitException] to exercise the paused-notice paths (KAN-96).
+  final Object? searchError;
+  final Object? fetchProductError;
 
   @override
   Future<List<OffProductResponse>> searchProducts(
@@ -105,11 +112,17 @@ class _FakeOffClient extends OffClient {
     int pageSize = 10,
     String? categoryTag,
     CancelToken? cancelToken,
-  }) async => searchResults;
+  }) async {
+    final error = searchError;
+    if (error != null) throw error;
+    return searchResults;
+  }
 
   @override
   Future<OffProductResponse?> fetchProduct(String barcode) async {
     fetchedBarcodes.add(barcode);
+    final error = fetchProductError;
+    if (error != null) throw error;
     return productsByBarcode[barcode];
   }
 }
@@ -121,6 +134,7 @@ class _FakeFatSecretClient extends FatSecretClient {
   _FakeFatSecretClient({
     this.searchResults = const [],
     this.foodsById = const {},
+    this.searchError,
     this.getFoodError,
   }) : super(
          accessToken: 'test-token',
@@ -132,12 +146,20 @@ class _FakeFatSecretClient extends FatSecretClient {
   final Map<String, Map<String, dynamic>> foodsById;
   final List<String> fetchedFoodIds = [];
 
+  /// Thrown from [searchFoods] when set (e.g. FatSecret's own
+  /// [OffRateLimitException] for the paused-notice paths, KAN-96).
+  final Object? searchError;
+
   @override
   Future<List<Map<String, dynamic>>> searchFoods(
     String query, {
     int maxResults = 10,
     CancelToken? cancelToken,
-  }) async => searchResults;
+  }) async {
+    final error = searchError;
+    if (error != null) throw error;
+    return searchResults;
+  }
 
   /// Thrown from [getFood] when set (e.g. a 401 [ApiException] to exercise
   /// the enrich path's session-expiry routing).
@@ -1234,4 +1256,165 @@ void main() {
       expect(find.text('Save changes'), findsOneWidget);
     },
   );
+
+  group('rate-limit notice (KAN-96)', () {
+    IconButton scanButton(WidgetTester tester) => tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.qr_code_scanner),
+    );
+
+    testWidgets('scan throttle shows the countdown banner, disables scan, '
+        'and lifts when the window elapses', (WidgetTester tester) async {
+      final off = _FakeOffClient(
+        fetchProductError: OffRateLimitException(const Duration(seconds: 3)),
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+        scanBarcode: (_) async => '777',
+      );
+
+      await tester.tap(find.byTooltip('Scan barcode'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Online search and barcode scan paused — resuming in 3s'),
+        findsOneWidget,
+      );
+      expect(scanButton(tester).onPressed, isNull);
+
+      // The once-per-second ticker drives the countdown text...
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        find.text('Online search and barcode scan paused — resuming in 2s'),
+        findsOneWidget,
+      );
+
+      // ...and lifts the block when the window elapses: banner gone, scan
+      // tappable again.
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.textContaining('paused'), findsNothing);
+      expect(scanButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('an OFF throttle during debounced live search raises the '
+        'banner', (WidgetTester tester) async {
+      // Max Android text scale (the KAN-40 pattern): the banner's longest
+      // copy must wrap, not overflow — any RenderFlex overflow fails the
+      // test via the reported FlutterError.
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      final off = _FakeOffClient(
+        searchError: OffRateLimitException(const Duration(seconds: 30)),
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+      );
+
+      await search(tester, 'oat');
+      expect(
+        find.text('Online search and barcode scan paused — resuming in 30s'),
+        findsOneWidget,
+      );
+      expect(scanButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('an enrich-on-tap throttle raises the banner', (
+      WidgetTester tester,
+    ) async {
+      // An OFF search hit without serving data forces the on-tap enrich.
+      final off = _FakeOffClient(
+        searchResults: [makeOffResponse(barcode: '111', name: 'Choco Bar')],
+        fetchProductError: OffRateLimitException(const Duration(seconds: 12)),
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+      );
+
+      await search(tester, 'choco');
+      final card = find.text('Choco Bar', skipOffstage: false).first;
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      expect(off.fetchedBarcodes, ['111']);
+      expect(
+        find.text('Online search and barcode scan paused — resuming in 12s'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a FatSecret-only throttle shows the restaurant copy and '
+        'keeps scan enabled', (WidgetTester tester) async {
+      final fatsecret = _FakeFatSecretClient(
+        searchError: OffRateLimitException(
+          const Duration(seconds: 45),
+          'FatSecret',
+        ),
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        fatsecretApi: fatsecret,
+      );
+
+      await search(tester, 'burger');
+      expect(
+        find.text('Restaurant search paused — resuming in 45s'),
+        findsOneWidget,
+      );
+      // FatSecret's budget never gates the OFF barcode-scan path.
+      expect(scanButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('with both budgets paused the banner counts down the longer '
+        'window, then falls back to the FatSecret copy when OFF lifts first', (
+      WidgetTester tester,
+    ) async {
+      final off = _FakeOffClient(
+        searchError: OffRateLimitException(const Duration(seconds: 2)),
+      );
+      final fatsecret = _FakeFatSecretClient(
+        searchError: OffRateLimitException(
+          const Duration(seconds: 45),
+          'FatSecret',
+        ),
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+        fatsecretApi: fatsecret,
+      );
+
+      await search(tester, 'burger');
+      expect(
+        find.text('Online search and barcode scan paused — resuming in 45s'),
+        findsOneWidget,
+      );
+      expect(scanButton(tester).onPressed, isNull);
+
+      // OFF's shorter window elapses: scan re-enables on the same tick and
+      // the copy stops claiming scan is paused.
+      await tester.pump(const Duration(seconds: 2));
+      expect(
+        find.text('Restaurant search paused — resuming in 43s'),
+        findsOneWidget,
+      );
+      expect(scanButton(tester).onPressed, isNotNull);
+    });
+  });
 }

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' show min;
+import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
@@ -131,10 +131,18 @@ class _AddFoodPageState extends State<AddFoodPage> {
   final FatSecretMapper _fatsecretMapper = FatSecretMapper();
   final OffImageDownloader _imageDownloader = OffImageDownloader();
   late final LiveSearchController _liveSearch;
-  Timer? _offBlockTimer;
+  Timer? _rateLimitTicker;
 
   static const Duration _scanCooldown = Duration(seconds: 3);
-  DateTime? _offBlockedUntil;
+
+  // Whole seconds left on each online budget's pause (KAN-96); 0 = free.
+  // Counted down by the once-per-second [_rateLimitTicker] (whose setState is
+  // also what live-updates the banner text) rather than recomputed from a
+  // wall-clock deadline, so widget tests can drive the countdown with pumped
+  // fake time. The two budgets stay separate on purpose: OFF's pause also
+  // gates the barcode-scan and enrich paths, FatSecret's must not.
+  int _offBlockedSeconds = 0;
+  int _fatsecretBlockedSeconds = 0;
   String? _lastScannedBarcode;
   DateTime? _lastScannedAt;
 
@@ -220,6 +228,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
               _isFatSecretLoading = fatsecret;
             });
           },
+      // Budget-exhausted hits from the debounced live legs raise the same
+      // paused notice as the scan/enrich paths (KAN-96) — otherwise typing
+      // during a block would look like the search simply found nothing new.
+      onOffRateLimited: _applyOffLimit,
+      onFatSecretRateLimited: _applyFatSecretLimit,
       onUnauthorized: widget.onLogout,
     );
     _searchController.addListener(_handleSearchChange);
@@ -229,28 +242,51 @@ class _AddFoodPageState extends State<AddFoodPage> {
   @override
   void dispose() {
     _liveSearch.dispose();
-    _offBlockTimer?.cancel();
+    _rateLimitTicker?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  bool get _isOffRateLimited {
-    final until = _offBlockedUntil;
-    if (until == null) return false;
-    return until.isAfter(DateTime.now());
+  bool get _isOffRateLimited => _offBlockedSeconds > 0;
+
+  void _applyOffLimit(Duration retryAfter) =>
+      _applyRateLimit(retryAfter, isOff: true);
+
+  void _applyFatSecretLimit(Duration retryAfter) =>
+      _applyRateLimit(retryAfter, isOff: false);
+
+  /// Starts (or re-syncs) one budget's pause. Every throttle hit lands here —
+  /// live search, barcode scan, enrich-on-tap — so re-applying with the
+  /// limiter's freshest retry-after keeps the countdown honest even when the
+  /// window shrinks as old call timestamps age out.
+  void _applyRateLimit(Duration retryAfter, {required bool isOff}) {
+    if (!mounted || retryAfter <= Duration.zero) return;
+    final seconds = (retryAfter.inMilliseconds / 1000).ceil();
+    setState(() {
+      if (isOff) {
+        _offBlockedSeconds = seconds;
+      } else {
+        _fatsecretBlockedSeconds = seconds;
+      }
+    });
+    // One ticker serves both budgets: it live-updates the banner countdown
+    // and flips the blocked state (scan button, enrich gate, banner) back
+    // the moment a window elapses.
+    _rateLimitTicker ??= Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _onRateLimitTick(),
+    );
   }
 
-  void _applyOffLimit(OffRateLimitException error) {
-    final until = DateTime.now().add(error.retryAfter);
-    _offBlockedUntil = until;
-    _offBlockTimer?.cancel();
-    if (error.retryAfter > Duration.zero) {
-      _offBlockTimer = Timer(error.retryAfter, () {
-        if (!mounted) return;
-        setState(() {
-          _offBlockedUntil = null;
-        });
-      });
+  void _onRateLimitTick() {
+    if (!mounted) return;
+    setState(() {
+      if (_offBlockedSeconds > 0) _offBlockedSeconds--;
+      if (_fatsecretBlockedSeconds > 0) _fatsecretBlockedSeconds--;
+    });
+    if (_offBlockedSeconds == 0 && _fatsecretBlockedSeconds == 0) {
+      _rateLimitTicker?.cancel();
+      _rateLimitTicker = null;
     }
   }
 
@@ -371,10 +407,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
         final food = await api.getFood(item.externalId);
         if (food == null || !mounted) return item;
         return _fatsecretMapper.mapDetail(food) ?? item;
-      } on OffRateLimitException {
-        // FatSecret's own throttle — silent, and deliberately not routed
-        // through `_applyOffLimit` (that would block the OFF barcode-scan
-        // path over a FatSecret budget exhaustion, two unrelated concerns).
+      } on OffRateLimitException catch (error) {
+        // FatSecret's own throttle — deliberately not routed through
+        // `_applyOffLimit` (that would block the OFF barcode-scan path over
+        // a FatSecret budget exhaustion, two unrelated concerns); it raises
+        // the FatSecret-side paused notice instead (KAN-96).
+        _applyFatSecretLimit(error.retryAfter);
         return item;
       } on ApiException catch (error) {
         // Unlike the OFF branch below, this enrich crosses our authenticated
@@ -399,7 +437,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         localeLanguage: locale,
       );
     } on OffRateLimitException catch (error) {
-      if (mounted) _applyOffLimit(error);
+      _applyOffLimit(error.retryAfter);
       return item;
     } on OffException {
       return item;
@@ -682,10 +720,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   Future<void> _handleBarcodeScan(String barcode) async {
     if (_isOffRateLimited) {
-      setState(() {
-        _message = 'OpenFoodFacts is temporarily rate limited. Try again soon.';
-        _messageTone = InlineBannerTone.info;
-      });
+      // Only reachable when the block landed while the scanner was already
+      // open (the scan button itself is disabled during a pause). The pinned
+      // countdown notice (KAN-96) is guaranteed visible, so it explains the
+      // dropped scan without an extra message.
       return;
     }
     // Debounce re-scans of the same package: the camera fires repeatedly
@@ -719,7 +757,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   /// OFF lookup for a scanned barcode with no local override: shows the
   /// product as the sole result (the user still taps to add), or an inline
-  /// banner on miss/throttle/error.
+  /// banner on miss/error. A throttle raises the pinned countdown notice
+  /// instead (KAN-96).
   Future<void> _fetchScannedProduct(String barcode) async {
     setState(() {
       _isOffLoading = true;
@@ -755,11 +794,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
       });
     } on OffRateLimitException catch (error) {
       if (!mounted) return;
-      _applyOffLimit(error);
+      // The pinned countdown notice (KAN-96) explains the pause; a static
+      // banner message here would only go stale as the window counts down.
+      _applyOffLimit(error.retryAfter);
       setState(() {
         _isOffLoading = false;
-        _message = error.message;
-        _messageTone = InlineBannerTone.info;
       });
     } on OffException catch (error) {
       if (!mounted) return;
@@ -1171,6 +1210,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   _isBackendLoading || _isOffLoading || _isFatSecretLoading,
               message: _message,
               messageTone: _messageTone,
+              // Both budgets share one banner; when both are paused the
+              // longer window is the honest countdown (KAN-96).
+              rateLimitSeconds: max(
+                _offBlockedSeconds,
+                _fatsecretBlockedSeconds,
+              ),
+              scanPaused: _isOffRateLimited,
             ),
           ),
           SliverPadding(
@@ -1306,8 +1352,9 @@ class _AddedItemsSection extends StatelessWidget {
 
 /// The search strip that pins below the app bar while results scroll under it
 /// (KAN-60). Carries the inline banner (errors stay visible next to the field
-/// that caused them) and always reserves the 2px activity strip so the pinned
-/// extent doesn't jump when a live search starts.
+/// that caused them) plus the rate-limit countdown notice (KAN-96), and
+/// always reserves the 2px activity strip so the pinned extent doesn't jump
+/// when a live search starts.
 class _SearchHeader extends StatelessWidget {
   const _SearchHeader({
     required this.controller,
@@ -1315,6 +1362,8 @@ class _SearchHeader extends StatelessWidget {
     required this.isLoading,
     required this.message,
     required this.messageTone,
+    required this.rateLimitSeconds,
+    required this.scanPaused,
   });
 
   final TextEditingController controller;
@@ -1322,6 +1371,13 @@ class _SearchHeader extends StatelessWidget {
   final bool isLoading;
   final String? message;
   final InlineBannerTone? messageTone;
+
+  /// Seconds left on the longest paused online budget; 0 hides the notice.
+  final int rateLimitSeconds;
+
+  /// True while OFF's budget is the paused one, i.e. the scan button above
+  /// the notice is greyed out and the copy must say why.
+  final bool scanPaused;
 
   @override
   Widget build(BuildContext context) {
@@ -1346,6 +1402,13 @@ class _SearchHeader extends StatelessWidget {
               const SizedBox(height: AppSpacing.md),
             ],
             GlassSearchBar(controller: controller, onScan: onScan),
+            if (rateLimitSeconds > 0) ...[
+              const SizedBox(height: AppSpacing.sm),
+              _RateLimitNotice(
+                secondsLeft: rateLimitSeconds,
+                scanPaused: scanPaused,
+              ),
+            ],
             const SizedBox(height: AppSpacing.xs),
             SizedBox(
               height: 2,
@@ -1360,6 +1423,32 @@ class _SearchHeader extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Persistent "search paused" notice with a live countdown (KAN-96): while an
+/// online budget is exhausted the user sees why results stopped arriving —
+/// and, for OFF, why the scan button greyed out — instead of silence. The
+/// copy tracks which budget is actually paused: if OFF's window elapses
+/// before FatSecret's, scan re-enables and the text drops the scan mention
+/// on the same tick.
+class _RateLimitNotice extends StatelessWidget {
+  const _RateLimitNotice({required this.secondsLeft, required this.scanPaused});
+
+  final int secondsLeft;
+  final bool scanPaused;
+
+  @override
+  Widget build(BuildContext context) {
+    // "Restaurant search" is the FatSecret leg's product framing (KAN-67);
+    // backend + packaged-food search keep working during its pause.
+    final scope = scanPaused
+        ? 'Online search and barcode scan paused'
+        : 'Restaurant search paused';
+    return InlineBanner(
+      message: '$scope — resuming in ${secondsLeft}s',
+      icon: Icons.hourglass_top,
     );
   }
 }
