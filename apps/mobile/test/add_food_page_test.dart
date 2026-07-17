@@ -13,6 +13,7 @@ import 'package:fitness_app/features/nutrition/data/nutrition_repository.dart';
 import 'package:fitness_app/features/nutrition/data/off_client.dart';
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/food_detail_page.dart';
+import 'package:fitness_app/features/nutrition/live_search_controller.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -335,11 +336,13 @@ void main() {
     return result;
   }
 
-  /// Types [query] and rides out the live-search debounce (300 ms) so the
-  /// backend + OFF results have landed.
+  /// Types [query] and rides out the live-search debounce so the backend +
+  /// OFF results have landed.
   Future<void> search(WidgetTester tester, String query) async {
     await tester.enterText(find.byType(TextField), query);
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(
+      LiveSearchController.defaultDebounce + const Duration(milliseconds: 50),
+    );
     await tester.pumpAndSettle();
   }
 

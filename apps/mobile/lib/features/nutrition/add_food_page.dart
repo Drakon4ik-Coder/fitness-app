@@ -181,7 +181,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         _addedItems.add(_AddedFood(item: seed.item, grams: seed.grams));
       }
     }
-    // The controller owns the shared 300ms debounce + per-query CancelToken +
+    // The controller owns the shared 600ms debounce + per-query CancelToken +
     // 2-char floor (D-06/D-07/D-08). The page hands it `setState`-driven setters
     // so debounced backend/OFF results flow back into the existing merge fields.
     _liveSearch = LiveSearchController(
@@ -283,7 +283,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
       _messageTone = null;
     });
     // Local cache stays instant + un-debounced (D-06); the controller owns the
-    // shared 300ms debounce that fires backend typeahead + OFF together.
+    // shared 600ms debounce that fires backend typeahead + OFF together.
     _loadLocalSearch(query);
     _liveSearch.onQueryChanged(query);
   }
