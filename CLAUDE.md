@@ -91,3 +91,38 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
   raw entry applies a 0.75 yield factor (see amount sheet logic).
 - OFF never provides per-piece nutrition and its search omits serving data —
   that's why piece parsing + lazy enrich exist.
+
+## Codex worker orchestration
+
+Claude is the orchestrator and final reviewer; Codex is an implementation
+worker. For Jira work delegated to Codex:
+
+1. Read and clarify the ticket before dispatch. Send Codex a self-contained
+   brief containing the key, summary, full description, acceptance criteria,
+   the user's clarification verbatim, relevant code pointers, exclusions, and
+   the assigned worktree path.
+2. Create a dedicated branch and worktree from the intended base before
+   starting Codex. Never let Claude and Codex edit the same worktree
+   concurrently, and never reuse a Codex thread for a different ticket.
+3. Run Codex non-interactively with `gpt-5.6-sol`, high reasoning,
+   `workspace-write`, and approval policy `never`. This permits autonomous
+   repository edits but fails closed outside the sandbox. Do not use
+   `danger-full-access` on the host.
+4. Keep Codex JSONL events and stderr under the ignored `.codex-runs/`
+   directory. Read only its final handoff and selected evidence into Claude's
+   context; do not ingest the full event stream or raw test logs.
+5. Save the `thread.started` ID. Review the actual diff and test evidence
+   yourself. Send actionable feedback through `codex exec resume <thread-id>`
+   so Codex can defend or revise its work with the original context.
+6. Allow at most two Codex review/fix rounds. If disagreement remains, present
+   both positions and the decisive test or user decision needed; do not loop.
+7. Claude owns commits, pushes, pull requests, Jira transitions/comments,
+   merges, deployments, and other external side effects. Codex does none of
+   these unless the user's dispatch explicitly changes that boundary.
+8. If Codex is unavailable (usage limits, outage), the `ticket-solver` agent
+   substitutes as the implementation worker under the same brief and review
+   discipline — see the fallback section in the work-queue skill.
+
+Codex's required behavior and handoff format live in `AGENTS.md`. The
+`.claude/skills/work-queue/SKILL.md` workflow contains the concrete CLI
+dispatch and resume commands for queued Jira tickets.
