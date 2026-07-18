@@ -18,6 +18,8 @@ class AccountInfo {
     required this.displayName,
     this.username = '',
     this.hasPassword = true,
+    this.acceptedPolicyVersion = '',
+    this.currentPolicyVersion = '',
   });
 
   final String email;
@@ -29,6 +31,12 @@ class AccountInfo {
   /// False for OAuth-only accounts. Decides the account-deletion re-auth
   /// method: password prompt vs a fresh Google sign-in.
   final bool hasPassword;
+
+  /// Policy version this user accepted ('' = never), and the server's
+  /// current one. PolicyConsentGate (KAN-103) blocks when they differ; the
+  /// '' defaults mean a backend predating the fields never blocks anyone.
+  final String acceptedPolicyVersion;
+  final String currentPolicyVersion;
 }
 
 class AuthException implements Exception {
@@ -207,14 +215,24 @@ class AuthService {
     }
   }
 
+  /// [acceptTerms]/[acceptHealthData] are the two signup checkboxes
+  /// (KAN-103): ToS+privacy acceptance and the separate, explicit
+  /// health-data consent. The server requires both true.
   Future<void> register({
     required String email,
     required String password,
+    required bool acceptTerms,
+    required bool acceptHealthData,
   }) async {
     try {
       await _dio.post(
         '/api/v1/auth/register',
-        data: {'email': email, 'password': password},
+        data: {
+          'email': email,
+          'password': password,
+          'accept_terms': acceptTerms,
+          'accept_health_data': acceptHealthData,
+        },
       );
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
@@ -265,11 +283,39 @@ class AuthService {
           displayName: (data['display_name'] as String?) ?? '',
           username: (data['username'] as String?) ?? '',
           hasPassword: (data['has_password'] as bool?) ?? true,
+          acceptedPolicyVersion:
+              (data['accepted_policy_version'] as String?) ?? '',
+          currentPolicyVersion:
+              (data['current_policy_version'] as String?) ?? '',
         );
       }
       return null;
     } on DioException {
       return null;
+    }
+  }
+
+  /// Records acceptance of the current policy version
+  /// (POST /auth/accept-policy) for the blocking consent screen (KAN-103).
+  ///
+  /// Both flags are sent true — the screen's button only enables once both
+  /// checkboxes are ticked. Throws [AuthException] on failure; the caller
+  /// stays blocked and offers a retry.
+  Future<void> acceptPolicy({required String accessToken}) async {
+    try {
+      await _dio.post(
+        '/api/v1/auth/accept-policy',
+        data: {'accept_terms': true, 'accept_health_data': true},
+        options: _authorized(accessToken),
+      );
+    } on DioException catch (error) {
+      final message = _firstErrorMessage(error.response?.data);
+      throw AuthException(
+        message ?? 'Could not save your consent. Please try again.',
+      );
+    } catch (error, stackTrace) {
+      logError('acceptPolicy', error, stackTrace);
+      throw AuthException('Could not save your consent. Please try again.');
     }
   }
 

@@ -10,6 +10,9 @@ from rest_framework.test import APIClient
 from accounts.models import EmailVerificationToken, PasswordResetToken
 from preferences.models import UserPreferences
 
+# Both signup consents (KAN-103) — required by the register endpoint.
+CONSENTS = {"accept_terms": True, "accept_health_data": True}
+
 
 @pytest.mark.django_db
 @pytest.mark.integration
@@ -18,6 +21,7 @@ def test_register_creates_preferences() -> None:
     payload = {
         "password": "Str0ngPass!word",
         "email": "newuser@example.com",
+        **CONSENTS,
     }
 
     response = client.post("/api/v1/auth/register", payload, format="json")
@@ -37,6 +41,7 @@ def test_register_rejects_common_password() -> None:
     payload = {
         "password": "password1",
         "email": "weakuser@example.com",
+        **CONSENTS,
     }
 
     response = client.post("/api/v1/auth/register", payload, format="json")
@@ -88,7 +93,7 @@ def test_register_sends_verification_email_and_user_starts_unverified() -> None:
 
     response = client.post(
         "/api/v1/auth/register",
-        {"password": "Str0ngPass!word", "email": "verify@example.com"},
+        {"password": "Str0ngPass!word", "email": "verify@example.com", **CONSENTS},
         format="json",
     )
 
@@ -313,7 +318,7 @@ def test_register_rejects_case_variant_of_existing_email() -> None:
 
     response = client.post(
         "/api/v1/auth/register",
-        {"password": "Str0ngPass!word", "email": "DUP@example.com"},
+        {"password": "Str0ngPass!word", "email": "DUP@example.com", **CONSENTS},
         format="json",
     )
 
@@ -412,14 +417,14 @@ def test_register_is_rate_limited(monkeypatch) -> None:
     for i in range(2):
         response = client.post(
             "/api/v1/auth/register",
-            {"email": f"new{i}@example.com", "password": "Str0ngPass!word"},
+            {"email": f"new{i}@example.com", "password": "Str0ngPass!word", **CONSENTS},
             format="json",
         )
         assert response.status_code == 201
 
     throttled = client.post(
         "/api/v1/auth/register",
-        {"email": "new2@example.com", "password": "Str0ngPass!word"},
+        {"email": "new2@example.com", "password": "Str0ngPass!word", **CONSENTS},
         format="json",
     )
     assert throttled.status_code == 429

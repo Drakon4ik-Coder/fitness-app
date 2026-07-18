@@ -4,6 +4,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import PolicyConsentAccepted
 from preferences.models import UserPreferences
 from preferences.serializers import UserPreferencesSerializer
 
@@ -15,7 +16,7 @@ class PreferencesView(APIView):
     endpoint robust for accounts predating that (e.g. seeded/imported users).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     def _get_or_create(self, request: Request) -> UserPreferences:
         prefs, _ = UserPreferences.objects.get_or_create(user=request.user)

@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from accounts.permissions import PolicyConsentAccepted
 from foods import fatsecret
 from foods.images import images_ok, safe_signature, validate_and_normalize_image
 from foods.models import FoodItem
@@ -45,7 +46,7 @@ def _fatsecret_error_response(exc: Exception) -> Response:
 
 
 class FoodTypeaheadView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         parameters=[
@@ -106,7 +107,7 @@ class FoodTypeaheadView(APIView):
 
 
 class FoodIngestView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         request=FoodItemIngestSerializer,
@@ -125,7 +126,7 @@ class FoodIngestView(APIView):
 
 
 class CustomFoodView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         request=CustomFoodSerializer,
@@ -144,7 +145,7 @@ class CustomFoodView(APIView):
 
 
 class CustomFoodDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         responses={
@@ -172,7 +173,7 @@ class CustomFoodDetailView(APIView):
 
 class FoodImageUploadView(APIView):
     parser_classes = [MultiPartParser]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         responses={
@@ -235,7 +236,7 @@ class FoodImageUploadView(APIView):
 
 
 class FoodCheckView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         request=FoodItemCheckSerializer,
@@ -279,7 +280,7 @@ class FoodCheckView(APIView):
 
 
 class FatSecretSearchView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
     # Shared "fatsecret" scope with FatSecretFoodView: every proxied call
     # spends the app-wide partner quota, so one account must be capped well
     # below the default user rate (see DEFAULT_THROTTLE_RATES) or it can
@@ -350,7 +351,7 @@ class FatSecretSearchView(APIView):
 
 
 class FatSecretFoodView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
     # Same shared "fatsecret" scope as FatSecretSearchView — one partner
     # budget, one bucket.
     throttle_classes = [ScopedRateThrottle]

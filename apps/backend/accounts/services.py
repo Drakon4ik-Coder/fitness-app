@@ -6,11 +6,13 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import (
     AccountDeletionToken,
     EmailVerificationToken,
     PasswordResetToken,
+    PolicyAcceptance,
     User,
 )
 from preferences.models import UserPreferences
@@ -35,6 +37,27 @@ def create_user_with_defaults(
         user.save(update_fields=["display_name", "email_verified"])
         UserPreferences.objects.get_or_create(user=user)
     return user
+
+
+def record_policy_acceptance(user: User) -> None:
+    """Record that ``user`` accepted the current policy version (KAN-103).
+
+    Shared by registration (both signup checkboxes ticked) and the post-hoc
+    accept-policy endpoint (Google sign-ins, existing users after a version
+    bump). Idempotent: re-accepting an already-accepted version keeps the
+    original timestamps — the first affirmative act is the one the audit
+    trail must preserve. get_or_create also absorbs the concurrent-accept
+    race via the (user, policy_version) unique constraint.
+    """
+    now = timezone.now()
+    PolicyAcceptance.objects.get_or_create(
+        user=user,
+        policy_version=settings.POLICY_VERSION,
+        defaults={"accepted_at": now, "health_consent_at": now},
+    )
+    if user.accepted_policy_version != settings.POLICY_VERSION:
+        user.accepted_policy_version = settings.POLICY_VERSION
+        user.save(update_fields=["accepted_policy_version"])
 
 
 def build_verification_url(raw_token: str, *, request=None) -> str:

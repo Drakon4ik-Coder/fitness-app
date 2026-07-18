@@ -9,6 +9,7 @@ import 'core/auth_interceptor.dart';
 import 'core/auth_service.dart';
 import 'core/auth_storage.dart';
 import 'core/environment.dart';
+import 'core/policy_consent_gate.dart';
 import 'core/update_gate.dart';
 import 'core/version_check_service.dart';
 import 'features/login_page.dart';
@@ -195,10 +196,17 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    return MainShell(
+    // The consent gate sits inside AuthGate (it needs a signed-in user):
+    // Google sign-ins get no signup checkboxes, and a policy bump re-prompts
+    // existing users — both consent here before the shell's API use (KAN-103).
+    return PolicyConsentGate(
       accessToken: _accessToken!,
-      onLogout: _handleLogout,
-      authInterceptor: _authInterceptor,
+      authService: _authService,
+      child: MainShell(
+        accessToken: _accessToken!,
+        onLogout: _handleLogout,
+        authInterceptor: _authInterceptor,
+      ),
     );
   }
 }

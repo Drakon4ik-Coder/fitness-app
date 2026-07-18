@@ -148,6 +148,37 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/v1/auth/accept-policy:
+    post:
+      operationId: v1_auth_accept_policy_create
+      description: |-
+        Records the signed-in user's acceptance of the current policy version.
+
+        The post-hoc consent path (KAN-103): Google sign-ins have no signup
+        checkboxes (the account is created on first login), and existing users
+        must re-consent after a POLICY_VERSION bump — both get a blocking screen
+        in the app that POSTs here. Deliberately outside the PolicyConsentAccepted
+        gate: this endpoint is how a user becomes consented. Idempotent — the
+        acceptance record is get_or_create'd per (user, version).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentFlags'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ConsentFlags'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ConsentFlags'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/auth/change-password:
     post:
       operationId: v1_auth_change_password_create
@@ -959,6 +990,28 @@ paths:
           description: ''
 components:
   schemas:
+    ConsentFlags:
+      type: object
+      description: |-
+        The two signup consents (KAN-103), shared by registration and the
+        post-hoc accept-policy endpoint.
+
+        Two separate flags, both required and both must be true: GDPR Art. 9
+        keeps the explicit health-data consent distinguishable from the general
+        ToS/privacy acceptance, and Recital 32 forbids defaults — so nothing is
+        optional and false is a field error, not a silent no. These are form
+        errors on the user's own signup, not an account-enumeration surface, so
+        the messages are deliberately specific (unlike the auth errors).
+      properties:
+        accept_terms:
+          type: boolean
+          writeOnly: true
+        accept_health_data:
+          type: boolean
+          writeOnly: true
+      required:
+      - accept_health_data
+      - accept_terms
     CustomFood:
       type: object
       description: |-
@@ -1698,7 +1751,14 @@ components:
         has_password:
           type: boolean
           readOnly: true
+        accepted_policy_version:
+          type: string
+          maxLength: 32
+        current_policy_version:
+          type: string
+          readOnly: true
       required:
+      - current_policy_version
       - email
       - has_password
       - id
@@ -1726,6 +1786,10 @@ components:
         warn_nutrients: {}
     UserRegistration:
       type: object
+      description: |-
+        Signup payload: credentials plus the two consent checkboxes (see
+        ConsentFlagsSerializer), recorded as the versioned policy acceptance on
+        success (KAN-103).
       properties:
         id:
           type: integer
@@ -1737,6 +1801,12 @@ components:
           type: string
           writeOnly: true
           minLength: 8
+        accept_terms:
+          type: boolean
+          writeOnly: true
+        accept_health_data:
+          type: boolean
+          writeOnly: true
       required:
       - email
       - id

@@ -53,6 +53,12 @@ class User(AbstractUser):
     # time for day grouping and meal-time stats. UTC until the app reports one.
     timezone = models.CharField(max_length=64, default="UTC")
 
+    # Latest accepted policy version, denormalized from PolicyAcceptance so
+    # the per-request consent gate (accounts.permissions.PolicyConsentAccepted)
+    # costs zero extra queries — JWT auth already loads this row. "" = never
+    # accepted (fresh Google sign-ins, accounts predating KAN-103) → gated.
+    accepted_policy_version = models.CharField(max_length=32, blank=True, default="")
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
@@ -69,6 +75,37 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.email
+
+
+class PolicyAcceptance(models.Model):
+    """Versioned record that a user accepted the ToS + privacy policy and gave
+    explicit health-data consent (KAN-103).
+
+    One row per (user, policy version): a policy bump re-prompts and adds a new
+    row instead of overwriting, so there is an audit trail of which policy text
+    the user agreed to and when. ``health_consent_at`` is stored separately
+    from ``accepted_at`` even though both are set in the same request — GDPR
+    Art. 9 requires the explicit health-data consent to stay distinguishable
+    from the general terms acceptance in the record.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="policy_acceptances"
+    )
+    policy_version = models.CharField(max_length=32)
+    accepted_at = models.DateTimeField()
+    health_consent_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "policy_version"],
+                name="uniq_policy_acceptance_per_version",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.email} accepted policy {self.policy_version}"
 
 
 class EmailVerificationToken(models.Model):

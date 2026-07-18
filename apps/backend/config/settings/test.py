@@ -17,6 +17,12 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 GOOGLE_OAUTH_CLIENT_IDS = ["test-client-id"]
 
+# Same posture as the throttles below: the policy-consent gate (KAN-103)
+# compares against this version, and "" matches the never-accepted default so
+# fixture users aren't 403'd by every gated endpoint. Re-enabled per-test
+# (settings.POLICY_VERSION = "...") where the gate is the thing under test.
+POLICY_VERSION = ""
+
 # Throttles share a process-wide cache that would otherwise leak between
 # tests; disable by default and re-enable per-test where rate limiting is the
 # thing under test.

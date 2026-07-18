@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
+import '../../../core/legal_links.dart';
 import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/tokens.dart';
 import 'settings_rows.dart';
 
-/// The policy is a public document served by the prod backend; staging and
-/// local builds still link to the canonical copy.
-const kPrivacyPolicyUrl = 'https://symbio.drakon4ik.uk/privacy';
+// Existing importers read the legal URLs from this page; keep that working
+// now that they live in core/legal_links.dart (shared with signup/consent).
+export '../../../core/legal_links.dart';
 
 const kOpenFoodFactsUrl = 'https://world.openfoodfacts.org';
 const kOdblLicenseUrl = 'https://opendatacommons.org/licenses/odbl/1-0/';
@@ -160,6 +161,13 @@ class _AboutSettingsPageState extends State<AboutSettingsPage> {
                   subtitle: 'How your data is handled',
                   trailing: Icons.open_in_new,
                   onTap: () => _open(kPrivacyPolicyUrl),
+                ),
+                SettingsTile(
+                  icon: Icons.gavel_outlined,
+                  title: 'Terms of Service',
+                  subtitle: 'The rules for using Symbio',
+                  trailing: Icons.open_in_new,
+                  onTap: () => _open(kTermsOfServiceUrl),
                 ),
                 SettingsTile(
                   icon: Icons.description_outlined,
