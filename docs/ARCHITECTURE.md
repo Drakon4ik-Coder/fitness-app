@@ -67,11 +67,13 @@ Root URLconf: `config/urls.py`
 - `RegisterView` (generics.CreateAPIView)
 - `EmailVerifiedTokenObtainPairView` — login, gated on verified email
 - `GoogleLoginView` — Google ID-token exchange
-- `MeView` — GET profile / PATCH (e.g. timezone)
+- `MeView` — GET profile (incl. accepted/current policy versions) / PATCH (e.g. timezone)
 - `ResendVerificationView`, `PasswordResetRequestView`
 - `verify_email`, `reset_password` — emailed-link endpoints (plain views)
 - `request_account_deletion`, `confirm_account_deletion` — logged-out web deletion flow (Play requirement, KAN-42)
 - `privacy_policy` — static privacy-policy page (Play requirement, KAN-43)
+- `terms_of_service` — static Terms of Service page (KAN-103)
+- `AcceptPolicyView` — post-hoc consent recording for Google sign-ins / policy bumps (KAN-103); `accounts/permissions.py` holds the `PolicyConsentAccepted` gate applied to the nutrition/foods/preferences views
 
 `foods/views.py`
 - `FoodTypeaheadView` — name-based search
@@ -104,6 +106,7 @@ Root URLconf: `config/urls.py`
 | `/.well-known/assetlinks.json` | Android app-link / shared-credential affiliation |
 | `/delete-account` | Logged-out web account-deletion request + emailed confirm link |
 | `/privacy` | Hosted privacy policy (linked from Settings → About and the store listing) |
+| `/terms` | Hosted Terms of Service (linked from signup, the consent screen and Settings → About, KAN-103) |
 
 ---
 
@@ -121,7 +124,9 @@ lib/
 │   ├── google_auth_service.dart # google_sign_in wrapper
 │   ├── environment.dart         # apiBaseUrl etc. from --dart-define
 │   ├── version_check_service.dart # /health/ min_supported_build probe (KAN-100)
-│   └── update_gate.dart         # startup forced-update gate + blocking dialog (fail-open)
+│   ├── update_gate.dart         # startup forced-update gate + blocking dialog (fail-open)
+│   ├── legal_links.dart         # canonical /privacy + /terms URLs
+│   └── policy_consent_gate.dart # blocking policy-consent screen for signed-in users (fail-open, KAN-103)
 ├── features/
 │   ├── login_page.dart / register_page.dart / forgot_password_page.dart
 │   ├── main_shell.dart          # Signed-in bottom-nav shell; owns shared UserPreferences
@@ -230,6 +235,7 @@ are noise).
 | `POST /api/v1/auth/resend-verification` | `ResendVerificationView` |
 | `POST /api/v1/auth/password-reset` | `PasswordResetRequestView` |
 | `POST /api/v1/auth/change-password` | `PasswordChangeView` (logged-in change; current password as re-auth, KAN-50) |
+| `POST /api/v1/auth/accept-policy` | `AcceptPolicyView` (records consent at the current `POLICY_VERSION`, KAN-103) |
 | `GET /api/v1/foods/typeahead` | `FoodTypeaheadView` |
 | `POST /api/v1/foods/ingest` | `FoodIngestView` |
 | `POST /api/v1/foods/custom`, `PATCH/DELETE /api/v1/foods/custom/<id>` | `CustomFoodView` / `CustomFoodDetailView` |

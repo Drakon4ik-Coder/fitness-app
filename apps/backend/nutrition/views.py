@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
+from accounts.permissions import PolicyConsentAccepted
 from nutrients.catalog import NUTRIENT_CATALOG
 from nutrition.models import MealEntry
 from nutrition.serializers import (
@@ -68,7 +69,7 @@ def _clamp_mutation_time(client_time: datetime | None) -> datetime:
 
 
 class MealEntryCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         request=MealEntryCreateSerializer,
@@ -149,7 +150,7 @@ class MealEntryDetailView(APIView):
     can only reference the client uuid.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     def _get_entry(
         self, request: Request, pk: int | None, client_uuid: UUID | None
@@ -254,7 +255,7 @@ class MealEntryDetailView(APIView):
 
 
 class NutritionDayView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         parameters=[
@@ -439,7 +440,7 @@ class MealEntrySyncView(APIView):
     changing in between is re-delivered (merging is idempotent).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         parameters=[
@@ -517,7 +518,7 @@ class MealTimesView(APIView):
     it changes only slowly (see MEAL_TIMES_CACHE_TTL).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PolicyConsentAccepted]
 
     @extend_schema(
         responses={

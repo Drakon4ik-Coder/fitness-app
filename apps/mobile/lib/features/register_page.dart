@@ -1,14 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../core/auth_service.dart';
 import '../ui_components/ui_components.dart';
 import '../ui_system/tokens.dart';
 
+Future<bool> _openExternal(Uri url) => url_launcher.launchUrl(
+  url,
+  mode: url_launcher.LaunchMode.externalApplication,
+);
+
 class RegisterPage extends StatefulWidget {
-  const RegisterPage({super.key, required this.authService});
+  const RegisterPage({
+    super.key,
+    required this.authService,
+    Future<bool> Function(Uri url)? openUrl,
+  }) : openUrl = openUrl ?? _openExternal;
 
   final AuthService authService;
+
+  /// Opens the linked legal documents in the external browser; tests pass a
+  /// fake to capture it.
+  final Future<bool> Function(Uri url) openUrl;
 
   @override
   State<RegisterPage> createState() => _RegisterPageState();
@@ -22,6 +36,10 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+
+  // Both start unticked — pre-ticked consent isn't consent (GDPR Recital 32).
+  bool _acceptedTerms = false;
+  bool _acceptedHealthData = false;
 
   @override
   void dispose() {
@@ -46,6 +64,8 @@ class _RegisterPageState extends State<RegisterPage> {
       await widget.authService.register(
         email: email,
         password: _passwordController.text,
+        acceptTerms: _acceptedTerms,
+        acceptHealthData: _acceptedHealthData,
       );
       TextInput.finishAutofillContext();
       if (!mounted) {
@@ -106,6 +126,20 @@ class _RegisterPageState extends State<RegisterPage> {
         );
       },
     );
+  }
+
+  Future<void> _openLegalDocument(String url) async {
+    var opened = false;
+    try {
+      opened = await widget.openUrl(Uri.parse(url));
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open $url')));
+    }
   }
 
   @override
@@ -259,11 +293,31 @@ class _RegisterPageState extends State<RegisterPage> {
                       },
                     ),
                     PasswordStrengthMeter(password: _passwordController.text),
-                    const SizedBox(height: AppSpacing.xxl),
+                    const SizedBox(height: AppSpacing.xl),
+
+                    // Two separate consents (KAN-103): ToS+privacy, and the
+                    // explicit health-data consent GDPR Art. 9 requires to
+                    // stay distinct. Submit stays disabled until both tick.
+                    PolicyConsentChecks(
+                      acceptedTerms: _acceptedTerms,
+                      acceptedHealthData: _acceptedHealthData,
+                      onTermsChanged: _isLoading
+                          ? null
+                          : (value) => setState(() => _acceptedTerms = value),
+                      onHealthDataChanged: _isLoading
+                          ? null
+                          : (value) =>
+                                setState(() => _acceptedHealthData = value),
+                      openDocument: _openLegalDocument,
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
 
                     // Create Account button
                     FilledButton(
-                      onPressed: _isLoading ? null : _submit,
+                      onPressed:
+                          _isLoading || !_acceptedTerms || !_acceptedHealthData
+                          ? null
+                          : _submit,
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
                         backgroundColor: colorScheme.primary,

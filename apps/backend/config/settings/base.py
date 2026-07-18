@@ -26,6 +26,14 @@ with open(BASE_DIR / "pyproject.toml", "rb") as _pyproject:
 # gate — no installed build is ever blocked.
 MIN_SUPPORTED_APP_BUILD: int = env.int("MIN_SUPPORTED_APP_BUILD", default=0)
 
+# Current version of the legal documents (KAN-103) — keep it equal to the
+# "Last updated" date on /privacy and /terms. Users must have accepted exactly
+# this version to use the gated API (accounts.permissions.PolicyConsentAccepted);
+# bumping it makes every user re-consent via a blocking screen on next app
+# open, so only bump for material policy changes that genuinely need renewed
+# consent — not for typo fixes.
+POLICY_VERSION = "2026-07-18"
+
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-not-secure")
 DEBUG = env.bool("DEBUG", default=True)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
@@ -140,7 +148,14 @@ REST_FRAMEWORK: dict[str, Any] = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    # Every existing view declares permission_classes explicitly, so this only
+    # governs future views that forget to — and those must default to the
+    # consent gate (KAN-103), not slip past it. Exempt endpoints (auth flows,
+    # /auth/me, accept-policy) opt out by declaring [IsAuthenticated]/[AllowAny].
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+        "accounts.permissions.PolicyConsentAccepted",
+    ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Baseline throttles applied to every DRF view that doesn't set its own:
     # "anon" keys by client IP, "user" by account id. This is app-level abuse

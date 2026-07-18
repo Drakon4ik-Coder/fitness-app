@@ -55,12 +55,14 @@ void main() {
     );
 
     await tester.tap(find.text('Privacy policy'));
+    await tester.tap(find.text('Terms of Service'));
     await tester.tap(find.text('Powered by Open Food Facts'));
     await tester.tap(find.text('Open Database License (ODbL)'));
     await tester.pumpAndSettle();
 
     expect(opened, [
       Uri.parse(kPrivacyPolicyUrl),
+      Uri.parse(kTermsOfServiceUrl),
       Uri.parse(kOpenFoodFactsUrl),
       Uri.parse(kOdblLicenseUrl),
     ]);

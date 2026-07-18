@@ -12,6 +12,7 @@ from accounts.views import (
     confirm_account_deletion,
     privacy_policy,
     request_account_deletion,
+    terms_of_service,
 )
 from config.well_known import assetlinks
 
@@ -45,6 +46,9 @@ urlpatterns = [
     # Domain-root privacy policy — Play requires one hosted outside the app,
     # linked from the store listing and Settings → About.
     path("privacy", privacy_policy, name="privacy-policy"),
+    # Terms of Service — the document the signup consent checkbox and the
+    # in-app acceptance screen link to (KAN-103).
+    path("terms", terms_of_service, name="terms-of-service"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",

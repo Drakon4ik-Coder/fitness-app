@@ -36,6 +36,7 @@ from accounts.models import (
 )
 from accounts.serializers import (
     AccountDeleteSerializer,
+    ConsentFlagsSerializer,
     EmailVerifiedTokenObtainPairSerializer,
     GoogleLoginSerializer,
     PasswordChangeSerializer,
@@ -48,6 +49,7 @@ from accounts.serializers import (
 )
 from accounts.services import (
     create_user_with_defaults,
+    record_policy_acceptance,
     send_account_deletion_email,
     send_password_reset_email,
     send_verification_email,
@@ -474,6 +476,39 @@ def privacy_policy(request: HttpRequest) -> HttpResponse:
     content; the template is the single source of truth for the policy text.
     """
     return render(request, "accounts/privacy_policy.html")
+
+
+@require_http_methods(["GET"])
+def terms_of_service(request: HttpRequest) -> HttpResponse:
+    """Public Terms of Service page (KAN-103).
+
+    The document the signup "I agree to the Terms of Service" checkbox and
+    the in-app consent screen link to. Like the privacy policy, the template
+    is the single source of truth for the text — a material edit must bump
+    settings.POLICY_VERSION so users re-consent.
+    """
+    return render(request, "accounts/terms_of_service.html")
+
+
+class AcceptPolicyView(APIView):
+    """Records the signed-in user's acceptance of the current policy version.
+
+    The post-hoc consent path (KAN-103): Google sign-ins have no signup
+    checkboxes (the account is created on first login), and existing users
+    must re-consent after a POLICY_VERSION bump — both get a blocking screen
+    in the app that POSTs here. Deliberately outside the PolicyConsentAccepted
+    gate: this endpoint is how a user becomes consented. Idempotent — the
+    acceptance record is get_or_create'd per (user, version).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=ConsentFlagsSerializer, responses={204: None})
+    def post(self, request: Request) -> Response:
+        body = ConsentFlagsSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        record_policy_acceptance(cast(User, request.user))
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def _reauth_failed() -> Response:

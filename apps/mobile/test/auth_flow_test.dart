@@ -30,6 +30,8 @@ class FailingRegisterService extends AuthService {
   Future<void> register({
     required String email,
     required String password,
+    required bool acceptTerms,
+    required bool acceptHealthData,
   }) async {
     throw AuthException('Unable to register with those details.');
   }
@@ -209,6 +211,14 @@ void main() {
       'carol@example.com',
     );
     await tester.enterText(find.byType(TextFormField).at(1), 'Password123!');
+    // Submit only enables once both consent checkboxes are ticked (KAN-103).
+    await tester.ensureVisible(find.byType(Checkbox).at(0));
+    await tester.tap(find.byType(Checkbox).at(0));
+    await tester.tap(find.byType(Checkbox).at(1));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.widgetWithText(FilledButton, 'CREATE ACCOUNT'),
+    );
     await tester.tap(find.widgetWithText(FilledButton, 'CREATE ACCOUNT'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
