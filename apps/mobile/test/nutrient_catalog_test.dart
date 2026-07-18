@@ -605,6 +605,39 @@ void main() {
       expect(breakdown.foodCount, 2);
       expect(breakdown.missingCount, 1);
     });
+
+    test('collects missing foods with summed grams, largest first (KAN-92)', () {
+      final breakdown = nutrientContributors([
+        namedEntry(
+          name: 'Orange',
+          brand: '',
+          quantityG: 100,
+          nutriments: {'vitamin-c_100g': 50, 'vitamin-c_unit': 'mg'},
+        ),
+        // Same no-data food twice: one missing row carrying the summed grams.
+        namedEntry(name: 'Mystery', brand: 'Acme', quantityG: 100),
+        namedEntry(name: 'Mystery', brand: 'Acme', quantityG: 40),
+        // A literal zero is also "no usable data" — it doesn't move the total.
+        namedEntry(
+          name: 'Water',
+          brand: '',
+          quantityG: 250,
+          nutriments: {'vitamin-c_100g': 0, 'vitamin-c_unit': 'mg'},
+        ),
+      ], specC);
+
+      expect(breakdown.missingCount, breakdown.missingFoods.length);
+      expect(breakdown.missingFoods.map((f) => f.item.name), [
+        'Water',
+        'Mystery',
+      ]);
+      expect(breakdown.missingFoods.first.quantityG, closeTo(250, 1e-9));
+      expect(breakdown.missingFoods.last.quantityG, closeTo(140, 1e-9));
+      // The full FoodItem snapshot rides along so the sheet can open the
+      // editor for exactly this food.
+      expect(breakdown.missingFoods.last.item.brands, 'Acme');
+      expect(breakdown.missingFoods.last.item.externalId, 'Mystery');
+    });
   });
 
   group('resolveCatalog', () {

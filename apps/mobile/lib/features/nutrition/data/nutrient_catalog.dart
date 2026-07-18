@@ -554,16 +554,29 @@ class NutrientContribution {
   final double share;
 }
 
+/// One logged food that carried no usable data for a nutrient. Keeps the full
+/// [FoodItem] snapshot — not just name/brand — so the sheet can open the edit
+/// flow and let the user fill the gap (KAN-92).
+class MissingNutrientFood {
+  const MissingNutrientFood({required this.item, required this.quantityG});
+
+  /// The food as first logged that day (repeat logs merge, first snapshot wins).
+  final FoodItem item;
+
+  /// Total grams logged across the day's merged entries of this food.
+  final double quantityG;
+}
+
 /// The day's contributions to a single nutrient: the ranked foods that carry it
-/// plus how many logged entries had no data for it (for a "not everything
-/// reports this" footnote).
+/// plus the logged foods that had no data for it (shown so the user can edit
+/// them and fill the gap).
 class NutrientContributionBreakdown {
   const NutrientContributionBreakdown({
     required this.spec,
     required this.contributors,
     required this.total,
     required this.foodCount,
-    required this.missingCount,
+    required this.missingFoods,
   });
 
   final NutrientSpec spec;
@@ -578,23 +591,28 @@ class NutrientContributionBreakdown {
 
   /// Distinct foods considered, whether or not they carried the nutrient.
   /// Distinct foods — not raw entries — because repeat logs of one food merge
-  /// into a single contributor row, and the "no data" footnote says "N other
-  /// foods": a food logged twice without data is one missing food, not two.
+  /// into a single contributor row, and the "no data" section lists foods:
+  /// a food logged twice without data is one missing food, not two.
   final int foodCount;
 
-  /// Distinct foods with no usable data for this nutrient. Counted explicitly
-  /// while grouping (not derived as `foodCount - contributors.length`) so the
-  /// footnote can't drift if either count changes meaning.
-  final int missingCount;
+  /// Distinct foods with no usable data for this nutrient, biggest logged
+  /// amount first (the largest unknown mass is the biggest hole in the floor).
+  /// Collected explicitly while grouping (not derived from
+  /// `foodCount - contributors.length`) so the list can't drift if either
+  /// count changes meaning.
+  final List<MissingNutrientFood> missingFoods;
+
+  /// Convenience for "N foods reported no data" copy.
+  int get missingCount => missingFoods.length;
 }
 
-// Mutable per-food accumulator for [nutrientContributors]; name/brand come
-// from the first logged snapshot of the food seen that day.
+// Mutable per-food accumulator for [nutrientContributors]; [item] is the first
+// logged snapshot of the food seen that day (supplies name/brand, and the
+// editable food for missing rows).
 class _FoodContributionAcc {
-  _FoodContributionAcc({required this.name, required this.brand});
+  _FoodContributionAcc({required this.item});
 
-  final String name;
-  final String brand;
+  final FoodItem item;
   double amount = 0;
   double quantityG = 0;
 }
@@ -603,8 +621,10 @@ class _FoodContributionAcc {
 /// every food's per-100g value by its logged quantity. Repeat logs of the same
 /// food (eggs at breakfast and dinner) merge into one row: amounts and grams
 /// sum, and rank/share use the merged amount. Foods that don't report the
-/// nutrient (or report a plain 0) are dropped — a "main contributor" list is
-/// only about the foods that actually move the total. Sorted high→low.
+/// nutrient (or report a plain 0) don't rank — a "main contributor" list is
+/// only about the foods that actually move the total — but they're returned in
+/// [NutrientContributionBreakdown.missingFoods] so the user can see and fix
+/// the data gap. Sorted high→low.
 NutrientContributionBreakdown nutrientContributors(
   Iterable<NutritionEntry> entries,
   NutrientSpec spec,
@@ -618,31 +638,34 @@ NutrientContributionBreakdown nutrientContributors(
     final acc = byFood.putIfAbsent((
       item.source,
       item.externalId,
-    ), () => _FoodContributionAcc(name: item.name, brand: item.brands));
+    ), () => _FoodContributionAcc(item: item));
     acc.quantityG += entry.quantityG;
     final per100 = nutrientPer100gForItem(spec, item);
     if (per100 == null) continue;
     acc.amount += per100 * entry.quantityG / 100.0;
   }
   var total = 0.0;
-  var missingCount = 0;
+  final missing = <MissingNutrientFood>[];
   final carrying = <_FoodContributionAcc>[];
   for (final acc in byFood.values) {
     if (acc.amount <= 0) {
-      missingCount++;
+      missing.add(
+        MissingNutrientFood(item: acc.item, quantityG: acc.quantityG),
+      );
       continue;
     }
     total += acc.amount;
     carrying.add(acc);
   }
   carrying.sort((a, b) => b.amount.compareTo(a.amount));
+  missing.sort((a, b) => b.quantityG.compareTo(a.quantityG));
   return NutrientContributionBreakdown(
     spec: spec,
     contributors: [
       for (final c in carrying)
         NutrientContribution(
-          name: c.name,
-          brand: c.brand,
+          name: c.item.name,
+          brand: c.item.brands,
           amount: c.amount,
           quantityG: c.quantityG,
           share: total > 0 ? c.amount / total : 0,
@@ -650,7 +673,7 @@ NutrientContributionBreakdown nutrientContributors(
     ],
     total: total,
     foodCount: byFood.length,
-    missingCount: missingCount,
+    missingFoods: missing,
   );
 }
 
