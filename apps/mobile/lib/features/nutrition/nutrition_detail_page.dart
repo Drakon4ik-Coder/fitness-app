@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../ui_components/ui_components.dart';
 import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
+import 'data/food_models.dart';
 import 'data/nutrient_catalog.dart';
 import 'data/nutrition_api_service.dart';
 import 'widgets/nutrient_breakdown_view.dart';
@@ -14,7 +15,7 @@ import 'widgets/nutrient_contributor_sheet.dart';
 ///
 /// The today page stays the glanceable hero; this is the progressive-disclosure
 /// detail behind a "View full nutrients" tap.
-class NutritionDetailPage extends StatelessWidget {
+class NutritionDetailPage extends StatefulWidget {
   const NutritionDetailPage({
     super.key,
     required this.dateLabel,
@@ -23,6 +24,7 @@ class NutritionDetailPage extends StatelessWidget {
     this.serverNutrients,
     this.nutrientGoals,
     this.warnNutrients = const {},
+    this.onEditFood,
   });
 
   final String dateLabel;
@@ -41,14 +43,68 @@ class NutritionDetailPage extends StatelessWidget {
   /// Catalog keys the user opted into over-goal warnings for (KAN-38).
   final Set<String> warnNutrients;
 
+  /// Opens the edit flow for a food that lacks data for a nutrient (KAN-92),
+  /// resolving with the item as edited (null = unchanged) — the today page
+  /// passes its read-first food page push. Null hides the edit affordance.
+  final Future<FoodItem?> Function(FoodItem item)? onEditFood;
+
+  @override
+  State<NutritionDetailPage> createState() => _NutritionDetailPageState();
+}
+
+class _NutritionDetailPageState extends State<NutritionDetailPage> {
+  // The page is pushed with a snapshot of the day; a food edit made from the
+  // contributor sheet must show up in the totals right away, so entries live
+  // in state and get the edited food patched in. The today page reloads the
+  // authoritative day when the user pops back.
+  late List<NutritionEntry> _entries = widget.entries;
+  late Map<String, dynamic>? _serverNutrients = widget.serverNutrients;
+
+  /// Runs [NutritionDetailPage.onEditFood] for [item] and, when an edit came
+  /// back, swaps the new food into every entry of it, resolving with the
+  /// refreshed entries (null = unchanged) so the open sheet can re-rank.
+  Future<List<NutritionEntry>?> _editFood(FoodItem item) async {
+    final updated = await widget.onEditFood!(item);
+    if (updated == null || !mounted) return null;
+    // Fork-on-edit can change the food's identity (an OFF item becomes a
+    // custom override), so match entries on the item that was tapped, not the
+    // one that came back. Entry kcal snapshots stay: the server recomputes
+    // them and the energy header on the today page's reload.
+    final entries = [
+      for (final entry in _entries)
+        if (entry.foodItem.source == item.source &&
+            entry.foodItem.externalId == item.externalId)
+          NutritionEntry(
+            id: entry.id,
+            uuid: entry.uuid,
+            mealType: entry.mealType,
+            consumedAt: entry.consumedAt,
+            quantityG: entry.quantityG,
+            kcal: entry.kcal,
+            foodItem: updated,
+            updatedAt: entry.updatedAt,
+          )
+        else
+          entry,
+    ];
+    setState(() {
+      _entries = entries;
+      // The server's day nutrients predate a local food edit and would keep
+      // showing the gap; drop them and aggregate on-device so the new data
+      // shows now. The server map returns (recomputed) on the next day load.
+      _serverNutrients = null;
+    });
+    return entries;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final catalog = resolveCatalog(nutrientGoals);
-    final totals = serverNutrients != null
-        ? nutrientTotalsFromServer(serverNutrients!, catalog: catalog)
-        : aggregateNutrients(entries, catalog: catalog);
+    final catalog = resolveCatalog(widget.nutrientGoals);
+    final totals = _serverNutrients != null
+        ? nutrientTotalsFromServer(_serverNutrients!, catalog: catalog)
+        : aggregateNutrients(_entries, catalog: catalog);
 
     return AppScaffold(
       safeArea: true,
@@ -63,7 +119,7 @@ class NutritionDetailPage extends StatelessWidget {
         ),
         children: [
           Text(
-            dateLabel.toUpperCase(),
+            widget.dateLabel.toUpperCase(),
             style: theme.textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
               letterSpacing: 2.0,
@@ -71,9 +127,9 @@ class NutritionDetailPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          _EnergyHeader(eatenKcal: eatenKcal),
+          _EnergyHeader(eatenKcal: widget.eatenKcal),
           const SizedBox(height: AppSpacing.lg),
-          if (entries.isEmpty)
+          if (_entries.isEmpty)
             _EmptyState(scheme: scheme, theme: theme)
           else ...[
             Row(
@@ -96,11 +152,12 @@ class NutritionDetailPage extends StatelessWidget {
             ),
             NutrientBreakdownView(
               totals: totals,
-              warnNutrients: warnNutrients,
+              warnNutrients: widget.warnNutrients,
               onNutrientTap: (total) => showNutrientContributorSheet(
                 context,
                 spec: total.spec,
-                entries: entries,
+                entries: _entries,
+                onEditFood: widget.onEditFood == null ? null : _editFood,
               ),
             ),
           ],

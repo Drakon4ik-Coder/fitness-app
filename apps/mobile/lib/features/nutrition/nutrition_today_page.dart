@@ -585,11 +585,11 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
     );
   }
 
-  void _openNutrientDetail(BuildContext context) {
+  Future<void> _openNutrientDetail(BuildContext context) async {
     final entries =
         _dayLog?.meals.values.expand((list) => list).toList() ??
         const <NutritionEntry>[];
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NutritionDetailPage(
           dateLabel: _dateLabel(),
@@ -598,9 +598,16 @@ class _NutritionTodayPageState extends State<NutritionTodayPage> {
           serverNutrients: _dayLog?.nutrients,
           nutrientGoals: widget.preferences?.nutrientGoals,
           warnNutrients: _warnNutrients,
+          // Lets the nutrient sheet's "no data" rows open the read-first food
+          // page so the user can fill the gap (KAN-92).
+          onEditFood: _openFoodDetail,
         ),
       ),
     );
+    // Reload after the detail page pops: a food edited from the nutrient sheet
+    // changes this day's kcal/nutrients server-side. A no-op refetch otherwise.
+    if (!mounted) return;
+    await _loadDay();
   }
 
   Future<NutritionEntry?> _updateEntry(
