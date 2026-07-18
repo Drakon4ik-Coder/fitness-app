@@ -1808,8 +1808,6 @@ components:
           type: boolean
           writeOnly: true
       required:
-      - accept_health_data
-      - accept_terms
       - email
       - id
       - password

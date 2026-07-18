@@ -59,6 +59,17 @@ class UserRegistrationSerializer(ConsentFlagsSerializer, serializers.ModelSerial
     ConsentFlagsSerializer), recorded as the versioned policy acceptance on
     success (KAN-103)."""
 
+    # Optional at the contract level, unlike the accept-policy endpoint:
+    # released builds predate the checkboxes and adding required fields would
+    # break their signups (the contract-compat CI gate rightly refuses that).
+    # A legacy signup just creates an unconsented account, which every gated
+    # endpoint 403s until the in-app consent screen posts accept-policy — the
+    # same path Google sign-ins take. A *sent* false is still a hard error
+    # (Recital 32: no silent defaults); the inherited validators only run
+    # when the key is present.
+    accept_terms = serializers.BooleanField(write_only=True, required=False)
+    accept_health_data = serializers.BooleanField(write_only=True, required=False)
+
     password = serializers.CharField(write_only=True, min_length=8)
     email = serializers.EmailField(
         required=True,
@@ -81,10 +92,14 @@ class UserRegistrationSerializer(ConsentFlagsSerializer, serializers.ModelSerial
             email=validated_data["email"],
             password=validated_data["password"],
         )
-        # Both flags validated true above — the signup checkboxes double as
-        # the versioned consent record. Google sign-ins have no checkboxes and
-        # instead consent via POST /auth/accept-policy on first open.
-        record_policy_acceptance(user)
+        # Flags present are validated true above, so the signup checkboxes
+        # double as the versioned consent record; flags absent means a legacy
+        # build — the account starts unconsented and the blocking consent
+        # screen collects it on first open, like Google sign-ins.
+        if validated_data.get("accept_terms") and validated_data.get(
+            "accept_health_data"
+        ):
+            record_policy_acceptance(user)
         return user
 
     def validate_password(self, value: str) -> str:

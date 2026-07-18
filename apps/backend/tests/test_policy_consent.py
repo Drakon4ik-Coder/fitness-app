@@ -46,17 +46,23 @@ def _consented_client(settings, *, accepted: bool = True) -> APIClient:
 
 @pytest.mark.django_db
 @pytest.mark.integration
-def test_register_requires_both_consent_flags() -> None:
+def test_register_without_consent_flags_creates_unconsented_user(settings) -> None:
+    # Released builds predate the checkboxes and send neither flag; requiring
+    # them would break their signups (the contract-compat CI gate refuses
+    # that). Such accounts start unconsented and the API gate holds them at
+    # the consent screen — same as Google sign-ins.
+    settings.POLICY_VERSION = "2026-07-18"
+
     response = APIClient().post(
         REGISTER,
         {"email": "consent@example.com", "password": "Str0ngPass!word"},
         format="json",
     )
 
-    assert response.status_code == 400
-    assert "accept_terms" in response.data
-    assert "accept_health_data" in response.data
-    assert not get_user_model().objects.filter(email="consent@example.com").exists()
+    assert response.status_code == 201
+    user = get_user_model().objects.get(email="consent@example.com")
+    assert user.accepted_policy_version == ""
+    assert not PolicyAcceptance.objects.filter(user=user).exists()
 
 
 @pytest.mark.django_db
