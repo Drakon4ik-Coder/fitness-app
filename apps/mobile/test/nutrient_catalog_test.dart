@@ -8,13 +8,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 FoodItem _food(
   Map<String, dynamic>? nutriments, {
+  // Contributor rows merge on source+externalId, so tests with several
+  // distinct foods must give each its own id.
+  String externalId = 'x',
   double? proteinG100g,
   double? sugarsG100g,
   double? fiberG100g,
   double? saltG100g,
 }) => FoodItem(
   source: offSource,
-  externalId: 'x',
+  externalId: externalId,
   name: 'Test food',
   brands: '',
   rawSourceJson: '{}',
@@ -27,6 +30,7 @@ FoodItem _food(
 
 NutritionEntry _entry({
   required double quantityG,
+  String externalId = 'x',
   Map<String, dynamic>? nutriments,
   double? proteinG100g,
 }) => NutritionEntry(
@@ -35,7 +39,11 @@ NutritionEntry _entry({
   consumedAt: DateTime(2024, 1, 1),
   quantityG: quantityG,
   kcal: 0,
-  foodItem: _food(nutriments, proteinG100g: proteinG100g),
+  foodItem: _food(
+    nutriments,
+    externalId: externalId,
+    proteinG100g: proteinG100g,
+  ),
 );
 
 NutrientTotal _find(List<NutrientTotal> totals, String key) =>
@@ -136,8 +144,13 @@ void main() {
     test('nutrientContributors ranks blob-less foods with flat macros', () {
       final specProtein = spec('protein');
       final breakdown = nutrientContributors([
-        _entry(quantityG: 100, nutriments: {'proteins_100g': 10}),
-        _entry(quantityG: 300, proteinG100g: 10), // 30 g — the top source
+        _entry(
+          quantityG: 100,
+          externalId: 'a',
+          nutriments: {'proteins_100g': 10},
+        ),
+        // 30 g — the top source. No blob: flat column only.
+        _entry(quantityG: 300, externalId: 'b', proteinG100g: 10),
       ], specProtein);
       expect(breakdown.total, closeTo(40, 1e-9));
       expect(breakdown.missingCount, 0);
@@ -431,6 +444,7 @@ void main() {
       required String name,
       required String brand,
       required double quantityG,
+      String? externalId,
       Map<String, dynamic>? nutriments,
     }) => NutritionEntry(
       id: 1,
@@ -440,7 +454,7 @@ void main() {
       kcal: 0,
       foodItem: FoodItem(
         source: offSource,
-        externalId: name,
+        externalId: externalId ?? name,
         name: name,
         brands: brand,
         rawSourceJson: '{}',
@@ -469,7 +483,7 @@ void main() {
       ], specC);
 
       expect(breakdown.total, closeTo(100, 1e-9));
-      expect(breakdown.entryCount, 2);
+      expect(breakdown.foodCount, 2);
       expect(breakdown.missingCount, 0);
       expect(breakdown.contributors.map((c) => c.name), ['Orange', 'Kiwi']);
       expect(breakdown.contributors.first.amount, closeTo(90, 1e-9));
@@ -499,7 +513,7 @@ void main() {
         ], specC);
 
         expect(breakdown.contributors.map((c) => c.name), ['Orange']);
-        expect(breakdown.entryCount, 3);
+        expect(breakdown.foodCount, 3);
         expect(breakdown.missingCount, 2);
       },
     );
@@ -511,6 +525,84 @@ void main() {
 
       expect(breakdown.contributors, isEmpty);
       expect(breakdown.total, 0);
+      expect(breakdown.missingCount, 1);
+    });
+
+    test(
+      'merges repeat logs of one food: summed amount/grams, merged rank',
+      () {
+        final breakdown = nutrientContributors([
+          // Eggs twice (breakfast + dinner): 60 g + 90 g at 20 mg/100g = 30 mg,
+          // outranking the single 25 mg orange only once merged.
+          namedEntry(
+            name: 'Egg',
+            brand: 'Farm',
+            quantityG: 60,
+            nutriments: {'vitamin-c_100g': 20, 'vitamin-c_unit': 'mg'},
+          ),
+          namedEntry(
+            name: 'Orange',
+            brand: '',
+            quantityG: 50,
+            nutriments: {'vitamin-c_100g': 50, 'vitamin-c_unit': 'mg'},
+          ),
+          namedEntry(
+            name: 'Egg',
+            brand: 'Farm',
+            quantityG: 90,
+            nutriments: {'vitamin-c_100g': 20, 'vitamin-c_unit': 'mg'},
+          ),
+        ], specC);
+
+        expect(breakdown.contributors.map((c) => c.name), ['Egg', 'Orange']);
+        expect(breakdown.foodCount, 2);
+        expect(breakdown.missingCount, 0);
+        expect(breakdown.total, closeTo(55, 1e-9));
+        final egg = breakdown.contributors.first;
+        expect(egg.amount, closeTo(30, 1e-9));
+        expect(egg.quantityG, closeTo(150, 1e-9));
+        expect(egg.share, closeTo(30 / 55, 1e-9));
+      },
+    );
+
+    test('does not merge different foods that share a name', () {
+      final breakdown = nutrientContributors([
+        namedEntry(
+          name: 'Yogurt',
+          brand: 'A',
+          externalId: 'yogurt-a',
+          quantityG: 100,
+          nutriments: {'vitamin-c_100g': 10, 'vitamin-c_unit': 'mg'},
+        ),
+        namedEntry(
+          name: 'Yogurt',
+          brand: 'B',
+          externalId: 'yogurt-b',
+          quantityG: 100,
+          nutriments: {'vitamin-c_100g': 5, 'vitamin-c_unit': 'mg'},
+        ),
+      ], specC);
+
+      expect(breakdown.contributors, hasLength(2));
+      expect(breakdown.foodCount, 2);
+      expect(breakdown.contributors.map((c) => c.brand), ['A', 'B']);
+    });
+
+    test('missing footnote counts distinct foods, not raw entries', () {
+      final breakdown = nutrientContributors([
+        namedEntry(
+          name: 'Orange',
+          brand: '',
+          quantityG: 100,
+          nutriments: {'vitamin-c_100g': 50, 'vitamin-c_unit': 'mg'},
+        ),
+        // The same no-data food logged twice is one missing food, not two.
+        namedEntry(name: 'Mystery', brand: '', quantityG: 100),
+        namedEntry(name: 'Mystery', brand: '', quantityG: 40),
+      ], specC);
+
+      expect(breakdown.contributors.map((c) => c.name), ['Orange']);
+      expect(breakdown.foodCount, 2);
       expect(breakdown.missingCount, 1);
     });
   });
