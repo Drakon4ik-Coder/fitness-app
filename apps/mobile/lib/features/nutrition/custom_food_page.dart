@@ -277,6 +277,16 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
           ),
           centerTitle: false,
         ),
+        bottomNavigationBar: PinnedActionBar(
+          child: AppPrimaryButton(
+            onPressed: _save,
+            child: Text(
+              widget.initial == null && !_isOverride
+                  ? 'Create food'
+                  : 'Save changes',
+            ),
+          ),
+        ),
         body: Form(
           key: _formKey,
           child: ListView(
@@ -363,17 +373,8 @@ class _CustomFoodPageState extends State<CustomFoodPage> {
               _MoreNutrientsSection(
                 buildField: (spec) => _specField(spec, required: false),
               ),
-              const SizedBox(height: AppSpacing.xl),
-              AppPrimaryButton(
-                onPressed: _save,
-                child: Text(
-                  widget.initial == null && !_isOverride
-                      ? 'Create food'
-                      : 'Save changes',
-                ),
-              ),
               if (widget.initial != null) ...[
-                const SizedBox(height: AppSpacing.xs),
+                const SizedBox(height: AppSpacing.xl),
                 TextButton(
                   onPressed: _confirmDelete,
                   child: Text(

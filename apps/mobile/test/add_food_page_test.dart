@@ -32,6 +32,7 @@ class _FakeLocalDb extends FoodLocalDb {
   final List<FoodItem> recents;
   final List<FoodItem> upserted = [];
   final List<int> lastUsedTouches = [];
+  final List<double> lastUsedGrams = [];
   final List<int> deletedLocalIds = [];
   int _nextLocalId = 1;
 
@@ -60,8 +61,13 @@ class _FakeLocalDb extends FoodLocalDb {
   }
 
   @override
-  Future<void> updateLastUsed(int localId, DateTime usedAt) async {
+  Future<void> updateLastUsed(
+    int localId,
+    DateTime usedAt,
+    double loggedGrams,
+  ) async {
     lastUsedTouches.add(localId);
+    lastUsedGrams.add(loggedGrams);
   }
 
   @override
@@ -418,6 +424,7 @@ void main() {
     expect(entry.pending, isTrue);
     expect(store.outbox, hasLength(1));
     expect(localDb.lastUsedTouches, hasLength(1));
+    expect(localDb.lastUsedGrams, [100]);
     expect(await result, isTrue);
   });
 
@@ -450,6 +457,50 @@ void main() {
     expect(foodsApi.upserts, hasLength(1));
     expect(store.entries.values.single.food.backendId, 77);
     expect(await result, isTrue);
+  testWidgets('quick-add uses learned grams after two matching logs', (
+    WidgetTester tester,
+  ) async {
+    final learned = makeTestFood(
+      name: 'Oatmeal',
+      backendId: 11,
+    ).copyWith(servingSizeG: 40, lastLoggedGrams: 140, sameAmountStreak: 2);
+    await pumpAddFoodPage(
+      tester,
+      localDb: _FakeLocalDb(recents: [learned]),
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    await tester.ensureVisible(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+
+    // 150 kcal/100 g at the learned 140 g amount. The 40 g serving would be
+    // only 60 kcal, so this pins the streak-aware branch unambiguously.
+    expect(find.text('210 kcal total'), findsOneWidget);
+  });
+
+  testWidgets('a one-log streak still uses the existing smart default', (
+    WidgetTester tester,
+  ) async {
+    final oneOff = makeTestFood(
+      name: 'Oatmeal',
+      backendId: 12,
+    ).copyWith(servingSizeG: 40, lastLoggedGrams: 140, sameAmountStreak: 1);
+    await pumpAddFoodPage(
+      tester,
+      localDb: _FakeLocalDb(recents: [oneOff]),
+      repository: _offlineRepository(InMemoryNutritionStore()),
+    );
+
+    await tester.ensureVisible(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Oatmeal'));
+    await tester.pumpAndSettle();
+
+    // The unchanged smart default chooses the 40 g serving (60 kcal), not
+    // the one-off 140 g amount.
+    expect(find.text('60 kcal total'), findsOneWidget);
   });
 
   testWidgets(
@@ -504,7 +555,7 @@ void main() {
     },
   );
 
-  testWidgets('tapping an added food opens the editor instead of duplicating', (
+  testWidgets('tapping a result toggles its staged state without an Undo', (
     WidgetTester tester,
   ) async {
     final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
@@ -520,27 +571,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsOneWidget);
 
-    // The result card now reads as added; tapping it edits the staged amount
-    // (no second copy). 'Oatmeal' appears twice now — staged tile first in
-    // the column, result card last.
+    // The result card now reads as added. 'Oatmeal' appears twice — the
+    // staged tile first in the column and the result card last.
     final addedCard = find.text('Oatmeal').last;
     await tester.ensureVisible(addedCard);
     await tester.pumpAndSettle();
     await tester.tap(addedCard);
     await tester.pumpAndSettle();
-    expect(find.text('Save changes'), findsOneWidget);
-
-    // Removing from the sheet unstages it and the log bar disappears; the
-    // Undo snackbar (KAN-39) brings the staged item back.
-    await tester.tap(find.text('Remove from meal'));
-    await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsNothing);
     expect(find.text('Log to Breakfast'), findsNothing);
+    expect(find.text('Removed Oatmeal'), findsNothing);
+    expect(find.text('Undo'), findsNothing);
 
-    await tester.tap(find.text('Undo'));
+    // The toggle is reversible without changing the smart default behavior.
+    await tester.tap(find.text('Oatmeal'));
     await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsOneWidget);
+    expect(find.text('150 kcal total'), findsOneWidget);
     expect(find.text('Log to Breakfast'), findsOneWidget);
+
+    // Amount editing remains on the Added-list row, not the result toggle.
+    final stagedTile = find.text('Oatmeal').first;
+    await tester.ensureVisible(stagedTile);
+    await tester.pumpAndSettle();
+    await tester.tap(stagedTile);
+    await tester.pumpAndSettle();
+    expect(find.text('Save changes'), findsOneWidget);
   });
 
   testWidgets(
@@ -604,11 +660,23 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(FoodDetailPage), findsOneWidget);
-      await tester.ensureVisible(
-        find.text('Revert to original', skipOffstage: false),
+      final detailList = find.descendant(
+        of: find.byType(FoodDetailPage),
+        matching: find.byType(ListView),
+      );
+      final revertButton = find.descendant(
+        of: find.byType(FoodDetailPage),
+        matching: find.text('Revert to original', skipOffstage: false),
+      );
+      await tester.scrollUntilVisible(
+        revertButton,
+        200,
+        scrollable: find
+            .descendant(of: detailList, matching: find.byType(Scrollable))
+            .first,
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Revert to original'));
+      await tester.tap(revertButton);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Revert'));
       await tester.pumpAndSettle();

@@ -149,7 +149,7 @@ lib/
 │           ├── foods_api_service.dart       # /api/v1/foods/* calls
 │           ├── preferences_api_service.dart # /api/v1/preferences calls
 │           ├── food_models.dart             # FoodItem + JSON parsing helpers
-│           ├── food_local_db.dart           # sqflite food catalog cache (v7)
+│           ├── food_local_db.dart           # sqflite food catalog cache (v8)
 │           ├── food_sync.dart               # ensure-backend-id / custom-food sync helpers
 │           ├── nutrient_catalog.dart        # Mirrors backend nutrients/catalog.py
 │           ├── ciqual_raw_refs.dart         # Generated cooked-basis reference data
@@ -303,7 +303,7 @@ sunset; both modes use the same console credentials.
 - **Hand-written JSON models** — `food_models.dart` and inline parsing in
   service files. No code generation.
 - **Two on-device SQLite databases** with independent migration histories:
-  `food_local_db.dart` (v7) and `nutrition_local_store.dart` (v2). Both files
+  `food_local_db.dart` (v8) and `nutrition_local_store.dart` (v2). Both files
   are namespaced per server user id (KAN-64, `local_db_paths.dart`): logout
   keeps them so offline data — including an unsynced outbox — survives
   re-login; account deletion clears them; the 3 most recently used accounts'

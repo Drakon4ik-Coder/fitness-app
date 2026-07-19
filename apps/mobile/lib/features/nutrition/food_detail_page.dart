@@ -357,6 +357,38 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
           ),
         ],
       ),
+      bottomNavigationBar: PinnedActionBar(
+        child: SizedBox(
+          height: 52,
+          child: FilledButton.icon(
+            onPressed: _busy ? null : _edit,
+            icon: _busy
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: scheme.onPrimary,
+                    ),
+                  )
+                : const Icon(Icons.edit_outlined),
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+            ),
+            label: Text(
+              'Edit nutrition facts',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: scheme.onPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
@@ -486,39 +518,8 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
             ),
           ),
           NutrientBreakdownView(totals: totals, showEmptyRows: false),
-          const SizedBox(height: AppSpacing.xl),
-          SizedBox(
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: _busy ? null : _edit,
-              icon: _busy
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: scheme.onPrimary,
-                      ),
-                    )
-                  : const Icon(Icons.edit_outlined),
-              style: FilledButton.styleFrom(
-                backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-              ),
-              label: Text(
-                'Edit nutrition facts',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: scheme.onPrimary,
-                ),
-              ),
-            ),
-          ),
           if (_item.isOverride) ...[
-            const SizedBox(height: AppSpacing.xs),
+            const SizedBox(height: AppSpacing.xl),
             TextButton(
               onPressed: _busy ? null : _confirmRevert,
               child: Text(
