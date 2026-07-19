@@ -448,13 +448,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
   }
 
-// One-tap quick add: a repeated amount wins after two matching logs;
-// otherwise the smart default remains 1 piece/serving when known, else
-// 100 g. The amount can be fine-tuned later by tapping the Added item. A
-// second result tap toggles it off silently: that tap is deliberate, unlike
-// an accidental swipe, so haptic acknowledgement is enough without a noisy
-// Undo snackbar. OFF results are enriched first (a short fetch) so an
-// unlearned default lands on a whole piece/serving rather than a raw 100 g.
+  // One-tap quick add: a repeated amount wins after two matching logs;
+  // otherwise the smart default remains 1 piece/serving when known, else
+  // 100 g. The amount can be fine-tuned later by tapping the Added item. A
+  // second result tap toggles it off silently: that tap is deliberate, unlike
+  // an accidental swipe, so haptic acknowledgement is enough without a noisy
+  // Undo snackbar. OFF results are enriched first (a short fetch) so an
+  // unlearned default lands on a whole piece/serving rather than a raw 100 g.
   Future<void> _onResultTap(_FoodResult result) async {
     FocusScope.of(context).unfocus();
     // Shadowed globals are normally hidden, but this also keeps a stale result
