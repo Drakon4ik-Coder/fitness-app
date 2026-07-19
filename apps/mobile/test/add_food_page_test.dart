@@ -458,7 +458,7 @@ void main() {
     expect(store.entries.values.single.food.backendId, 77);
     expect(await result, isTrue);
   });
-  
+
   testWidgets('quick-add uses learned grams after two matching logs', (
     WidgetTester tester,
   ) async {
