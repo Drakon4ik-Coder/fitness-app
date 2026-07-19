@@ -513,7 +513,7 @@ void main() {
     },
   );
 
-  testWidgets('tapping an added food opens the editor instead of duplicating', (
+  testWidgets('tapping a result toggles its staged state without an Undo', (
     WidgetTester tester,
   ) async {
     final localDb = _FakeLocalDb(recents: [makeTestFood(name: 'Oatmeal')]);
@@ -529,27 +529,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsOneWidget);
 
-    // The result card now reads as added; tapping it edits the staged amount
-    // (no second copy). 'Oatmeal' appears twice now — staged tile first in
-    // the column, result card last.
+    // The result card now reads as added. 'Oatmeal' appears twice — the
+    // staged tile first in the column and the result card last.
     final addedCard = find.text('Oatmeal').last;
     await tester.ensureVisible(addedCard);
     await tester.pumpAndSettle();
     await tester.tap(addedCard);
     await tester.pumpAndSettle();
-    expect(find.text('Save changes'), findsOneWidget);
-
-    // Removing from the sheet unstages it and the log bar disappears; the
-    // Undo snackbar (KAN-39) brings the staged item back.
-    await tester.tap(find.text('Remove from meal'));
-    await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsNothing);
     expect(find.text('Log to Breakfast'), findsNothing);
+    expect(find.text('Removed Oatmeal'), findsNothing);
+    expect(find.text('Undo'), findsNothing);
 
-    await tester.tap(find.text('Undo'));
+    // The toggle is reversible without changing the smart default behavior.
+    await tester.tap(find.text('Oatmeal'));
     await tester.pumpAndSettle();
     expect(find.text('ADDED ITEMS'), findsOneWidget);
+    expect(find.text('150 kcal total'), findsOneWidget);
     expect(find.text('Log to Breakfast'), findsOneWidget);
+
+    // Amount editing remains on the Added-list row, not the result toggle.
+    final stagedTile = find.text('Oatmeal').first;
+    await tester.ensureVisible(stagedTile);
+    await tester.pumpAndSettle();
+    await tester.tap(stagedTile);
+    await tester.pumpAndSettle();
+    expect(find.text('Save changes'), findsOneWidget);
   });
 
   testWidgets(

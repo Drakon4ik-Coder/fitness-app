@@ -450,15 +450,19 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   // One-tap quick add: a repeated amount wins after two matching logs;
   // otherwise the smart default remains 1 piece/serving when known, else
-  // 100 g. The amount can be fine-tuned later by tapping the Added item. If
-  // the food is already added we open its editor, so it cannot be added twice.
-  // OFF results are enriched first (a short fetch) so an unlearned default
-  // lands on a whole piece/serving rather than a raw 100 g.
+  // 100 g. The amount can be fine-tuned later by tapping the Added item. A
+  // second result tap toggles it off silently: that tap is deliberate, unlike
+  // an accidental swipe, so haptic acknowledgement is enough without a noisy
+  // Undo snackbar. OFF results are enriched first (a short fetch) so an
+  // unlearned default lands on a whole piece/serving rather than a raw 100 g.
   Future<void> _onResultTap(_FoodResult result) async {
     FocusScope.of(context).unfocus();
-    final existingIndex = _indexOfAdded(result.item);
+    // Shadowed globals are normally hidden, but this also keeps a stale result
+    // tap from staging a global beside its forked personal override.
+    final existingIndex = _stagedIndexOf(result.item);
     if (existingIndex >= 0) {
-      await _editAddedItem(existingIndex);
+      unawaited(HapticFeedback.selectionClick());
+      setState(() => _addedItems.removeAt(existingIndex));
       return;
     }
 
@@ -472,8 +476,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
       item = await _enrich(item);
       if (!mounted) return;
       setState(() => _enrichingKey = null);
-      // The user may have navigated/removed in the meantime; re-check.
-      if (_indexOfAdded(item) >= 0) return;
+      // This callback began as an add; an enrich race must not reinterpret the
+      // same tap as a removal after another path stages the resolved identity.
+      if (_stagedIndexOf(item) >= 0) return;
     }
 
     // A FatSecret item whose enrich fetch found no per-100g-mappable serving
