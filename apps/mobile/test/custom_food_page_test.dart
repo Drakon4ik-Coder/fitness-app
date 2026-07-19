@@ -11,8 +11,9 @@ Future<CustomFoodResult? Function()> _openForm(
   FoodItem? initial,
   FoodItem? overrideOf,
   Map<String, String> fields = const {},
+  Size physicalSize = const Size(1200, 3200),
 }) async {
-  tester.view.physicalSize = const Size(1200, 3200);
+  tester.view.physicalSize = physicalSize;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -59,12 +60,61 @@ Future<void> _tapSave(WidgetTester tester, {bool editing = false}) async {
     ElevatedButton,
     editing ? 'Save changes' : 'Create food',
   );
-  await tester.ensureVisible(button);
+  expect(button.hitTestable(), findsOneWidget);
   await tester.tap(button);
   await tester.pumpAndSettle();
 }
 
 void main() {
+  testWidgets('pins save while the destructive action remains in the form', (
+    tester,
+  ) async {
+    final existing = FoodItem(
+      source: customSource,
+      externalId: 'cf-pinned',
+      name: 'Pinned food',
+      brands: '',
+      kcal100g: 100,
+      rawSourceJson: '{}',
+    );
+
+    await _openForm(
+      tester,
+      initial: existing,
+      physicalSize: const Size(480, 520),
+    );
+
+    final saveButton = find.widgetWithText(ElevatedButton, 'Save changes');
+    expect(saveButton.hitTestable(), findsOneWidget);
+    expect(
+      find.ancestor(of: saveButton, matching: find.byType(ListView)),
+      findsNothing,
+    );
+    expect(find.text('Delete food').hitTestable(), findsNothing);
+
+    final scrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+  });
+
+  testWidgets('keeps the create action above the keyboard', (tester) async {
+    await _openForm(tester, physicalSize: const Size(480, 600));
+    await tester.tap(find.widgetWithText(TextFormField, 'Name'));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    final button = find.widgetWithText(ElevatedButton, 'Create food');
+    expect(button.hitTestable(), findsOneWidget);
+    expect(tester.getBottomLeft(button).dy, lessThanOrEqualTo(600 - 240));
+  });
+
   testWidgets('builds a custom food with OFF-format nutriments', (
     tester,
   ) async {

@@ -5,4 +5,5 @@ export 'app_section.dart';
 export 'consent_checkbox.dart';
 export 'inline_banner.dart';
 export 'link_button.dart';
+export 'pinned_action_bar.dart';
 export 'pulse/pulse_components.dart';
