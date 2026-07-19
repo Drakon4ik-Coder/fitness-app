@@ -266,6 +266,78 @@ void main() {
     expect(results.single['food_id'], '1');
   });
 
+  test('searchFoods parses a v3 multi-hit results list', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'foods_search': {
+                  'results': {
+                    'food': [
+                      {'food_id': '3', 'food_name': 'Image A'},
+                      {'food_id': '4', 'food_name': 'Image B'},
+                    ],
+                  },
+                  'total_results': '2',
+                },
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final client = FatSecretClient(
+      accessToken: 'test-token',
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+    );
+    final results = await client.searchFoods('image');
+
+    expect(results, hasLength(2));
+    expect(results[0]['food_id'], '3');
+    expect(results[1]['food_id'], '4');
+  });
+
+  test('searchFoods normalizes a v3 single-hit object into a list', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'foods_search': {
+                  'results': {
+                    'food': {'food_id': '5', 'food_name': 'Image Solo'},
+                  },
+                  'total_results': '1',
+                },
+              },
+            ),
+          );
+        },
+      ),
+    );
+
+    final client = FatSecretClient(
+      accessToken: 'test-token',
+      dio: dio,
+      rateLimiter: OffRateLimiter(),
+    );
+    final results = await client.searchFoods('solo image');
+
+    expect(results, hasLength(1));
+    expect(results.single['food_id'], '5');
+  });
+
   test('searchFoods returns an empty list when foods.food is absent (zero '
       'hits)', () async {
     final dio = Dio();

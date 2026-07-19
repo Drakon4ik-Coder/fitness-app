@@ -814,7 +814,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final backendId = item.backendId;
     final imageUrl = item.imageUrl;
     if (backendId == null || imageUrl == null) return null;
-    final result = await _imageDownloader.downloadImage(imageUrl);
+    final result = await _imageDownloader.downloadImage(
+      imageUrl,
+      useOffRateLimit: item.source == offSource,
+    );
     if (result == null) return null;
     return widget.foodsApi.uploadFoodImages(
       foodItemId: backendId,

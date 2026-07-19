@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'food_models.dart';
 
 // Measurement-description heads that name a mass/volume rather than a
@@ -26,6 +28,13 @@ const Set<String> _bareMassOrVolumeWords = {
   'servings',
 };
 
+class _ImageResult {
+  const _ImageResult({this.url, this.signature});
+
+  final String? url;
+  final String? signature;
+}
+
 /// Maps FatSecret's `foods.search` / `food.get.v4` JSON (passed through
 /// verbatim by the backend proxy, KAN-67) into [FoodItem]s. Mirrors
 /// [OffMapper]'s role for the OFF source: no HTTP here, just shape
@@ -43,6 +52,7 @@ class FatSecretMapper {
     final name = (food['food_name'] as String?)?.trim() ?? '';
     final brands = (food['brand_name'] as String?)?.trim() ?? '';
     final description = (food['food_description'] as String?) ?? '';
+    final image = _selectImage(food);
 
     double? kcal100g;
     double? protein;
@@ -85,7 +95,9 @@ class FatSecretMapper {
       gramsPerPiece: null,
       pieceUnit: null,
       nutritionBasis: null,
-      imageSignature: null,
+      // A missing premier image stays null, preserving every pre-KAN-105
+      // free-tier hash byte-for-byte; only a real image changes freshness.
+      imageSignature: image.signature,
     );
 
     return FoodItem(
@@ -94,7 +106,8 @@ class FatSecretMapper {
       barcode: null,
       name: name,
       brands: brands,
-      imageUrl: null,
+      imageUrl: image.url,
+      imageSignature: image.signature,
       contentHash: contentHash,
       kcal100g: kcal100g,
       proteinG100g: protein,
@@ -117,6 +130,7 @@ class FatSecretMapper {
     if (externalId == null || externalId.isEmpty) return null;
     final name = (food['food_name'] as String?)?.trim() ?? '';
     final brands = (food['brand_name'] as String?)?.trim() ?? '';
+    final image = _selectImage(food);
 
     final servingsWrapper = food['servings'];
     final servings = servingsWrapper is Map
@@ -232,7 +246,7 @@ class FatSecretMapper {
       gramsPerPiece: gramsPerPiece,
       pieceUnit: pieceUnit,
       nutritionBasis: null,
-      imageSignature: null,
+      imageSignature: image.signature,
     );
 
     return FoodItem(
@@ -241,7 +255,8 @@ class FatSecretMapper {
       barcode: null,
       name: name,
       brands: brands,
-      imageUrl: null,
+      imageUrl: image.url,
+      imageSignature: image.signature,
       contentHash: contentHash,
       kcal100g: kcal100g,
       proteinG100g: protein,
@@ -260,6 +275,40 @@ class FatSecretMapper {
       }),
       nutrimentsJson: nutrimentsJson.isEmpty ? null : nutrimentsJson,
     );
+  }
+
+  _ImageResult _selectImage(Map<String, dynamic> food) {
+    final wrapper = food['food_images'];
+    final images = wrapper is Map
+        ? asFatSecretMapList(wrapper['food_image'])
+        : const <Map<String, dynamic>>[];
+
+    String? bestUrl;
+    var bestRank = -1;
+    for (final image in images) {
+      final rawUrl = image['image_url'];
+      if (rawUrl is! String || rawUrl.trim().isEmpty) continue;
+      final url = rawUrl.trim();
+      final type = image['image_type']?.toString().trim().toLowerCase() ?? '';
+      final rank = type.contains('large')
+          ? 2
+          : (type.contains('standard') || type == '1')
+          ? 1
+          : 0;
+      if (rank > bestRank) {
+        bestRank = rank;
+        bestUrl = url;
+      }
+    }
+
+    // FatSecret exposes no independent revision identifier. Hashing the URL
+    // makes it a stable, backend-safe signature (the stored field is capped at
+    // 128 chars): a URL change re-ingests like OFF's image revision, while no
+    // image still contributes null.
+    final signature = bestUrl == null
+        ? null
+        : sha256.convert(utf8.encode(bestUrl)).toString();
+    return _ImageResult(url: bestUrl, signature: signature);
   }
 
   bool _isPer100gBasis(String description) {

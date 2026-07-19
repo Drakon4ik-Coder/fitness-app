@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 TOKEN_URL = "https://oauth.fatsecret.com/connect/token"
 API_URL = "https://platform.fatsecret.com/rest/server.api"
 _TOKEN_CACHE_KEY = "fatsecret:oauth-token"
+_SEARCH_V1_CACHE_KEY = "fatsecret:search-use-v1"
+_SEARCH_V1_CACHE_TTL = 60 * 60
+
+# FatSecret documents these as unknown method, missing OAuth 2.0 scope, and
+# API not found. They are the only application errors that prove search v3 is
+# unavailable; request-limit, temporary-system, timeout, and unknown errors
+# must keep their existing upstream-error behavior and never poison this cache.
+_V3_UNAVAILABLE_ERROR_CODES = frozenset({10, 14, 23})
+_V3_UNAVAILABLE_HTTP_STATUSES = frozenset({403, 404})
 
 # Connect/read timeouts as a tuple, not a single scalar: a hung partner
 # request must never pin a gunicorn worker forever waiting on one socket op.
@@ -36,11 +45,18 @@ class FatSecretNotConfigured(Exception):
 class FatSecretUpstreamError(Exception):
     """Wraps any FatSecret failure. `status` is the upstream HTTP status when
     known (e.g. 429, 5xx), or None for transport errors / 200-with-error-JSON.
+    `error_code` is the documented application code from an error JSON body.
     """
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        error_code: int | None = None,
+    ):
         super().__init__(message)
         self.status = status
+        self.error_code = error_code
 
 
 def _fetch_token() -> str:
@@ -187,22 +203,56 @@ def _parse_platform_response(response: requests.Response) -> dict:
     if isinstance(data, dict) and "error" in data:
         # FatSecret's app-level errors arrive as HTTP 200. Log the real code
         # and message server-side only — the raised exception stays generic.
-        logger.warning("FatSecret application error: %s", data["error"])
-        raise FatSecretUpstreamError("FatSecret search failed")
+        error = data["error"]
+        logger.warning("FatSecret application error: %s", error)
+        raw_code = error.get("code") if isinstance(error, dict) else None
+        try:
+            error_code = None if raw_code is None else int(raw_code)
+        except (TypeError, ValueError):
+            error_code = None
+        raise FatSecretUpstreamError("FatSecret search failed", error_code=error_code)
 
     return data
 
 
 def search_foods(query: str, page: int = 0, max_results: int = 10) -> dict:
-    return _call_platform(
-        {
-            "method": "foods.search",
-            "search_expression": query,
-            "page_number": str(page),
-            "max_results": str(max_results),
-            "format": "json",
-        }
-    )
+    shared_params = {
+        "search_expression": query,
+        "page_number": str(page),
+        "max_results": str(max_results),
+        "format": "json",
+    }
+    v1_params = {"method": "foods.search", **shared_params}
+    if cache.get(_SEARCH_V1_CACHE_KEY):
+        return _call_platform(v1_params)
+
+    try:
+        return _call_platform(
+            {
+                "method": "foods.search.v3",
+                "include_food_images": "true",
+                **shared_params,
+            }
+        )
+    except FatSecretUpstreamError as exc:
+        unavailable = (
+            exc.error_code in _V3_UNAVAILABLE_ERROR_CODES
+            or exc.status in _V3_UNAVAILABLE_HTTP_STATUSES
+        )
+        if not unavailable:
+            raise
+
+        # Free-tier accounts must pay at most one doomed premier request per
+        # hour. The expiring verdict also probes automatically after an
+        # upgrade, without a deployment or permanent configuration switch.
+        cache.set(_SEARCH_V1_CACHE_KEY, True, timeout=_SEARCH_V1_CACHE_TTL)
+        logger.warning(
+            "FatSecret foods.search.v3 unavailable (code=%s, status=%s); "
+            "downgrading searches to v1 for one hour",
+            exc.error_code,
+            exc.status,
+        )
+        return _call_platform(v1_params)
 
 
 def get_food(food_id: str) -> dict:
