@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:fitness_app/core/app_log.dart';
 import 'package:fitness_app/features/nutrition/add_food_page.dart';
@@ -87,6 +89,17 @@ class _FakeFoodsApi extends FoodsApiService {
   @override
   Future<FoodIngestResult> ingestFood(FoodItem item) async =>
       throw StateError('unexpected ingestFood');
+}
+
+class _CompletingCustomFoodsApi extends _FakeFoodsApi {
+  final Completer<FoodItem> result = Completer<FoodItem>();
+  final List<FoodItem> upserts = [];
+
+  @override
+  Future<FoodItem> upsertCustomFood(FoodItem item) {
+    upserts.add(item);
+    return result.future;
+  }
 }
 
 class _FakeOffClient extends OffClient {
@@ -408,6 +421,37 @@ void main() {
     expect(await result, isTrue);
   });
 
+  testWidgets('meal submit re-syncs a local-only custom food', (
+    WidgetTester tester,
+  ) async {
+    final custom = FoodItem(
+      localId: 1,
+      source: customSource,
+      externalId: 'cf-local-only',
+      name: 'Offline oats',
+      brands: '',
+      kcal100g: 200,
+      rawSourceJson: '{}',
+    );
+    final foodsApi = _CompletingCustomFoodsApi();
+    foodsApi.result.complete(custom.copyWith(backendId: 77));
+    final store = InMemoryNutritionStore();
+    final result = await pumpAddFoodPage(
+      tester,
+      localDb: _FakeLocalDb(),
+      repository: _offlineRepository(store),
+      foodsApi: foodsApi,
+      initialItems: [(item: custom, grams: 100)],
+    );
+
+    await tester.tap(find.text('Log to Breakfast'));
+    await tester.pumpAndSettle();
+
+    expect(foodsApi.upserts, hasLength(1));
+    expect(store.entries.values.single.food.backendId, 77);
+    expect(await result, isTrue);
+  });
+
   testWidgets(
     'duplicate-seeded foods arrive pre-staged at their logged amounts and '
     'log as-is',
@@ -622,6 +666,46 @@ void main() {
 
     expect(find.text('Search for a food or scan a barcode'), findsOneWidget);
     expect(find.text('Create custom food'), findsOneWidget);
+  });
+
+  testWidgets('new custom food is stored and staged while sync is pending', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 3200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final localDb = _FakeLocalDb();
+    final foodsApi = _CompletingCustomFoodsApi();
+    await pumpAddFoodPage(
+      tester,
+      localDb: localDb,
+      repository: _offlineRepository(InMemoryNutritionStore()),
+      foodsApi: foodsApi,
+    );
+
+    await tester.tap(find.text('Create custom food'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Name'),
+      'Instant oats',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Calories'),
+      '200',
+    );
+    final createButton = find.widgetWithText(ElevatedButton, 'Create food');
+    await tester.ensureVisible(createButton);
+    await tester.tap(createButton);
+    await tester.pumpAndSettle();
+
+    expect(localDb.upserted, hasLength(1));
+    expect(localDb.upserted.single.name, 'Instant oats');
+    expect(find.text('ADDED ITEMS'), findsOneWidget);
+    expect(find.text('Instant oats'), findsWidgets);
+    expect(foodsApi.upserts, hasLength(1));
+    expect(foodsApi.result.isCompleted, isFalse);
   });
 
   testWidgets(

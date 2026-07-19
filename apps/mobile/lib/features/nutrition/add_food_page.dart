@@ -670,9 +670,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
     });
   }
 
-  // Opens the create-food form; the popped draft is synced (best effort —
-  // offline creation still works, _submitItems re-syncs any custom food
-  // missing a backendId), stored locally, and dropped into the Added list.
+  // Opens the create-food form; the popped draft is stored and staged before
+  // its best-effort background sync. _submitItems re-syncs anything still
+  // missing a backendId.
   Future<void> _openCustomFoodPage() async {
     FocusScope.of(context).unfocus();
     final result = await Navigator.of(context).push<CustomFoodResult>(
@@ -685,6 +685,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
       foodsApi: widget.foodsApi,
       localDb: widget.localDb,
       onUnauthorized: widget.onLogout,
+      onSynced: (synced) {
+        if (mounted) _applyCustomFoodUpdate(synced);
+      },
     );
     if (stored == null || !mounted) return;
     unawaited(HapticFeedback.selectionClick());
