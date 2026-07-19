@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'api_exceptions.dart';
 import 'food_local_db.dart';
 import 'food_models.dart';
@@ -26,28 +28,61 @@ Future<(FoodItem, bool)> ensureGlobalBackendId(
   return (result.item, result.imagesOk);
 }
 
-/// Persists a custom-food draft: best-effort backend upsert (offline keeps
-/// the local copy; a later meal submit re-syncs anything missing a
-/// backendId), then the local store. Returns the stored item, or null when
-/// the session was unauthorized — [onUnauthorized] has already run then.
+/// Persists a custom-food draft locally, then starts a best-effort backend
+/// upsert. A later meal submit re-syncs anything still missing a backend id.
 Future<FoodItem?> saveCustomFoodDraft(
   FoodItem draft, {
   required FoodsApiService foodsApi,
   required FoodLocalDb localDb,
   required Future<void> Function() onUnauthorized,
+  void Function(FoodItem synced)? onSynced,
 }) async {
-  var item = draft;
+  final stored = await localDb.upsertFood(draft);
+  unawaited(
+    _syncCustomFoodDraft(
+      stored,
+      foodsApi: foodsApi,
+      localDb: localDb,
+      onUnauthorized: onUnauthorized,
+      onSynced: onSynced,
+    ),
+  );
+  return stored;
+}
+
+Future<void> _syncCustomFoodDraft(
+  FoodItem item, {
+  required FoodsApiService foodsApi,
+  required FoodLocalDb localDb,
+  required Future<void> Function() onUnauthorized,
+  required void Function(FoodItem synced)? onSynced,
+}) async {
   try {
     final synced = await foodsApi.upsertCustomFood(item);
-    item = item.copyWith(backendId: synced.backendId);
+    final backendId = synced.backendId;
+    final localId = item.localId;
+    if (backendId == null || localId == null) return;
+
+    final stillExists = await localDb.updateBackendId(localId, backendId);
+    if (!stillExists) {
+      // Create -> delete while this upsert was in flight must delete the row
+      // the server just created, or it resurrects in typeahead on next sync.
+      await foodsApi.deleteCustomFood(backendId);
+      return;
+    }
+    onSynced?.call(item.copyWith(backendId: backendId));
   } on ApiException catch (error) {
     if (error.isUnauthorized) {
-      await onUnauthorized();
-      return null;
+      try {
+        await onUnauthorized();
+      } catch (_) {
+        // Background work must never surface an unhandled async error.
+      }
     }
     // Offline or server hiccup: keep the local copy, sync on submit.
+  } catch (_) {
+    // The local draft is already safe; background failures are non-blocking.
   }
-  return localDb.upsertFood(item);
 }
 
 enum CustomFoodDeleteOutcome { deleted, unauthorized, failed }

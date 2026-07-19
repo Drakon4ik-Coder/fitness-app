@@ -135,14 +135,18 @@ class FoodLocalDb {
     );
   }
 
-  Future<void> updateBackendId(int localId, int backendId) async {
+  /// Patches a synced id and reports whether the row still existed. A false
+  /// result lets background custom-food sync compensate for a concurrent
+  /// local delete instead of resurrecting the food on the server.
+  Future<bool> updateBackendId(int localId, int backendId) async {
     final db = await database;
-    await db.update(
+    final updated = await db.update(
       'foods',
       {'backend_id': backendId},
       where: 'id = ?',
       whereArgs: [localId],
     );
+    return updated != 0;
   }
 
   Future<List<FoodItem>> searchFoods(String query, {int limit = 20}) async {

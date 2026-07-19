@@ -185,6 +185,11 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
       foodsApi: widget.foodsApi,
       localDb: widget.localDb,
       onUnauthorized: widget.onLogout,
+      onSynced: (synced) {
+        if (!mounted) return;
+        setState(() => _item = synced);
+        widget.onItemChanged?.call(synced);
+      },
     );
     if (stored == null || !mounted) return;
     setState(() => _item = stored);
