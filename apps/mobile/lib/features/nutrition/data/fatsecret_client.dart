@@ -55,10 +55,10 @@ class FatSecretClient {
     _dio.options.headers['Authorization'] = 'Bearer $accessToken';
   }
 
-  /// GET .../fatsecret/search. Normalizes FatSecret's object-vs-array-vs-absent
-  /// quirk on `foods.food` here so callers always see a plain list: a single
-  /// hit arrives as a bare object (not a one-element list), and zero hits omit
-  /// the key entirely.
+  /// GET .../fatsecret/search. Accepts both free-tier v1 (`foods.food`) and
+  /// image-capable v3 (`foods_search.results.food`) passthrough bodies, then
+  /// normalizes FatSecret's object-vs-array-vs-absent quirk so callers always
+  /// see a plain list.
   ///
   /// The rate-limiter wraps the whole mapped call so a budget-exhausted
   /// [OffRateLimitException] reaches the caller untouched — [mapApiErrors]
@@ -85,9 +85,16 @@ class FatSecretClient {
           queryParameters: {'q': query, 'max_results': maxResults},
           cancelToken: cancelToken,
         );
-        final foods = response.data?['foods'];
-        if (foods is! Map) return const <Map<String, dynamic>>[];
-        return asFatSecretMapList(foods['food']);
+        final body = response.data;
+        final v3 = body?['foods_search'];
+        if (v3 is Map) {
+          final results = v3['results'];
+          if (results is Map) return asFatSecretMapList(results['food']);
+          return const <Map<String, dynamic>>[];
+        }
+        final v1 = body?['foods'];
+        if (v1 is Map) return asFatSecretMapList(v1['food']);
+        return const <Map<String, dynamic>>[];
       }),
     );
   }

@@ -114,6 +114,50 @@ void main() {
       final food = _bigMacSearchHit()..remove('food_id');
       expect(mapper.mapSummary(food), isNull);
     });
+
+    test('maps the preferred v3 search image and hashes its URL signature', () {
+      final withoutImage = mapper.mapSummary(_bigMacSearchHit())!;
+      final food = _bigMacSearchHit()
+        ..['food_images'] = {
+          'food_image': [
+            {
+              'image_url': 'https://images.example/thumb.png',
+              'image_type': 'Thumbnail',
+            },
+            {
+              'image_url': 'https://images.example/standard.png',
+              'image_type': 'Standard',
+            },
+          ],
+        };
+
+      final item = mapper.mapSummary(food)!;
+      final changedFood = _bigMacSearchHit()
+        ..['food_images'] = {
+          'food_image': {
+            'image_url': 'https://images.example/changed.png',
+            'image_type': 'Standard',
+          },
+        };
+      final changedItem = mapper.mapSummary(changedFood)!;
+
+      expect(item.imageUrl, 'https://images.example/standard.png');
+      expect(item.imageSignature, hasLength(64));
+      expect(item.contentHash, isNot(withoutImage.contentHash));
+      expect(changedItem.imageSignature, isNot(item.imageSignature));
+      expect(changedItem.contentHash, isNot(item.contentHash));
+    });
+
+    test('no search image preserves the pre-image hash exactly', () {
+      final item = mapper.mapSummary(_bigMacSearchHit())!;
+
+      expect(item.imageUrl, isNull);
+      expect(item.imageSignature, isNull);
+      expect(
+        item.contentHash,
+        'b94651b11a8cdaa5e089f7e4df4b211cb802646166ea7120e0d0aba5c6d9f021',
+      );
+    });
   });
 
   group('mapDetail', () {
@@ -209,6 +253,53 @@ void main() {
       expect((food['servings'] as Map)['serving'], isA<Map>());
       final item = mapper.mapDetail(food);
       expect(item, isNotNull);
+    });
+
+    test('food_images as a single object maps into detail image fields', () {
+      final food = _bigMacDetail()
+        ..['food_images'] = {
+          'food_image': {
+            'image_url': 'https://images.example/detail.png',
+            'image_type': 'Standard',
+          },
+        };
+
+      final item = mapper.mapDetail(food)!;
+
+      expect(item.imageUrl, 'https://images.example/detail.png');
+      expect(item.imageSignature, hasLength(64));
+    });
+
+    test('food_images as a list prefers a large display image', () {
+      final food = _bigMacDetail()
+        ..['food_images'] = {
+          'food_image': [
+            {
+              'image_url': 'https://images.example/isolated.png',
+              'image_type': 'Isolated',
+            },
+            {
+              'image_url': 'https://images.example/large.png',
+              'image_type': 'Large',
+            },
+          ],
+        };
+
+      final item = mapper.mapDetail(food)!;
+
+      expect(item.imageUrl, 'https://images.example/large.png');
+      expect(item.imageSignature, hasLength(64));
+    });
+
+    test('no detail image preserves the pre-image hash exactly', () {
+      final item = mapper.mapDetail(_bigMacDetail())!;
+
+      expect(item.imageUrl, isNull);
+      expect(item.imageSignature, isNull);
+      expect(
+        item.contentHash,
+        '474d65b395ab29f8be7bf1e81ec1611eb990af32d88edba00d86756f67d723ae',
+      );
     });
 
     test('every numeric value in the payload arrives as a string, and '

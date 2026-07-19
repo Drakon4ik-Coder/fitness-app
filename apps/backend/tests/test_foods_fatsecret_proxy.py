@@ -44,9 +44,8 @@ def _auth_client() -> APIClient:
 
 @pytest.fixture(autouse=True)
 def _clear_fatsecret_token_cache():
-    # The "fatsecret:oauth-token" cache key must never leak between tests —
-    # otherwise a token cached by one test would make a later test's "assert
-    # exactly one token call" assertion false.
+    # Neither the OAuth token nor the tier verdict may leak between tests —
+    # both deliberately persist across real requests.
     cache.clear()
     yield
     cache.clear()
@@ -119,7 +118,9 @@ def test_fatsecret_food_detail_returns_503_when_not_configured() -> None:
 @CONFIGURED
 def test_fatsecret_search_happy_path_passes_through_verbatim() -> None:
     client = _auth_client()
-    api_body = {"foods": {"food": [{"food_id": "1", "food_name": "Pizza"}]}}
+    api_body = {
+        "foods_search": {"results": {"food": [{"food_id": "1", "food_name": "Pizza"}]}}
+    }
     token_resp = _token_response()
     api_resp = _mock_response(200, api_body)
 
@@ -136,11 +137,99 @@ def test_fatsecret_search_happy_path_passes_through_verbatim() -> None:
     assert token_call.args[0] == fatsecret.TOKEN_URL
     assert api_call.args[0] == fatsecret.API_URL
     api_params = api_call.kwargs["data"]
+    assert api_params["method"] == "foods.search.v3"
+    assert api_params["include_food_images"] == "true"
     assert api_params["search_expression"] == "pizza"
+    assert api_params["page_number"] == "0"
+    assert api_params["max_results"] == "10"
     assert api_params["format"] == "json"
     # Default region is blank: localization is a paid entitlement, so the
     # param must be omitted entirely unless explicitly configured.
     assert "region" not in api_params
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED
+def test_unavailable_v3_falls_back_to_v1_and_caches_the_verdict(caplog) -> None:
+    client = _auth_client()
+    token_resp = _token_response()
+    unavailable_resp = _mock_response(
+        200, {"error": {"code": "14", "message": "Missing scope: premier"}}
+    )
+    fallback_body = {"foods": {"food": [{"food_id": "1", "food_name": "Pizza"}]}}
+    fallback_resp = _mock_response(200, fallback_body)
+    cached_fallback_body = {
+        "foods": {"food": [{"food_id": "2", "food_name": "Burger"}]}
+    }
+    cached_fallback_resp = _mock_response(200, cached_fallback_body)
+
+    with (
+        patch(
+            POST,
+            side_effect=_post_side_effect(
+                [token_resp],
+                [unavailable_resp, fallback_resp, cached_fallback_resp],
+            ),
+        ) as mock_post,
+        patch("foods.fatsecret.cache.set", wraps=cache.set) as mock_cache_set,
+    ):
+        first = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+        second = client.get("/api/v1/foods/fatsecret/search?q=burger")
+
+    assert first.status_code == 200
+    assert first.data == fallback_body
+    assert second.status_code == 200
+    assert second.data == cached_fallback_body
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert [c.kwargs["data"]["method"] for c in api_calls] == [
+        "foods.search.v3",
+        "foods.search",
+        "foods.search",
+    ]
+    assert api_calls[0].kwargs["data"]["include_food_images"] == "true"
+    assert "include_food_images" not in api_calls[1].kwargs["data"]
+    verdict_calls = [
+        call
+        for call in mock_cache_set.call_args_list
+        if call.args[0] == fatsecret._SEARCH_V1_CACHE_KEY
+    ]
+    assert len(verdict_calls) == 1
+    assert verdict_calls[0].kwargs["timeout"] == 60 * 60
+    downgrade_logs = [
+        record
+        for record in caplog.records
+        if "downgrading searches to v1" in record.getMessage()
+    ]
+    assert len(downgrade_logs) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED
+@pytest.mark.parametrize("unavailable_status", [403, 404])
+def test_unavailable_v3_http_status_falls_back_to_v1(
+    unavailable_status: int,
+) -> None:
+    client = _auth_client()
+    token_resp = _token_response()
+    unavailable_resp = _mock_response(unavailable_status, text="not entitled")
+    fallback_body = {"foods": {"food": {"food_id": "1", "food_name": "Solo"}}}
+    fallback_resp = _mock_response(200, fallback_body)
+
+    with patch(
+        POST,
+        side_effect=_post_side_effect([token_resp], [unavailable_resp, fallback_resp]),
+    ) as mock_post:
+        response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert response.status_code == 200
+    assert response.data == fallback_body
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert [c.kwargs["data"]["method"] for c in api_calls] == [
+        "foods.search.v3",
+        "foods.search",
+    ]
 
 
 @pytest.mark.django_db
@@ -220,11 +309,40 @@ def test_fatsecret_application_level_error_returns_502() -> None:
     token_resp = _token_response()
     error_resp = _mock_response(200, {"error": {"code": 5, "message": "boom"}})
 
-    with patch(POST, side_effect=_post_side_effect([token_resp], [error_resp])):
+    with patch(
+        POST, side_effect=_post_side_effect([token_resp], [error_resp])
+    ) as mock_post:
         response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
 
     assert response.status_code == 502
     assert response.data["detail"] == "Food search partner error."
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert [c.kwargs["data"]["method"] for c in api_calls] == ["foods.search.v3"]
+    assert cache.get(fatsecret._SEARCH_V1_CACHE_KEY) is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED
+@pytest.mark.parametrize("error_code", [20, 24])
+def test_fatsecret_transient_application_error_does_not_downgrade(
+    error_code: int,
+) -> None:
+    client = _auth_client()
+    token_resp = _token_response()
+    error_resp = _mock_response(
+        200, {"error": {"code": error_code, "message": "temporary failure"}}
+    )
+
+    with patch(
+        POST, side_effect=_post_side_effect([token_resp], [error_resp])
+    ) as mock_post:
+        response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert response.status_code == 502
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert [c.kwargs["data"]["method"] for c in api_calls] == ["foods.search.v3"]
+    assert cache.get(fatsecret._SEARCH_V1_CACHE_KEY) is None
 
 
 @pytest.mark.django_db
@@ -235,11 +353,36 @@ def test_fatsecret_upstream_rate_limit_returns_429_with_generic_detail() -> None
     token_resp = _token_response()
     rate_limited_resp = _mock_response(429, text="Too Many Requests - quota exceeded")
 
-    with patch(POST, side_effect=_post_side_effect([token_resp], [rate_limited_resp])):
+    with patch(
+        POST, side_effect=_post_side_effect([token_resp], [rate_limited_resp])
+    ) as mock_post:
         response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
 
     assert response.status_code == 429
     assert response.data["detail"] == "Food search partner is rate limited."
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert [c.kwargs["data"]["method"] for c in api_calls] == ["foods.search.v3"]
+    assert cache.get(fatsecret._SEARCH_V1_CACHE_KEY) is None
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED
+@pytest.mark.parametrize("upstream_status", [500, 503])
+def test_fatsecret_server_error_does_not_downgrade(upstream_status: int) -> None:
+    client = _auth_client()
+    token_resp = _token_response()
+    server_error_resp = _mock_response(upstream_status, text="temporary failure")
+
+    with patch(
+        POST, side_effect=_post_side_effect([token_resp], [server_error_resp])
+    ) as mock_post:
+        response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert response.status_code == 502
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert [c.kwargs["data"]["method"] for c in api_calls] == ["foods.search.v3"]
+    assert cache.get(fatsecret._SEARCH_V1_CACHE_KEY) is None
 
 
 @pytest.mark.django_db
@@ -258,6 +401,28 @@ def test_fatsecret_connection_error_returns_502() -> None:
         response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
 
     assert response.status_code == 502
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@CONFIGURED
+def test_fatsecret_timeout_does_not_downgrade() -> None:
+    client = _auth_client()
+    token_resp = _token_response()
+
+    def _side_effect(url, **kwargs):
+        if url == fatsecret.TOKEN_URL:
+            return token_resp
+        raise requests.exceptions.Timeout("read timed out")
+
+    with patch(POST, side_effect=_side_effect) as mock_post:
+        response = client.get("/api/v1/foods/fatsecret/search?q=pizza")
+
+    assert response.status_code == 502
+    api_calls = [c for c in mock_post.call_args_list if c.args[0] == fatsecret.API_URL]
+    assert len(api_calls) == 1
+    assert api_calls[0].kwargs["data"]["method"] == "foods.search.v3"
+    assert cache.get(fatsecret._SEARCH_V1_CACHE_KEY) is None
 
 
 @pytest.mark.django_db
@@ -407,6 +572,8 @@ def test_fatsecret_oauth1_mode_signs_request_and_skips_token_endpoint() -> None:
     assert call.args[0] == fatsecret.API_URL
     assert call.kwargs["headers"] is None
     api_params = call.kwargs["data"]
+    assert api_params["method"] == "foods.search.v3"
+    assert api_params["include_food_images"] == "true"
     assert api_params["search_expression"] == "pizza"
     assert api_params["oauth_consumer_key"] == "test-id"
     assert api_params["oauth_signature_method"] == "HMAC-SHA1"

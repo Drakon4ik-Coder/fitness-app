@@ -27,12 +27,17 @@ class OffImageDownloader {
   final Dio _dio;
   final OffRateLimiter _rateLimiter;
 
-  Future<OffImageResult?> downloadImage(String url) async {
+  Future<OffImageResult?> downloadImage(
+    String url, {
+    bool useOffRateLimit = true,
+  }) async {
     try {
-      final response = await _rateLimiter.run(
-        url,
-        () => _dio.get<List<int>>(url),
-      );
+      // The transport is a plain URL fetch and works for any image host. Only
+      // OFF downloads spend OFF's partner budget; FatSecret CDN images must
+      // not throttle later OFF searches.
+      final response = useOffRateLimit
+          ? await _rateLimiter.run(url, () => _dio.get<List<int>>(url))
+          : await _dio.get<List<int>>(url);
       final data = response.data;
       if (data == null || data.isEmpty) return null;
       final rawCt = response.headers.value('content-type') ?? 'image/jpeg';
@@ -44,7 +49,7 @@ class OffImageDownloader {
     } catch (error, stackTrace) {
       // Best-effort by design: a failed download only means the food keeps
       // its remote image URL. Still worth a trace.
-      logError('off.downloadImage', error, stackTrace);
+      logError('food.downloadImage', error, stackTrace);
       return null;
     }
   }
