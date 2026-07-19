@@ -279,7 +279,7 @@ which means regressions won't be caught.
   `macro_ring.dart`). If a design calls for them again, recover from git
   history rather than keeping them compiled in.
 - **Two separate SQLite databases** exist by design: `food_local_db.dart`
-  (food catalog cache, schema v7) and `nutrition_local_store.dart` (entries +
+  (food catalog cache, schema v8) and `nutrition_local_store.dart` (entries +
   outbox + day payloads, schema v2). They have independent migration
   histories. Don't merge them casually, and don't add a third store without
   documenting why. Since KAN-64 both are namespaced per server user id

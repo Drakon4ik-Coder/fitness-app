@@ -107,13 +107,18 @@ class FoodLocalDb {
     await db.delete('foods', where: 'id = ?', whereArgs: [localId]);
   }
 
-  Future<void> updateLastUsed(int localId, DateTime usedAt) async {
+  Future<void> updateLastUsed(
+    int localId,
+    DateTime usedAt,
+    double loggedGrams,
+  ) async {
     final db = await database;
-    await db.update(
-      'foods',
-      {'last_used_at': usedAt.toIso8601String()},
-      where: 'id = ?',
-      whereArgs: [localId],
+    await db.rawUpdate(
+      'UPDATE foods SET last_used_at = ?, '
+      'same_amount_streak = CASE WHEN last_logged_grams = ? '
+      'THEN same_amount_streak + 1 ELSE 1 END, '
+      'last_logged_grams = ? WHERE id = ?',
+      [usedAt.toIso8601String(), loggedGrams, loggedGrams, localId],
     );
   }
 
@@ -242,6 +247,8 @@ class FoodLocalDb {
       return incoming.copyWith(
         backendId: incoming.backendId ?? existing.backendId,
         lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
+        lastLoggedGrams: existing.lastLoggedGrams,
+        sameAmountStreak: existing.sameAmountStreak,
         isFavorite: incoming.isFavorite || existing.isFavorite,
       );
     }
@@ -281,6 +288,9 @@ class FoodLocalDb {
           : existing.rawSourceJson,
       nutrimentsJson: incoming.nutrimentsJson ?? existing.nutrimentsJson,
       lastUsedAt: incoming.lastUsedAt ?? existing.lastUsedAt,
+      // Search/API refreshes must not erase or fabricate device-local habits.
+      lastLoggedGrams: existing.lastLoggedGrams,
+      sameAmountStreak: existing.sameAmountStreak,
       isFavorite: incoming.isFavorite || existing.isFavorite,
     );
   }
@@ -317,6 +327,8 @@ class FoodLocalDb {
     'raw_source_json': 'TEXT NOT NULL',
     'nutriments_json': 'TEXT',
     'last_used_at': 'TEXT',
+    'last_logged_grams': 'REAL',
+    'same_amount_streak': 'INTEGER NOT NULL DEFAULT 0',
     'is_favorite': 'INTEGER NOT NULL DEFAULT 0',
   };
 
@@ -362,7 +374,7 @@ class FoodLocalDb {
     );
     return openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: (db, version) async {
         await db.execute('CREATE TABLE foods ($_foodsColumnsDdl)');
         await _createIndexes(db);
@@ -425,7 +437,28 @@ class FoodLocalDb {
             'ALTER TABLE foods ADD COLUMN community_verified_at TEXT',
           );
         }
+        if (oldVersion < 8) {
+          await _upgradeToV8(db);
+        }
       },
+    );
+  }
+
+  @visibleForTesting
+  Future<void> upgradeSchemaForTesting(
+    DatabaseExecutor db,
+    int oldVersion,
+  ) async {
+    if (oldVersion < 8) await _upgradeToV8(db);
+  }
+
+  Future<void> _upgradeToV8(DatabaseExecutor db) async {
+    // Existing recents have no reliable amount history to infer, so their
+    // streak starts inactive until two new matching logs occur.
+    await db.execute('ALTER TABLE foods ADD COLUMN last_logged_grams REAL');
+    await db.execute(
+      'ALTER TABLE foods ADD COLUMN same_amount_streak '
+      'INTEGER NOT NULL DEFAULT 0',
     );
   }
 }

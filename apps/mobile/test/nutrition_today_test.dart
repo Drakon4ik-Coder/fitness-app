@@ -37,7 +37,11 @@ class _FakeLocalDb extends FoodLocalDb {
       item.localId == null ? item.copyWith(localId: _nextLocalId++) : item;
 
   @override
-  Future<void> updateLastUsed(int localId, DateTime usedAt) async {}
+  Future<void> updateLastUsed(
+    int localId,
+    DateTime usedAt,
+    double loggedGrams,
+  ) async {}
 }
 
 class _FakeFoodsApi extends FoodsApiService {

@@ -370,6 +370,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
   bool _isAdded(FoodItem item) => _indexOfAdded(item) >= 0;
 
   double _defaultGramsFor(FoodItem item) {
+    final learnedGrams = item.lastLoggedGrams;
+    if (item.sameAmountStreak >= 2 && learnedGrams != null) {
+      return learnedGrams;
+    }
     // Prefer one whole piece (an egg, a burger), then one serving, then 100 g.
     final piece = item.gramsPerPiece;
     if (piece != null && piece > 0) return piece;
@@ -444,12 +448,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
   }
 
-  // One-tap quick add: tapping a result immediately logs it with a smart
-  // default (1 piece/serving when known, else 100 g). The amount can be
-  // fine-tuned later by tapping the item in the Added list. If the food is
-  // already added we open its editor instead, so it can never be added twice.
-  // OFF results are enriched first (a short fetch) so their default lands on a
-  // whole piece/serving rather than a raw 100 g.
+  // One-tap quick add: a repeated amount wins after two matching logs;
+  // otherwise the smart default remains 1 piece/serving when known, else
+  // 100 g. The amount can be fine-tuned later by tapping the Added item. If
+  // the food is already added we open its editor, so it cannot be added twice.
+  // OFF results are enriched first (a short fetch) so an unlearned default
+  // lands on a whole piece/serving rather than a raw 100 g.
   Future<void> _onResultTap(_FoodResult result) async {
     FocusScope.of(context).unfocus();
     final existingIndex = _indexOfAdded(result.item);
@@ -871,7 +875,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
     );
 
     if (selected.localId != null) {
-      await widget.localDb.updateLastUsed(selected.localId!, consumedAt);
+      await widget.localDb.updateLastUsed(
+        selected.localId!,
+        consumedAt,
+        added.grams,
+      );
     }
   }
 
