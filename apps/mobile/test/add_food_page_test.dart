@@ -560,11 +560,23 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(FoodDetailPage), findsOneWidget);
-      await tester.ensureVisible(
-        find.text('Revert to original', skipOffstage: false),
+      final detailList = find.descendant(
+        of: find.byType(FoodDetailPage),
+        matching: find.byType(ListView),
+      );
+      final revertButton = find.descendant(
+        of: find.byType(FoodDetailPage),
+        matching: find.text('Revert to original', skipOffstage: false),
+      );
+      await tester.scrollUntilVisible(
+        revertButton,
+        200,
+        scrollable: find
+            .descendant(of: detailList, matching: find.byType(Scrollable))
+            .first,
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Revert to original'));
+      await tester.tap(revertButton);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Revert'));
       await tester.pumpAndSettle();

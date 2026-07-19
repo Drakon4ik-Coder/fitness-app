@@ -68,6 +68,28 @@ void _phoneView(WidgetTester tester) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('pins edit while revert remains in the scrolling content', (
+    WidgetTester tester,
+  ) async {
+    _phoneView(tester);
+    await tester.pumpWidget(_page(_customFood(overridesBackendId: 42)));
+    await tester.pumpAndSettle();
+
+    final editLabel = find.text('Edit nutrition facts');
+    expect(editLabel.hitTestable(), findsOneWidget);
+    expect(
+      find.ancestor(of: editLabel, matching: find.byType(ListView)),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(
+        of: find.text('Revert to original', skipOffstage: false),
+        matching: find.byType(ListView),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'shows provenance, serving info, per-100g facts and edit action',
     (WidgetTester tester) async {
@@ -160,11 +182,6 @@ void main() {
 
     expect(find.text('Your food', skipOffstage: false), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.text('Edit nutrition facts', skipOffstage: false),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
     await tester.tap(find.text('Edit nutrition facts'));
     await tester.pumpAndSettle();
 
