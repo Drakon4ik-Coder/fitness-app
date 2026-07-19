@@ -468,6 +468,8 @@ class FoodItem {
     required this.rawSourceJson,
     this.nutrimentsJson,
     this.lastUsedAt,
+    this.lastLoggedGrams,
+    this.sameAmountStreak = 0,
     this.isFavorite = false,
   });
 
@@ -513,6 +515,10 @@ class FoodItem {
   final String rawSourceJson;
   final Map<String, dynamic>? nutrimentsJson;
   final DateTime? lastUsedAt;
+  // Device-local logging history. Grams are stored rather than a piece count
+  // so every amount mode learns through the same exact-value streak.
+  final double? lastLoggedGrams;
+  final int sameAmountStreak;
   final bool isFavorite;
 
   bool get isCookedBasis => nutritionBasis == cookedNutritionBasis;
@@ -552,6 +558,8 @@ class FoodItem {
     String? rawSourceJson,
     Map<String, dynamic>? nutrimentsJson,
     DateTime? lastUsedAt,
+    double? lastLoggedGrams,
+    int? sameAmountStreak,
     bool? isFavorite,
   }) {
     return FoodItem(
@@ -583,6 +591,8 @@ class FoodItem {
       rawSourceJson: rawSourceJson ?? this.rawSourceJson,
       nutrimentsJson: nutrimentsJson ?? this.nutrimentsJson,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
+      lastLoggedGrams: lastLoggedGrams ?? this.lastLoggedGrams,
+      sameAmountStreak: sameAmountStreak ?? this.sameAmountStreak,
       isFavorite: isFavorite ?? this.isFavorite,
     );
   }
@@ -618,6 +628,8 @@ class FoodItem {
           ? null
           : jsonEncode(nutrimentsJson),
       'last_used_at': lastUsedAt?.toIso8601String(),
+      'last_logged_grams': lastLoggedGrams,
+      'same_amount_streak': sameAmountStreak,
       'is_favorite': isFavorite ? 1 : 0,
     };
     return map;
@@ -721,6 +733,8 @@ class FoodItem {
       lastUsedAt: map['last_used_at'] == null
           ? null
           : DateTime.tryParse(map['last_used_at'] as String),
+      lastLoggedGrams: parseNullableDouble(map['last_logged_grams']),
+      sameAmountStreak: (map['same_amount_streak'] as num?)?.toInt() ?? 0,
       isFavorite: (map['is_favorite'] as int? ?? 0) == 1,
     );
   }

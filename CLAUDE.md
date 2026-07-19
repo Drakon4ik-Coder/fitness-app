@@ -80,7 +80,7 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
 - `NutritionEntry.id == 0` means "created offline, no server id yet" — never
   treat 0 as a real server id.
 - Two separate SQLite DBs on device: `food_local_db.dart` (catalog cache,
-  schema v7) and `nutrition_local_store.dart` (entries/outbox/day payloads,
+  schema v8) and `nutrition_local_store.dart` (entries/outbox/day payloads,
   schema v2). Independent migration histories. Since KAN-64 both files are
   namespaced per server user id (`_u<id>` suffix from the JWT's `user_id`
   claim — see `local_db_paths.dart`): logout keeps them (an unsynced outbox
