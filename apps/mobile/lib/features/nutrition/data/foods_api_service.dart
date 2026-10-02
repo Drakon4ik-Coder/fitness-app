@@ -50,11 +50,18 @@ class FoodsApiService {
     _dio.options.headers['Authorization'] = 'Bearer $accessToken';
   }
 
-  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) {
+  /// [cancelToken] lets live search abort a superseded keystroke's request;
+  /// a cancel surfaces as the raw [DioException] (see [mapApiErrors]).
+  Future<List<FoodItem>> typeahead(
+    String query, {
+    int limit = 10,
+    CancelToken? cancelToken,
+  }) {
     return mapApiErrors('Unable to search foods.', () async {
       final response = await _dio.get<List<dynamic>>(
         '/api/v1/foods/typeahead',
         queryParameters: {'q': query, 'limit': limit},
+        cancelToken: cancelToken,
       );
       final data = response.data;
       if (data == null) {

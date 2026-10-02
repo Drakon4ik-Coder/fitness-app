@@ -85,7 +85,10 @@ class NutritionRepository {
 
     if (!await _store.isDaySeeded(dateKey)) {
       final raw = await _api.fetchDayRaw(date);
-      for (final entry in _entriesFromDayPayload(raw)) {
+      // Parsed once: the same log seeds the entry table and is the return
+      // value (each entry's food carries a heavy raw-source blob — KAN-118).
+      final serverLog = _api.parseDayLog(raw);
+      for (final entry in serverLog.meals.values.expand((meal) => meal)) {
         await _mergeServerEntry(entry, deleted: false);
       }
       // Written after the entries so a crash in between re-fetches next time
@@ -96,7 +99,7 @@ class NutritionRepository {
       }
       // First fetch of a day: hand back the server's own view — totals, day
       // grouping and the rich nutrients map all server-computed.
-      return _api.parseDayLog(raw);
+      return serverLog;
     }
 
     // Already-seeded day: a delta pull replaces the full re-fetch. Totals are
@@ -481,10 +484,6 @@ class NutritionRepository {
       // instead of a server map (same fallback as pre-nutrients payloads).
       nutrients: null,
     );
-  }
-
-  List<NutritionEntry> _entriesFromDayPayload(Map<String, dynamic> raw) {
-    return [for (final meal in _api.parseDayLog(raw).meals.values) ...meal];
   }
 
   double _kcalFor(FoodItem food, double quantityG) =>
