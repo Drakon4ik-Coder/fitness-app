@@ -75,6 +75,12 @@ Agents pattern-match. These are the patterns to match:
 > `features/nutrition/widgets/` once a second page needs one. The pages are
 > still large overall (state logic remains); keep extracting when touching a
 > section.
+>
+> **Regression (Oct 2026, KAN-124).** Both pages regrew past the July numbers
+> (`add_food_page` ~2,280 lines, `nutrition_today_page` ~1,825) as recent
+> features landed in place. First slice: the KAN-96 rate-limit countdown now
+> lives in a banner-only `ValueNotifier`, so its 1 Hz tick no longer rebuilds
+> the whole add-food page. Remaining slices are tracked on KAN-124.
 
 **Problem.** `features/nutrition/add_food_page.dart` is **1,676 lines** and
 `nutrition_today_page.dart` is **1,365 lines**. Worst offenders inside them:

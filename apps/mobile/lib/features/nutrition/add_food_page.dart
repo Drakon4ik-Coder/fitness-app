@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' show max, min;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart' show HapticFeedback;
@@ -136,13 +137,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
   static const Duration _scanCooldown = Duration(seconds: 3);
 
   // Whole seconds left on each online budget's pause (KAN-96); 0 = free.
-  // Counted down by the once-per-second [_rateLimitTicker] (whose setState is
-  // also what live-updates the banner text) rather than recomputed from a
-  // wall-clock deadline, so widget tests can drive the countdown with pumped
-  // fake time. The two budgets stay separate on purpose: OFF's pause also
-  // gates the barcode-scan and enrich paths, FatSecret's must not.
-  int _offBlockedSeconds = 0;
-  int _fatsecretBlockedSeconds = 0;
+  // Counted down by the once-per-second [_rateLimitTicker] rather than
+  // recomputed from a wall-clock deadline, so widget tests can drive the
+  // countdown with pumped fake time. The two budgets stay separate on purpose:
+  // OFF's pause also gates the barcode-scan and enrich paths, FatSecret's must
+  // not. Held in a notifier only the banner listens to, so a tick rebuilds
+  // that one line instead of this whole page (KAN-124); the page itself
+  // rebuilds only when OFF's blocked state flips.
+  final ValueNotifier<_RateLimitCountdown> _rateLimit = ValueNotifier(
+    const _RateLimitCountdown(),
+  );
   String? _lastScannedBarcode;
   DateTime? _lastScannedAt;
 
@@ -243,11 +247,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
   void dispose() {
     _liveSearch.dispose();
     _rateLimitTicker?.cancel();
+    _rateLimit.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  bool get _isOffRateLimited => _offBlockedSeconds > 0;
+  bool get _isOffRateLimited => _rateLimit.value.offSeconds > 0;
 
   void _applyOffLimit(Duration retryAfter) =>
       _applyRateLimit(retryAfter, isOff: true);
@@ -262,13 +267,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
   void _applyRateLimit(Duration retryAfter, {required bool isOff}) {
     if (!mounted || retryAfter <= Duration.zero) return;
     final seconds = (retryAfter.inMilliseconds / 1000).ceil();
-    setState(() {
-      if (isOff) {
-        _offBlockedSeconds = seconds;
-      } else {
-        _fatsecretBlockedSeconds = seconds;
-      }
-    });
+    final current = _rateLimit.value;
+    _setRateLimit(
+      isOff
+          ? current.copyWith(offSeconds: seconds)
+          : current.copyWith(fatsecretSeconds: seconds),
+    );
     // One ticker serves both budgets: it live-updates the banner countdown
     // and flips the blocked state (scan button, enrich gate, banner) back
     // the moment a window elapses.
@@ -280,13 +284,23 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   void _onRateLimitTick() {
     if (!mounted) return;
-    setState(() {
-      if (_offBlockedSeconds > 0) _offBlockedSeconds--;
-      if (_fatsecretBlockedSeconds > 0) _fatsecretBlockedSeconds--;
-    });
-    if (_offBlockedSeconds == 0 && _fatsecretBlockedSeconds == 0) {
+    final next = _rateLimit.value.tick();
+    _setRateLimit(next);
+    if (!next.isActive) {
       _rateLimitTicker?.cancel();
       _rateLimitTicker = null;
+    }
+  }
+
+  /// Publishes [next] to the banner, and rebuilds the page only when OFF's
+  /// blocked state flips — that's all the page itself reads (scan button,
+  /// enrich gate); the per-second countdown text is the banner's own concern.
+  void _setRateLimit(_RateLimitCountdown next) {
+    final offFlipped = (next.offSeconds > 0) != _isOffRateLimited;
+    if (offFlipped) {
+      setState(() => _rateLimit.value = next);
+    } else {
+      _rateLimit.value = next;
     }
   }
 
@@ -1229,13 +1243,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                   _isBackendLoading || _isOffLoading || _isFatSecretLoading,
               message: _message,
               messageTone: _messageTone,
-              // Both budgets share one banner; when both are paused the
-              // longer window is the honest countdown (KAN-96).
-              rateLimitSeconds: max(
-                _offBlockedSeconds,
-                _fatsecretBlockedSeconds,
-              ),
-              scanPaused: _isOffRateLimited,
+              rateLimit: _rateLimit,
             ),
           ),
           SliverPadding(
@@ -1381,8 +1389,7 @@ class _SearchHeader extends StatelessWidget {
     required this.isLoading,
     required this.message,
     required this.messageTone,
-    required this.rateLimitSeconds,
-    required this.scanPaused,
+    required this.rateLimit,
   });
 
   final TextEditingController controller;
@@ -1391,12 +1398,9 @@ class _SearchHeader extends StatelessWidget {
   final String? message;
   final InlineBannerTone? messageTone;
 
-  /// Seconds left on the longest paused online budget; 0 hides the notice.
-  final int rateLimitSeconds;
-
-  /// True while OFF's budget is the paused one, i.e. the scan button above
-  /// the notice is greyed out and the copy must say why.
-  final bool scanPaused;
+  /// Live pause countdown; the notice listens to it directly so a tick never
+  /// rebuilds the page (KAN-124).
+  final ValueListenable<_RateLimitCountdown> rateLimit;
 
   @override
   Widget build(BuildContext context) {
@@ -1421,13 +1425,26 @@ class _SearchHeader extends StatelessWidget {
               const SizedBox(height: AppSpacing.md),
             ],
             GlassSearchBar(controller: controller, onScan: onScan),
-            if (rateLimitSeconds > 0) ...[
-              const SizedBox(height: AppSpacing.sm),
-              _RateLimitNotice(
-                secondsLeft: rateLimitSeconds,
-                scanPaused: scanPaused,
-              ),
-            ],
+            ValueListenableBuilder<_RateLimitCountdown>(
+              valueListenable: rateLimit,
+              builder: (context, countdown, _) {
+                if (!countdown.isActive) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: _RateLimitNotice(
+                    // Both budgets share one banner; when both are paused
+                    // the longer window is the honest countdown (KAN-96).
+                    secondsLeft: max(
+                      countdown.offSeconds,
+                      countdown.fatsecretSeconds,
+                    ),
+                    // OFF's pause is the one that greys out the scan button
+                    // above, so the copy must say why.
+                    scanPaused: countdown.offSeconds > 0,
+                  ),
+                );
+              },
+            ),
             const SizedBox(height: AppSpacing.xs),
             SizedBox(
               height: 2,
@@ -1444,6 +1461,39 @@ class _SearchHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Seconds left on each online budget's pause (KAN-96); 0 = that budget is
+/// free. Immutable so the notifier only fires on real changes.
+@immutable
+class _RateLimitCountdown {
+  const _RateLimitCountdown({this.offSeconds = 0, this.fatsecretSeconds = 0});
+
+  final int offSeconds;
+  final int fatsecretSeconds;
+
+  bool get isActive => offSeconds > 0 || fatsecretSeconds > 0;
+
+  _RateLimitCountdown copyWith({int? offSeconds, int? fatsecretSeconds}) =>
+      _RateLimitCountdown(
+        offSeconds: offSeconds ?? this.offSeconds,
+        fatsecretSeconds: fatsecretSeconds ?? this.fatsecretSeconds,
+      );
+
+  /// One second later: each running window shrinks, never below zero.
+  _RateLimitCountdown tick() => _RateLimitCountdown(
+    offSeconds: offSeconds > 0 ? offSeconds - 1 : 0,
+    fatsecretSeconds: fatsecretSeconds > 0 ? fatsecretSeconds - 1 : 0,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is _RateLimitCountdown &&
+      other.offSeconds == offSeconds &&
+      other.fatsecretSeconds == fatsecretSeconds;
+
+  @override
+  int get hashCode => Object.hash(offSeconds, fatsecretSeconds);
 }
 
 /// Persistent "search paused" notice with a live countdown (KAN-96): while an
