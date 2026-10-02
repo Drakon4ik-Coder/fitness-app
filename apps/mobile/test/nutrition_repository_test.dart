@@ -520,6 +520,61 @@ void main() {
       expect(store.cursor, 'cursor-2');
     });
 
+    test('a page that fails mid-merge commits nothing and keeps the cursor '
+        '(KAN-120)', () async {
+      await seedToday();
+      store.failUpsertFor.add('p2');
+      api.deltaPages.add(
+        SyncPage(
+          entries: [
+            SyncEntry(entry: _serverEntry(uuid: 'p1'), deleted: false),
+            SyncEntry(entry: _serverEntry(uuid: 'p2'), deleted: false),
+          ],
+          nextCursor: 'cursor-1',
+          hasMore: false,
+        ),
+      );
+
+      await expectLater(repo.refreshDay(today), throwsStateError);
+
+      // The cursor must never move past a change that didn't land locally,
+      // and the page's earlier merges roll back with it.
+      expect(store.cursor, 'cursor-0');
+      expect(store.entries.containsKey('p1'), isFalse);
+    });
+
+    test('a first-day seed that fails mid-merge leaves the day unseeded '
+        '(KAN-120)', () async {
+      store.cursor = 'cursor-0';
+      final dateKey = NutritionApiService.formatDate(today);
+      Map<String, dynamic> entryJson(String uuid, int id) => {
+        'id': id,
+        'client_uuid': uuid,
+        'meal_type': 'lunch',
+        'consumed_at': '${dateKey}T12:00:00Z',
+        'quantity_g': 100,
+        'kcal': 150,
+        'food_item': {'id': 7, 'name': 'Seed Food', 'kcal_100g': 150},
+      };
+      api.dayPayload = {
+        'date': dateKey,
+        'totals': {'kcal': 300, 'protein_g': 0, 'carbs_g': 0, 'fat_g': 0},
+        'meals': {
+          'breakfast': [],
+          'lunch': [entryJson('seed-1', 1), entryJson('seed-2', 2)],
+          'dinner': [],
+          'snacks': [],
+        },
+      };
+      // The second entry fails after the first already merged.
+      store.failUpsertFor.add('seed-2');
+
+      await expectLater(repo.refreshDay(today), throwsStateError);
+
+      expect(await store.isDaySeeded(dateKey), isFalse);
+      expect(store.entries, isEmpty);
+    });
+
     test('keeps a pending local change over an older server delta', () async {
       await seedToday();
       final uuid = 'contested';

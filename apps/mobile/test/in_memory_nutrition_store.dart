@@ -17,6 +17,42 @@ class InMemoryNutritionStore implements NutritionLocalStore {
   bool cleared = false;
   final List<String> payloadWrites = [];
 
+  /// Uuids whose [upsertEntry] throws — lets tests fail a merge mid-page.
+  final Set<String> failUpsertFor = {};
+
+  /// Mirrors SQLite transaction semantics: a throwing [action] rolls every
+  /// write back, so tests can pin the repository's atomicity (KAN-120).
+  @override
+  Future<T> inTransaction<T>(
+    Future<T> Function(NutritionLocalStore txnStore) action,
+  ) async {
+    final payloadsBefore = Map.of(dayPayloads);
+    final entriesBefore = Map.of(entries);
+    final outboxBefore = List.of(outbox);
+    final nextOpIdBefore = _nextOpId;
+    final cursorBefore = cursor;
+    final payloadWritesBefore = List.of(payloadWrites);
+    try {
+      return await action(this);
+    } catch (_) {
+      dayPayloads
+        ..clear()
+        ..addAll(payloadsBefore);
+      entries
+        ..clear()
+        ..addAll(entriesBefore);
+      outbox
+        ..clear()
+        ..addAll(outboxBefore);
+      _nextOpId = nextOpIdBefore;
+      cursor = cursorBefore;
+      payloadWrites
+        ..clear()
+        ..addAll(payloadWritesBefore);
+      rethrow;
+    }
+  }
+
   @override
   Future<Map<String, dynamic>?> readDayPayload(String dateKey) async =>
       dayPayloads[dateKey];
@@ -36,6 +72,9 @@ class InMemoryNutritionStore implements NutritionLocalStore {
 
   @override
   Future<void> upsertEntry(StoredEntry entry) async {
+    if (failUpsertFor.contains(entry.uuid)) {
+      throw StateError('injected upsert failure for ${entry.uuid}');
+    }
     entries[entry.uuid] = entry;
   }
 

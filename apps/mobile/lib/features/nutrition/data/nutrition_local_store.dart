@@ -117,15 +117,40 @@ class NutritionLocalStore {
   /// shared file.
   NutritionLocalStore({Database? database, int? userId})
     : _database = database,
-      _userId = userId;
+      _userId = userId,
+      _txn = null;
+
+  /// A view of the store whose every call runs inside [txn] (see
+  /// [inTransaction]). Never opened or closed on its own.
+  NutritionLocalStore._bound(Transaction txn) : _userId = null, _txn = txn;
 
   static const _syncCursorKey = 'sync_cursor';
 
   final int? _userId;
+  final Transaction? _txn;
   Database? _database;
   Completer<Database>? _databaseCompleter;
 
-  Future<Database> get _db async {
+  /// Runs [action] against a view of this store bound to one SQLite
+  /// transaction: everything it writes commits together or not at all, and
+  /// costs one journal commit instead of one per statement (KAN-120).
+  ///
+  /// Inside [action], use only the store it is handed — a call on this outer
+  /// store would wait for the transaction to finish and deadlock it. Never
+  /// await network I/O in there either; the write lock is held throughout.
+  Future<T> inTransaction<T>(
+    Future<T> Function(NutritionLocalStore txnStore) action,
+  ) async {
+    if (_txn != null) {
+      return action(this); // Already bound: join the open transaction.
+    }
+    final db = await _openedDb;
+    return db.transaction((txn) => action(NutritionLocalStore._bound(txn)));
+  }
+
+  Future<DatabaseExecutor> get _db async => _txn ?? await _openedDb;
+
+  Future<Database> get _openedDb async {
     final existing = _database;
     if (existing != null) {
       return existing;
