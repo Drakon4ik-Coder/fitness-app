@@ -25,6 +25,7 @@ import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
 import 'food_detail_page.dart';
+import 'food_search_results.dart';
 import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
 import 'widgets/amount_sheet.dart';
@@ -355,10 +356,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
   }
 
   int _indexOfAdded(FoodItem item) {
-    final key = _resultKey(item);
+    final key = foodResultKey(item);
     if (key == null) return -1;
     for (var i = 0; i < _addedItems.length; i++) {
-      if (_resultKey(_addedItems[i].item) == key) return i;
+      if (foodResultKey(_addedItems[i].item) == key) return i;
     }
     return -1;
   }
@@ -386,14 +387,14 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // amount sheet can offer pieces/servings and the quick-add default is sane.
   // FatSecret's search is the same story (no serving data), but it has its
   // own throttle — never gated on `_isOffRateLimited`, which is OFF's budget.
-  bool _needsEnrich(_FoodResult result) {
-    if (result.origin == _FoodResultOrigin.off) {
+  bool _needsEnrich(FoodResult result) {
+    if (result.origin == FoodResultOrigin.off) {
       return result.item.barcode != null &&
           result.item.barcode!.isNotEmpty &&
           result.item.servingSizeG == null &&
           !_isOffRateLimited;
     }
-    if (result.origin == _FoodResultOrigin.fatsecret) {
+    if (result.origin == FoodResultOrigin.fatsecret) {
       return result.item.servingSizeG == null && widget.fatsecretApi != null;
     }
     return false;
@@ -451,7 +452,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // an accidental swipe, so haptic acknowledgement is enough without a noisy
   // Undo snackbar. OFF results are enriched first (a short fetch) so an
   // unlearned default lands on a whole piece/serving rather than a raw 100 g.
-  Future<void> _onResultTap(_FoodResult result) async {
+  Future<void> _onResultTap(FoodResult result) async {
     FocusScope.of(context).unfocus();
     // Shadowed globals are normally hidden, but this also keeps a stale result
     // tap from staging a global beside its forked personal override.
@@ -464,9 +465,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
     var item = result.item;
     final wasFatSecretEnrich =
-        _needsEnrich(result) && result.origin == _FoodResultOrigin.fatsecret;
+        _needsEnrich(result) && result.origin == FoodResultOrigin.fatsecret;
     if (_needsEnrich(result)) {
-      final key = _resultKey(item);
+      final key = foodResultKey(item);
       if (key == null || _enrichingKey != null) return;
       setState(() => _enrichingKey = key);
       item = await _enrich(item);
@@ -586,11 +587,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // a mutation or a direct edit form — overrides are created only via the
   // labeled edit action inside it. Serving-less OFF results enrich first so
   // the page doesn't open on sparse per-100g data.
-  Future<void> _onResultLongPress(_FoodResult result) async {
+  Future<void> _onResultLongPress(FoodResult result) async {
     FocusScope.of(context).unfocus();
     var item = result.item;
     if (_needsEnrich(result)) {
-      final key = _resultKey(item);
+      final key = foodResultKey(item);
       if (key == null || _enrichingKey != null) return;
       setState(() => _enrichingKey = key);
       item = await _enrich(item);
@@ -621,7 +622,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   /// Reflects a saved custom food everywhere it can appear: its own rows in
   /// the results/Added lists and — for overrides — any staged copy of the
   /// global it shadows. A fresh fork not yet in any list is surfaced in the
-  /// local results, standing in for the shadowed global that _buildResults
+  /// local results, standing in for the shadowed global that mergeFoodResults
   /// hides.
   void _applyCustomFoodUpdate(FoodItem stored) {
     bool isSelf(FoodItem candidate) =>
@@ -944,135 +945,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
     return 'Recent Foods';
   }
 
-  List<_FoodResult> _buildResults(String query) {
-    final trimmed = query.trim();
-    final results = <_FoodResult>[];
-    final seenKeys = <String>{};
-
-    // Globals shadowed by one of the user's overrides are hidden — the
-    // override row (a custom food, present in local/backend results) stands
-    // in for them. OFF rows carry no backend id, so barcodes match those.
-    final overriddenIds = <int>{};
-    final overriddenBarcodes = <String>{};
-    for (final item in [..._localResults, ..._backendResults]) {
-      if (!item.isOverride) continue;
-      overriddenIds.add(item.overridesBackendId!);
-      final barcode = item.overridesBarcode;
-      if (barcode != null && barcode.isNotEmpty) {
-        overriddenBarcodes.add(barcode);
-      }
-    }
-    bool shadowed(FoodItem item) =>
-        !item.isCustom &&
-        ((item.backendId != null && overriddenIds.contains(item.backendId)) ||
-            (item.barcode != null &&
-                overriddenBarcodes.contains(item.barcode)));
-
-    void addItems(List<FoodItem> items, _FoodResultOrigin origin) {
-      for (final item in items) {
-        if (shadowed(item)) continue;
-        final key = _resultKey(item);
-        if (key == null || seenKeys.contains(key)) continue;
-        seenKeys.add(key);
-        results.add(_FoodResult(item: item, origin: origin));
-      }
-    }
-
-    if (trimmed.isEmpty) {
-      addItems(_localResults, _FoodResultOrigin.local);
-      return results;
-    }
-
-    addItems(_localResults, _FoodResultOrigin.local);
-    addItems(_backendResults, _FoodResultOrigin.backend);
-    addItems(_offResultsForDisplay(), _FoodResultOrigin.off);
-    // No completeness floor here — FatSecret carries no completeness field.
-    addItems(_fatsecretResults, _FoodResultOrigin.fatsecret);
-    final queryLower = trimmed.toLowerCase();
-    results.sort((a, b) {
-      final scoreA = _resultScore(a, queryLower);
-      final scoreB = _resultScore(b, queryLower);
-      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
-      final lengthCompare = a.item.name.length.compareTo(b.item.name.length);
-      if (lengthCompare != 0) return lengthCompare;
-      return a.item.name.compareTo(b.item.name);
-    });
-    return results;
-  }
-
-  // OFF search returns many low-quality duplicates of popular foods, some with
-  // miscoded calories (e.g. a Big Mac stored as 540 kcal/100g). OFF's own
-  // `completeness` score tracks this well, so drop hits below a quality floor —
-  // but never hide everything, so an obscure (only) match still shows.
-  static const double _offCompletenessFloor = 0.5;
-  List<FoodItem> _offResultsForDisplay() {
-    final good = _offResults
-        .where((i) => (i.completeness ?? 0) >= _offCompletenessFloor)
-        .toList();
-    return good.isNotEmpty ? good : _offResults;
-  }
-
-  String? _resultKey(FoodItem item) {
-    if (item.barcode != null && item.barcode!.isNotEmpty) {
-      return 'barcode:${item.barcode}';
-    }
-    // Catalog identity (source, external_id) outranks backendId: a live
-    // FatSecret result carries no backendId while the typeahead/local copy
-    // of the same ingested food does, so keying the latter by backendId
-    // would show the food twice and let both be staged. Source-qualified to
-    // keep FatSecret's externalId space apart from custom foods' UUID
-    // space. Page-lifetime only — never persisted.
-    if (item.externalId.isNotEmpty) {
-      return 'external:${item.source}:${item.externalId}';
-    }
-    if (item.backendId != null) return 'backend:${item.backendId}';
-    return null;
-  }
-
-  int _nameMatchScore(String name, String queryLower) {
-    if (queryLower.isEmpty) return 0;
-    final nameLower = name.toLowerCase();
-    int score = 0;
-    if (nameLower == queryLower) score += 400;
-    if (nameLower.startsWith(queryLower)) score += 300;
-    final wordMatch = RegExp(
-      r'\b' + RegExp.escape(queryLower),
-    ).hasMatch(nameLower);
-    if (wordMatch) {
-      score += 200;
-    } else if (nameLower.contains(queryLower)) {
-      score += 100;
-    }
-    score -= nameLower.length;
-    return score;
-  }
-
-  int _resultScore(_FoodResult result, String queryLower) {
-    int score = _nameMatchScore(result.item.name, queryLower);
-    switch (result.origin) {
-      case _FoodResultOrigin.off:
-        score += 5;
-        break;
-      // Between OFF's +5 and backend's +3, with no completeness bonus below
-      // (FatSecret has no completeness field) — keeps OFF's best-filled
-      // duplicates competitive while restaurant hits still rank by name match.
-      case _FoodResultOrigin.fatsecret:
-        score += 4;
-        break;
-      case _FoodResultOrigin.backend:
-        score += 3;
-        break;
-      case _FoodResultOrigin.local:
-        score += 1;
-        break;
-    }
-    // Break ties toward higher-quality OFF entries so the best-filled duplicate
-    // (correct calories) surfaces above sparser ones. Capped below the name-match
-    // gradations so relevance still dominates.
-    score += ((result.item.completeness ?? 0) * 50).round();
-    return score;
-  }
-
   void _showMealSelector() {
     // Just a simple bottom sheet or dialog to select MealType.
     showModalBottomSheet(
@@ -1109,7 +981,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final query = _searchController.text;
-    final results = _buildResults(query);
+    final results = mergeFoodResults(
+      query: query,
+      local: _localResults,
+      backend: _backendResults,
+      off: _offResults,
+      fatsecret: _fatsecretResults,
+    );
     final hasQuery = query.trim().isNotEmpty;
     final canSubmit = !_isSubmitting && _addedItems.isNotEmpty;
 
@@ -1288,7 +1166,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
                     isAdded: _isAdded(item.item),
                     isEnriching:
                         _enrichingKey != null &&
-                        _resultKey(item.item) == _enrichingKey,
+                        foodResultKey(item.item) == _enrichingKey,
                     onTap: () => _onResultTap(item),
                     onLongPress: () => _onResultLongPress(item),
                   );
@@ -1305,8 +1183,8 @@ class _AddFoodPageState extends State<AddFoodPage> {
     );
   }
 
-  static bool _isFatSecretResult(_FoodResult result) =>
-      result.origin == _FoodResultOrigin.fatsecret;
+  static bool _isFatSecretResult(FoodResult result) =>
+      result.origin == FoodResultOrigin.fatsecret;
 }
 
 /// The "ADDED ITEMS" label plus staged tiles, extracted from build() while
@@ -1940,15 +1818,6 @@ String _focusValueText(double value, String unit) =>
 // personalized) daily target, so the bars track the user's own goals.
 const double _mealShareOfDailyTarget = 0.3;
 
-enum _FoodResultOrigin { local, backend, off, fatsecret }
-
-class _FoodResult {
-  const _FoodResult({required this.item, required this.origin});
-
-  final FoodItem item;
-  final _FoodResultOrigin origin;
-}
-
 /// A food the user has chosen to log, paired with the amount (grams) to log.
 class _AddedFood {
   const _AddedFood({required this.item, required this.grams});
@@ -1966,7 +1835,7 @@ class _FoodCard extends StatelessWidget {
     this.isEnriching = false,
   });
 
-  final _FoodResult item;
+  final FoodResult item;
   final VoidCallback onTap;
 
   /// Long-press action — opens the read-first food detail page (KAN-35).
