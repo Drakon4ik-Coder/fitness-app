@@ -37,24 +37,6 @@ const String kFatSecretAttributionUrl = 'https://platform.fatsecret.com';
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
 
-List<String> categoryTagsForQuery(String queryLower) {
-  final trimmed = queryLower.trim();
-  if (trimmed.isEmpty || trimmed.contains(' ')) {
-    return const [];
-  }
-  final normalized = trimmed
-      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-      .replaceAll(RegExp(r'^-+|-+$'), '');
-  if (normalized.isEmpty) {
-    return const [];
-  }
-  final tags = <String>{'en:$normalized'};
-  if (!normalized.endsWith('s')) {
-    tags.add('en:${normalized}s');
-  }
-  return tags.toList();
-}
-
 /// One food pre-staged into the page: the item plus the grams to stage it
 /// at. The duplicate-meal flow hands a meal's foods over in this shape, each
 /// at the amount it was originally logged with.
