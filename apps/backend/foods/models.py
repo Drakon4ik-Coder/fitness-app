@@ -119,6 +119,9 @@ class FoodItem(models.Model):
     nutriments_json = models.JSONField(null=True, blank=True)
 
     class Meta:
+        # Typeahead's name/brands icontains search is served by Postgres-only
+        # GIN trigram indexes created in migration 0011 (KAN-121); they live
+        # outside the model state, so keep that lookup on UPPER(col) LIKE.
         constraints = [
             models.UniqueConstraint(
                 fields=["source", "external_id"],
