@@ -143,7 +143,8 @@ lib/
 │       ├── meal_suggestion.dart         # Meal-type guess from learned meal times
 │       ├── settings/                    # Profile / Units / Goals / Focus-nutrients / Warnings / About sub-pages
 │       ├── widgets/                     # amount_sheet, meal_detail_sheet, nutrient views,
-│       │                                # add_food_* (search header, staging, log bar), food_result_widgets
+│       │                                # add_food_* (search header, staging, log bar), food_result_widgets,
+│       │                                # today_* (date bar, hero, meal cards), focus_nutrients_card
 │       └── data/
 │           ├── nutrition_repository.dart    # Offline-first read/write + outbox + delta sync
 │           ├── nutrition_local_store.dart   # sqflite: entries, outbox, day payloads, cursor (v2)

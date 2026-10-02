@@ -76,11 +76,21 @@ Agents pattern-match. These are the patterns to match:
 > still large overall (state logic remains); keep extracting when touching a
 > section.
 >
-> **Regression (Oct 2026, KAN-124).** Both pages regrew past the July numbers
-> (`add_food_page` ~2,280 lines, `nutrition_today_page` ~1,825) as recent
-> features landed in place. First slice: the KAN-96 rate-limit countdown now
-> lives in a banner-only `ValueNotifier`, so its 1 Hz tick no longer rebuilds
-> the whole add-food page. Remaining slices are tracked on KAN-124.
+> **Regression and second pass (Oct 2026, KAN-124).** Both pages had regrown
+> past the July numbers (`add_food_page` ~2,280 lines, `nutrition_today_page`
+> ~1,825) as features landed in place. Second pass:
+> - the KAN-96 rate-limit countdown lives in a banner-only `ValueNotifier`, so
+>   its 1 Hz tick no longer rebuilds the whole add-food page;
+> - result merging/dedupe/ranking moved to `food_search_results.dart` (pure,
+>   unit-tested);
+> - presentational widgets of both pages moved to `widgets/` as public
+>   classes with direct widget tests;
+> - dead `categoryTagsForQuery` removed.
+>
+> Now `add_food_page` ~1,180 lines and `nutrition_today_page` ~960 — almost
+> all `State` logic. Next step if they grow again: move the add-food submit /
+> enrich / scan flows into a plain controller class (the
+> `LiveSearchController` pattern).
 
 **Problem.** `features/nutrition/add_food_page.dart` is **1,676 lines** and
 `nutrition_today_page.dart` is **1,365 lines**. Worst offenders inside them:
