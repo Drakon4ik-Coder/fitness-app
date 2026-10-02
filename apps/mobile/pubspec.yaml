@@ -113,6 +113,11 @@ flutter:
   assets:
     - assets/brand/
     - assets/bar/
+    # Bundled so text renders in the brand fonts on a first, offline launch
+    # and the app never calls fonts.gstatic.com (KAN-123). Only the variants
+    # LuminaHealthTheme requests; theme_fonts_test.dart fails if one is
+    # missing. Files are named <Family>-<Variant>.ttf for google_fonts.
+    - assets/google_fonts/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
