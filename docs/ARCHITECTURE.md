@@ -132,7 +132,8 @@ lib/
 │   ├── main_shell.dart          # Signed-in bottom-nav shell; owns shared UserPreferences
 │   └── nutrition/
 │       ├── nutrition_today_page.dart    # Day view (track tab)
-│       ├── add_food_page.dart           # Search/scan/log flow (largest page)
+│       ├── add_food_page.dart           # Search/scan/log flow (state + handlers)
+│       ├── food_search_results.dart     # Pure merge/dedupe/ranking of the four search sources
 │       ├── food_detail_page.dart        # Read-first food detail with edit entry points
 │       ├── custom_food_page.dart        # Create/edit custom foods
 │       ├── nutrition_detail_page.dart   # Full nutrient breakdown for a day
@@ -141,7 +142,8 @@ lib/
 │       ├── live_search_controller.dart  # Debounce + cancel for the search flow
 │       ├── meal_suggestion.dart         # Meal-type guess from learned meal times
 │       ├── settings/                    # Profile / Units / Goals / Focus-nutrients / Warnings / About sub-pages
-│       ├── widgets/                     # amount_sheet, meal_detail_sheet, nutrient views
+│       ├── widgets/                     # amount_sheet, meal_detail_sheet, nutrient views,
+│       │                                # add_food_* (search header, staging, log bar), food_result_widgets
 │       └── data/
 │           ├── nutrition_repository.dart    # Offline-first read/write + outbox + delta sync
 │           ├── nutrition_local_store.dart   # sqflite: entries, outbox, day payloads, cursor (v2)
