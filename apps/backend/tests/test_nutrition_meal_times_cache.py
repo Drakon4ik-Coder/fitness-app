@@ -1,14 +1,23 @@
 from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
 from decimal import Decimal
 
 import pytest
 from django.core.cache import cache
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import User
 from foods.models import FoodItem
 from nutrition.models import MealEntry
+
+
+def _days_ago_midnight_utc(days: int = 10) -> datetime:
+    # Seed relative to "now", never a fixed date: compute_meal_times only sees
+    # the last MEAL_TIMES_LOOKBACK_DAYS, so absolute dates silently age out of
+    # the window and the tests start failing on their own (KAN-116).
+    return (timezone.now() - timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
 
 
 def _auth_client(email: str = "mtcache@example.com") -> tuple[APIClient, User]:
@@ -62,7 +71,7 @@ def _log_lunch(user: User, food: FoodItem, when: datetime) -> None:
 def test_meal_times_cached_until_entry_created() -> None:
     client, user = _auth_client()
     food = _food()
-    base = datetime(2026, 6, 1, 13, 0, tzinfo=dt_timezone.utc)
+    base = _days_ago_midnight_utc() + timedelta(hours=13)
 
     for day in range(5):
         _log_lunch(user, food, base + timedelta(days=day))
@@ -99,7 +108,7 @@ def test_meal_times_cached_until_entry_created() -> None:
 def test_meal_times_cache_busted_on_delete() -> None:
     client, user = _auth_client()
     food = _food()
-    base = datetime(2026, 6, 1, 13, 0, tzinfo=dt_timezone.utc)
+    base = _days_ago_midnight_utc() + timedelta(hours=13)
 
     for day in range(5):
         _log_lunch(user, food, base + timedelta(days=day))
