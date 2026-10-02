@@ -96,6 +96,12 @@ DATABASES = {
         "DATABASE_URL", default="postgres://postgres:postgres@localhost:5432/fitness"
     )
 }
+# Reuse each worker's Postgres connection across requests instead of paying a
+# fresh TCP + TLS + auth handshake on every one (KAN-117). Health checks drop a
+# connection the server closed while idle, so a DB restart can't 500 the next
+# request. Bounded by the gunicorn worker count (one connection each).
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -274,6 +280,10 @@ EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env(
     "DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@drakon4ik.uk"
 )
+# Mail is sent synchronously inside the request, so an unresponsive SMTP host
+# would otherwise pin one of the few sync gunicorn workers until gunicorn's own
+# timeout kills it (KAN-117). Fail fast instead.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 
 # How long an emailed verification link stays valid.
 EMAIL_VERIFICATION_TTL = timedelta(

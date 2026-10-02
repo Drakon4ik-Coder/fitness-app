@@ -77,3 +77,55 @@ def test_me_patch_sets_timezone_and_rejects_unknown() -> None:
 
     bad = client.patch("/api/v1/auth/me", {"timezone": "Mars/Olympus"}, format="json")
     assert bad.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("day", "inside_utc", "outside_utc"),
+    [
+        # Spring forward (23h day): local Mar 29 ends at 23:00 UTC, so 22:30 UTC
+        # is still Mar 29 (23:30 BST) while 23:30 UTC is already Mar 30.
+        (
+            "2026-03-29",
+            datetime(2026, 3, 29, 22, 30, tzinfo=dt_timezone.utc),
+            datetime(2026, 3, 29, 23, 30, tzinfo=dt_timezone.utc),
+        ),
+        # Fall back (25h day): local Oct 25 starts at 23:00 UTC the day before,
+        # so 23:30 UTC Oct 24 (00:30 BST) already belongs to Oct 25.
+        (
+            "2026-10-25",
+            datetime(2026, 10, 24, 23, 30, tzinfo=dt_timezone.utc),
+            datetime(2026, 10, 24, 22, 30, tzinfo=dt_timezone.utc),
+        ),
+    ],
+)
+def test_day_bounds_follow_dst_transitions(
+    day: str, inside_utc: datetime, outside_utc: datetime
+) -> None:
+    # The day log filters on a [local midnight, next local midnight) instant
+    # range (KAN-117); on DST days that range is 23 or 25 hours long.
+    client, user = _auth_client("tzdst@example.com")
+    user.timezone = "Europe/London"
+    user.save(update_fields=["timezone"])
+    food = FoodItem.objects.create(
+        source=FoodItem.SOURCE_OPEN_FOOD_FACTS,
+        external_id="tzdst-1",
+        barcode="tzdst-1",
+        name="DST Food",
+        kcal_100g=Decimal("100"),
+        raw_source_json={"product": {"product_name": "DST Food"}},
+    )
+    for when in (inside_utc, outside_utc):
+        MealEntry.objects.create(
+            user=user,
+            food_item=food,
+            meal_type=MealEntry.MEAL_DINNER,
+            consumed_at=when,
+            quantity_g=Decimal("100"),
+        )
+
+    response = client.get("/api/v1/nutrition/day", {"date": day})
+    dinner = response.data["meals"]["dinner"]
+    assert len(dinner) == 1
+    assert dinner[0]["consumed_at"].startswith(inside_utc.strftime("%Y-%m-%dT%H:%M"))
