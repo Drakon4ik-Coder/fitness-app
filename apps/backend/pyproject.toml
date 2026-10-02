@@ -42,6 +42,25 @@ mypy = "^1.18.1"
 django-stubs = "^5.2.4"
 djangorestframework-stubs = "^3.16.2"
 
+[tool.coverage.run]
+# Coverage gate (KAN-125): app code only — tests, migrations and the
+# entrypoint/settings modules no test imports would just skew the number.
+branch = true
+source = ["."]
+omit = [
+    "*/migrations/*",
+    "tests/*",
+    "manage.py",
+    "config/asgi.py",
+    "config/wsgi.py",
+    "config/settings/local.py",
+    "config/settings/prod.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
 [tool.ruff.lint]
 # Defaults (E4/E7/E9, F) plus: full pycodestyle, import sorting (replaces
 # standalone isort), bugbear, and Django-specific checks.

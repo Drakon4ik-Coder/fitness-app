@@ -29,6 +29,9 @@ jobs:
       DJANGO_SETTINGS_MODULE: config.settings.base
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so diff-cover can find the PR's merge base (KAN-125).
+          fetch-depth: 0
       - name: Verify required files
         working-directory: ${{ github.workspace }}
         run: |
@@ -85,9 +88,29 @@ jobs:
       - name: Type check (mypy)
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: poetry run mypy .
-      - name: Test
+      # Coverage gate (KAN-125). The floor is a ratchet: raise it as coverage
+      # grows, never lower it to make a PR pass.
+      - name: Test (coverage floor)
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
-        run: poetry run pytest --ds=config.settings.test --maxfail=1 --disable-warnings -q
+        run: >-
+          poetry run pytest --ds=config.settings.test --maxfail=1
+          --disable-warnings -q --cov --cov-report=xml --cov-report=term
+          --cov-fail-under=92
+      # New/changed lines must be tested even when the total barely moves —
+      # the guard that matters during refactors.
+      - name: Diff coverage (changed lines)
+        if: github.event_name == 'pull_request' && steps.changes.outputs.backend == 'true'
+        working-directory: ${{ github.workspace }}
+        run: >-
+          pipx run diff-cover==10.6.0 apps/backend/coverage.xml
+          --compare-branch=origin/${{ github.base_ref }} --fail-under=80
+      - name: Upload coverage report
+        if: always() && (github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: apps/backend/coverage.xml
+          if-no-files-found: ignore
 
   # The backend deploys to prod on every green main push while mobile
   # releases are dispatch-only, so prod's API must stay backward-compatible
