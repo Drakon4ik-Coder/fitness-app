@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.core.cache import cache
@@ -9,6 +10,7 @@ from rest_framework.test import APIClient
 from accounts.models import User
 from foods.models import FoodItem
 from nutrition.models import MealEntry
+from nutrition.views import _local_day_bounds
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +100,13 @@ def test_me_patch_sets_timezone_and_rejects_unknown() -> None:
             datetime(2026, 10, 24, 23, 30, tzinfo=dt_timezone.utc),
             datetime(2026, 10, 24, 22, 30, tzinfo=dt_timezone.utc),
         ),
+        # ...and it ends 25h later at 00:00 UTC Oct 26 (midnight GMT), so 23:30
+        # UTC Oct 25 is still Oct 25 — a `start + 24h` end bound would lose it.
+        (
+            "2026-10-25",
+            datetime(2026, 10, 25, 23, 30, tzinfo=dt_timezone.utc),
+            datetime(2026, 10, 26, 0, 30, tzinfo=dt_timezone.utc),
+        ),
     ],
 )
 def test_day_bounds_follow_dst_transitions(
@@ -126,6 +135,50 @@ def test_day_bounds_follow_dst_transitions(
         )
 
     response = client.get("/api/v1/nutrition/day", {"date": day})
+    assert response.status_code == 200
     dinner = response.data["meals"]["dinner"]
     assert len(dinner) == 1
     assert dinner[0]["consumed_at"].startswith(inside_utc.strftime("%Y-%m-%dT%H:%M"))
+
+
+@pytest.mark.parametrize(
+    ("zone_name", "day"),
+    [
+        # DST transitions *at local midnight*: the day's first instant is in a
+        # gap (spring forward) or its last hour repeats (fall back).
+        ("America/Sao_Paulo", date(2018, 11, 4)),  # 00:00 -> 01:00, 23h day
+        ("America/Sao_Paulo", date(2019, 2, 16)),  # 00:00 -> 23:00, 25h day
+        ("America/Santiago", date(2023, 4, 1)),  # fall back at midnight
+        ("America/Santiago", date(2024, 9, 8)),  # spring forward at midnight
+        ("America/Asuncion", date(2023, 10, 1)),  # spring forward at midnight
+        # Transitions away from midnight, plus a no-DST control.
+        ("Europe/London", date(2026, 3, 29)),
+        ("Europe/London", date(2026, 10, 25)),
+        ("Asia/Tokyo", date(2026, 6, 1)),
+    ],
+)
+def test_local_day_bounds_match_local_calendar_day(zone_name: str, day: date) -> None:
+    # Property check (KAN-117 review): an instant is inside [start, end) exactly
+    # when its wall-clock date in the zone is `day`. Probed every 15 minutes
+    # across the surrounding three days.
+    zone = ZoneInfo(zone_name)
+    start, end = _local_day_bounds(day, zone)
+    probe = datetime.combine(
+        day - timedelta(days=1), datetime.min.time(), dt_timezone.utc
+    )
+    stop = probe + timedelta(days=3)
+    while probe < stop:
+        on_day = probe.astimezone(zone).date() == day
+        assert on_day == (start <= probe < end), (zone_name, day, probe)
+        probe += timedelta(minutes=15)
+
+
+@pytest.mark.django_db
+@pytest.mark.integration
+@pytest.mark.parametrize("day", ["0001-01-01", "9999-12-31"])
+def test_day_rejects_dates_whose_bounds_overflow(day: str) -> None:
+    client, user = _auth_client("tzedge@example.com")
+    user.timezone = "Asia/Tokyo"
+    user.save(update_fields=["timezone"])
+    response = client.get("/api/v1/nutrition/day", {"date": day})
+    assert response.status_code == 400

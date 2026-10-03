@@ -297,6 +297,13 @@ class NutritionDayView(APIView):
                     {"detail": "Invalid date format. Use YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            # The day's bounds reach one day past the date and get converted
+            # to UTC, which overflows datetime at either end of its range.
+            if target_date in (date.min, date.max):
+                return Response(
+                    {"detail": "Date out of range."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
             target_date = timezone.localdate(timezone=zone)
 
