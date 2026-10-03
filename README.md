@@ -113,6 +113,7 @@ flutter run --flavor local --dart-define=API_BASE_URL=http://localhost:8080
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | Yes (prod) | Development default is in `config/settings/base.py`. |
 | `DATABASE_URL` | Yes | Compose uses `postgres://postgres:postgres@db:5432/fitness`. |
+| `REDIS_URL` | No (prod: yes) | Shared cache for throttles and cached values across gunicorn workers. Both compose files set it; unset falls back to a per-process cache. |
 | `DEBUG` | No | Defaults to `true` in `.env.example`. |
 | `ALLOWED_HOSTS` | No | Used by base/prod settings. |
 | `DJANGO_SETTINGS_MODULE` | No | `config.settings.local` (dev), `config.settings.prod` (prod), `config.settings.test` (tests). |

@@ -97,6 +97,27 @@ DATABASES = {
     )
 }
 
+# Shared cache (KAN-119). DRF throttles, the meal-times cache bust and the
+# FatSecret token must be shared by every gunicorn worker. The default
+# LocMemCache is a private dict per process, so limits were enforced
+# separately per worker and reset on every deploy. Redis when REDIS_URL is
+# set (prod compose); otherwise LocMem, which is fine for single-process dev,
+# tests and staging until it gets a Redis instance. Short socket timeouts plus
+# ResilientRedisCache mean an outage degrades to cache misses within ~1s
+# instead of hanging or 500ing every throttled request.
+REDIS_URL = env("REDIS_URL", default="")
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "config.cache.ResilientRedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": "symbio",
+            "OPTIONS": {"socket_connect_timeout": 1, "socket_timeout": 1},
+        }
+    }
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
 AUTH_USER_MODEL = "accounts.User"
 
 # Password validation

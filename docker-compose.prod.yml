@@ -27,6 +27,21 @@ services:
       db:
         condition: service_healthy
 
+  # Shared cache for every gunicorn worker (KAN-119): DRF throttles, the
+  # meal-times cache bust and the FatSecret token. Pure cache: no persistence
+  # (losing it on restart only resets rate-limit windows) and a hard memory
+  # cap with LRU eviction so it can never grow unbounded.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./apps/backend
@@ -36,10 +51,13 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-symbio}
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8001:8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - static-data:/app/staticfiles
