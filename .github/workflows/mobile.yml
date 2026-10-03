@@ -53,3 +53,12 @@ jobs:
       - name: Test
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
         run: flutter test
+      # Screenshot tests (KAN-129) write expected/actual/diff images here on
+      # a mismatch; download them from the run to see what changed.
+      - name: Upload golden diffs
+        if: failure() && (github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures
+          path: apps/mobile/test/goldens/failures/
+          if-no-files-found: ignore

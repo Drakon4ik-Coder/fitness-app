@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Golden test mismatch output (KAN-129); CI uploads it as an artifact.
+/test/goldens/failures/

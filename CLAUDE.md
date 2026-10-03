@@ -73,7 +73,9 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
   `nutrition_repository.dart`.
 - **Tests:** backend `pytest` (sqlite in tests), mobile `flutter test` with
   fake services — no network in tests. New extracted widgets get widget
-  tests; new endpoints get API tests.
+  tests; new endpoints get API tests. Main screens have golden screenshot
+  tests (`apps/mobile/test/goldens/`); an intended UI change regenerates
+  them via the `update-goldens` PR label (see `docs/DEVELOPMENT.md`).
 
 ## Gotchas
 
