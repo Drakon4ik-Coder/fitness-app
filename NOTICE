@@ -4,3 +4,10 @@ Copyright 2026 Fitness App contributors
 This product includes software developed by the Fitness App contributors.
 Third-party dependencies are licensed separately; see their respective
 license files or manifests for details.
+
+The mobile app bundles these fonts under the SIL Open Font License 1.1
+(full texts in apps/mobile/assets/google_fonts/):
+- Inter, Copyright 2020 The Inter Project Authors
+  (https://github.com/rsms/inter)
+- Space Grotesk, Copyright 2020 The Space Grotesk Project Authors
+  (https://github.com/floriankarsten/space-grotesk)

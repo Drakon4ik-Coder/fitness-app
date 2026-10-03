@@ -1,7 +1,10 @@
 import 'dart:async' show unawaited;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'core/app_log.dart';
@@ -18,6 +21,7 @@ import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
 
 Future<void> main() async {
+  _configureFonts();
   // Crash reporting is opt-in per build (--dart-define=SENTRY_DSN=...) and
   // never enabled for local runs: dev sessions against localhost would only
   // add noise to the shared Sentry projects. Staging and prod builds report
@@ -53,6 +57,24 @@ Future<void> main() async {
       runApp(const FitnessApp());
     },
   );
+}
+
+/// The theme's font variants ship as assets (KAN-123): text renders in the
+/// brand fonts even on a first, offline launch, and the app never calls
+/// fonts.gstatic.com. Runtime fetching is off so a variant missing from the
+/// bundle fails loudly (see theme_fonts_test.dart) instead of silently
+/// downloading. The OFL requires the license text to travel with the fonts.
+void _configureFonts() {
+  GoogleFonts.config.allowRuntimeFetching = false;
+  LicenseRegistry.addLicense(() async* {
+    for (final (family, file) in const [
+      ('Inter', 'Inter-OFL.txt'),
+      ('Space Grotesk', 'SpaceGrotesk-OFL.txt'),
+    ]) {
+      final text = await rootBundle.loadString('assets/google_fonts/$file');
+      yield LicenseEntryWithLineBreaks([family], text);
+    }
+  });
 }
 
 class FitnessApp extends StatelessWidget {
