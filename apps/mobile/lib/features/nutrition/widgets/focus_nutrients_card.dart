@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/lumina_health_theme.dart';
 import '../../../ui_system/tokens.dart';
 import '../data/nutrient_catalog.dart';
@@ -173,29 +174,22 @@ class _FocusTile extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              child: Text(
-                spec.label.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: scheme.onSurfaceVariant,
-                  letterSpacing: -0.5,
-                ),
-              ),
+        SpreadOrStack(
+          leading: Text(
+            spec.label.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: scheme.onSurfaceVariant,
+              letterSpacing: -0.5,
             ),
-            Text(
-              valueText,
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: valueColor,
-              ),
+          ),
+          trailing: Text(
+            valueText,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: valueColor,
             ),
-          ],
+          ),
         ),
         const SizedBox(height: AppSpacing.xs),
         LinearProgressIndicator(

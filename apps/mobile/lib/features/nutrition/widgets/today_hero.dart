@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/lumina_health_theme.dart';
@@ -32,6 +34,18 @@ class TodayHeroSection extends StatelessWidget {
   final int? burnedKcal;
   final VoidCallback onAddFood;
 
+  static const double _ringSize = 288;
+  static const double _ringThickness = 12;
+
+  /// Width cap for the center figure: the side of the square inscribed in the
+  /// ring's inner circle. Capping only at the ring's 288dp box let a 2x-scaled
+  /// figure stop shrinking while still wider than the inner circle, so it
+  /// painted over the arc; at this width it stays clear of the stroke anywhere
+  /// in the ring's middle band where the column puts it. A 1.0x figure is well
+  /// under the cap, so it never shrinks there.
+  static const double _centerValueMaxWidth =
+      (_ringSize - 2 * _ringThickness) / math.sqrt2;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -39,8 +53,8 @@ class TodayHeroSection extends StatelessWidget {
     return Column(
       children: [
         SizedBox(
-          height: 288,
-          width: 288,
+          height: _ringSize,
+          width: _ringSize,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -49,8 +63,8 @@ class TodayHeroSection extends StatelessWidget {
               ExcludeSemantics(
                 child: GlowingProgressRing(
                   progress: ringProgress,
-                  size: 288,
-                  thickness: 12,
+                  size: _ringSize,
+                  thickness: _ringThickness,
                   trackColor: scheme.surfaceContainerHighest.withValues(
                     alpha: 0.5,
                   ),
@@ -68,43 +82,48 @@ class TodayHeroSection extends StatelessWidget {
                   // shrinks to stay inside the fixed-size ring instead of
                   // overflowing it; the 48dp CTA below never shrinks (KAN-40).
                   Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Semantics(
-                        label:
-                            '$kcalCenterValue kilocalories '
-                            '${kcalOver ? 'over goal' : 'left'}',
-                        value:
-                            '${(ringProgress.clamp(0.0, 1.0) * 100).round()} '
-                            'percent of calorie goal used',
-                        excludeSemantics: true,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              kcalOver
-                                  ? '+$kcalCenterValue'
-                                  : '$kcalCenterValue',
-                              style: theme.textTheme.displayLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                height: 1,
-                                color: kcalOver
-                                    ? LuminaHealthColors.warning
-                                    : null,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: _centerValueMaxWidth,
+                      ),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Semantics(
+                          label:
+                              '$kcalCenterValue kilocalories '
+                              '${kcalOver ? 'over goal' : 'left'}',
+                          value:
+                              '${(ringProgress.clamp(0.0, 1.0) * 100).round()} '
+                              'percent of calorie goal used',
+                          excludeSemantics: true,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                kcalOver
+                                    ? '+$kcalCenterValue'
+                                    : '$kcalCenterValue',
+                                style: theme.textTheme.displayLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  height: 1,
+                                  color: kcalOver
+                                      ? LuminaHealthColors.warning
+                                      : null,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              kcalOver ? 'OVER' : 'LEFT',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 2.0,
-                                color: kcalOver
-                                    ? LuminaHealthColors.warning
-                                    : scheme.onSurfaceVariant,
+                              const SizedBox(height: 4),
+                              Text(
+                                kcalOver ? 'OVER' : 'LEFT',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 2.0,
+                                  color: kcalOver
+                                      ? LuminaHealthColors.warning
+                                      : scheme.onSurfaceVariant,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),

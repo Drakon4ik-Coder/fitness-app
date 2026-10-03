@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../ui_components/ui_components.dart';
 import '../../../ui_system/lumina_health_theme.dart';
 import '../../../ui_system/tokens.dart';
 import '../data/food_models.dart';
@@ -62,7 +63,7 @@ class DailyLogsHeader extends StatelessWidget {
             ),
           ),
           Text(
-            '$totalEntries entries',
+            totalEntries == 1 ? '1 entry' : '$totalEntries entries',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w500,
@@ -153,37 +154,7 @@ class TodayMealCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            meal.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: scheme.onSurface,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        // scaleDown keeps the full figure visible at large
-                        // text scales; an ellipsized kcal would be useless.
-                        Flexible(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              '${meal.totalKcal} kcal',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: scheme.primary,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _MealCardHeading(meal: meal),
                     const SizedBox(height: 4),
                     Text(
                       hasItems
@@ -222,6 +193,38 @@ class TodayMealCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Meal name and its kcal total. At large text scales the pair stacks rather
+/// than ellipsizing the name ("Brea…"); an ellipsized kcal would be useless
+/// too, so either side only ever scales down (KAN-40).
+class _MealCardHeading extends StatelessWidget {
+  const _MealCardHeading({required this.meal});
+
+  final MealSummary meal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return SpreadOrStack(
+      spacing: AppSpacing.sm,
+      leading: Text(
+        meal.name,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.bold,
+          color: scheme.onSurface,
+        ),
+      ),
+      trailing: Text(
+        '${meal.totalKcal} kcal',
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.bold,
+          color: scheme.primary,
         ),
       ),
     );
