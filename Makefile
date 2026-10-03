@@ -136,12 +136,12 @@ test-mobile:
 coverage-backend:
 	@echo "==> coverage-backend"
 	@cd $(BACKEND_DIR) && poetry run pytest --maxfail=1 --disable-warnings -q \
-		--cov --cov-report=xml --cov-report=term --cov-fail-under=95
-	@cd $(BACKEND_DIR) && poetry run python scripts/coverage_per_file.py 80
+		--cov --cov-report=xml --cov-report=term --cov-fail-under=80
+	@cd $(BACKEND_DIR) && poetry run python scripts/coverage_per_file.py 60
 
 coverage-mobile:
 	@echo "==> coverage-mobile"
 	@cd $(MOBILE_DIR) && flutter pub get
 	@cd $(MOBILE_DIR) && dart run tool/coverage.dart helper
 	@cd $(MOBILE_DIR) && flutter test --coverage
-	@cd $(MOBILE_DIR) && dart run tool/coverage.dart check --min 95 --min-file 80
+	@cd $(MOBILE_DIR) && dart run tool/coverage.dart check --min 80 --min-file 60

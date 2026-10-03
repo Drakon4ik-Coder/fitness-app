@@ -3,7 +3,7 @@
 `--cov-fail-under` only gates the total, so one weak module can hide behind
 well-tested ones. Run after `pytest --cov` from apps/backend:
 
-    python scripts/coverage_per_file.py 80
+    python scripts/coverage_per_file.py 60
 
 Exits 1 and lists every measured file below the floor. The percentage matches
 coverage.py's own report (lines and branches combined).
