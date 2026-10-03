@@ -17,6 +17,10 @@ class _FakeNutritionApi implements NutritionApiService {
   );
 
   bool offline = false;
+
+  /// Fails updates as network errors while reads still work, so a queued
+  /// edit stays in the outbox through a refresh's delta pull.
+  bool updatesUnreachable = false;
   int _nextServerId = 100;
 
   /// Server-side entries by uuid; value null means tombstone.
@@ -30,6 +34,9 @@ class _FakeNutritionApi implements NutritionApiService {
   int deleteCalls = 0;
   int syncCalls = 0;
   int dayFetches = 0;
+
+  /// The `since` of every sync page request; null is a cursor bootstrap.
+  final List<String?> syncSinces = [];
 
   /// Scripted delta pages, consumed one per [fetchSyncPage] with a `since`.
   final List<SyncPage> deltaPages = [];
@@ -97,6 +104,9 @@ class _FakeNutritionApi implements NutritionApiService {
     DateTime? clientUpdatedAt,
   }) async {
     _checkOnline('update');
+    if (updatesUnreachable) {
+      throw ApiException('unreachable: update', isNetworkError: true);
+    }
     updateCalls++;
     final existing = serverEntries[entryUuid];
     if (existing == null) {
@@ -138,6 +148,7 @@ class _FakeNutritionApi implements NutritionApiService {
   Future<SyncPage> fetchSyncPage({String? since, int? limit}) async {
     _checkOnline('sync');
     syncCalls++;
+    syncSinces.add(since);
     if (since == null) {
       return const SyncPage(
         entries: [],
@@ -640,6 +651,206 @@ void main() {
       expect(store.outbox, isEmpty);
       expect(store.cursor, isNull);
       expect(store.dayPayloads, isEmpty);
+    });
+  });
+
+  // Each test pins behavior a surviving mutant showed no test asserted
+  // (KAN-130 mutation run on nutrition_repository.dart).
+  group('mutation-found gaps (KAN-130)', () {
+    test(
+      'a stored cursor is reused; an empty one is re-bootstrapped',
+      () async {
+        await seedToday();
+        store.cursor = 'cursor-7';
+        await repo.refreshDay(today);
+        expect(api.syncSinces, isNot(contains(null)));
+        expect(api.syncSinces.first, 'cursor-7');
+
+        api.syncSinces.clear();
+        store.cursor = '';
+        await repo.refreshDay(today);
+        expect(api.syncSinces.first, isNull);
+        expect(store.cursor, 'cursor-0');
+      },
+    );
+
+    test('first open also pulls deltas past the bootstrap cursor', () async {
+      // An entry created between the cursor bootstrap and the full-day fetch
+      // only arrives through the delta pull that follows the seed.
+      api.deltaPages.add(
+        SyncPage(
+          entries: [
+            SyncEntry(entry: _serverEntry(uuid: 'late'), deleted: false),
+          ],
+          nextCursor: 'cursor-1',
+          hasMore: false,
+        ),
+      );
+
+      await repo.refreshDay(today);
+
+      expect(store.entries.containsKey('late'), isTrue);
+      expect(store.cursor, 'cursor-1');
+    });
+
+    test('a queued edit carries only the fields that changed', () async {
+      await seedToday();
+      api.offline = true;
+      store.entries['e'] = makeStoredEntry(uuid: 'e', serverId: 9);
+      final entry = (await repo.readCachedDay(today))!.meals['breakfast']!;
+
+      await repo.updateEntry(entry.single, quantityG: 80);
+      await repo.updateEntry(entry.single, mealType: 'dinner');
+
+      expect(store.outbox.map((op) => op.payload).toList(), [
+        {'quantity_g': 80.0},
+        {'meal_type': 'dinner'},
+      ]);
+    });
+
+    test('deleting a synced entry with a queued edit tombstones it', () async {
+      await seedToday();
+      api.offline = true;
+      store.entries['s'] = makeStoredEntry(uuid: 's', serverId: 5);
+      final entry = (await repo.readCachedDay(today))!.meals['breakfast']!;
+      await repo.updateEntry(entry.single, quantityG: 50);
+
+      await repo.deleteEntry(entry.single);
+
+      // The server knows this entry, so it needs a queued delete. Purging it
+      // locally would leave it alive on every other device.
+      expect(store.entries['s']!.deleted, isTrue);
+      expect(store.outbox.map((op) => op.kind), contains('delete'));
+    });
+
+    test('stops paging when the cursor does not advance', () async {
+      await seedToday();
+      api.deltaPages.add(
+        const SyncPage(entries: [], nextCursor: 'cursor-0', hasMore: true),
+      );
+
+      await repo.refreshDay(today);
+
+      expect(api.syncCalls, 1);
+    });
+
+    test('a newer remote delete cancels the stale queued edit', () async {
+      await seedToday();
+      final localTime = DateTime.now().toUtc().subtract(
+        const Duration(hours: 1),
+      );
+      store.entries['d'] = makeStoredEntry(
+        uuid: 'd',
+        serverId: 8,
+        updatedAt: localTime,
+        pending: true,
+      );
+      await store.enqueueOp(
+        kind: 'update',
+        entryUuid: 'd',
+        payload: {'quantity_g': 10},
+        queuedAt: localTime,
+      );
+      api.updatesUnreachable = true; // the edit is still queued at pull time
+      api.deltaPages.add(
+        SyncPage(
+          entries: [
+            SyncEntry(
+              entry: _serverEntry(
+                uuid: 'd',
+                updatedAt: localTime.add(const Duration(minutes: 30)),
+              ),
+              deleted: true,
+            ),
+          ],
+          nextCursor: 'cursor-1',
+          hasMore: false,
+        ),
+      );
+
+      await repo.refreshDay(today);
+
+      expect(store.entries.containsKey('d'), isFalse);
+      expect(store.outbox, isEmpty);
+    });
+
+    test('groups by the local calendar day for any date', () async {
+      // Month != day, so swapped DateTime arguments would pick another day;
+      // neighbours on both sides catch a range that starts or ends wrong.
+      store.entries['prev'] = makeStoredEntry(
+        uuid: 'prev',
+        consumedAt: DateTime(2026, 3, 13, 9),
+      );
+      store.entries['m'] = makeStoredEntry(
+        uuid: 'm',
+        consumedAt: DateTime(2026, 3, 14, 9),
+      );
+      store.entries['next'] = makeStoredEntry(
+        uuid: 'next',
+        consumedAt: DateTime(2026, 3, 15, 9),
+      );
+
+      final log = await repo.readCachedDay(DateTime(2026, 3, 14));
+
+      expect(log!.meals['breakfast']!.map((e) => e.uuid), ['m']);
+    });
+
+    test('locally composed totals sum every entry by quantity', () async {
+      await seedToday();
+      store.entries['a'] = makeStoredEntry(uuid: 'a', quantityG: 50, kcal: 75);
+      // 50 g and 300 g: factors 0.5 and 3, so dividing instead of
+      // multiplying gives different totals (50/200 would coincide).
+      store.entries['b'] = makeStoredEntry(
+        uuid: 'b',
+        quantityG: 300,
+        kcal: 450,
+      );
+
+      final totals = (await repo.refreshDay(today)).totals;
+
+      // makeTestFood: 10 g protein, 20 g carbs, 5 g fat per 100 g.
+      expect(totals.kcal, 525);
+      expect(totals.proteinG, closeTo(35, 1e-9));
+      expect(totals.carbsG, closeTo(70, 1e-9));
+      expect(totals.fatG, closeTo(17.5, 1e-9));
+    });
+
+    test('server ids survive conversion; 0 means "no server id"', () async {
+      await seedToday();
+      api.offline = true;
+      // Not in the local store yet, so the edit converts it from scratch.
+      final known = NutritionEntry(
+        id: 7,
+        uuid: 'not-stored',
+        mealType: 'lunch',
+        consumedAt: DateTime.now().toUtc(),
+        quantityG: 100,
+        kcal: 150,
+        foodItem: makeTestFood(),
+      );
+      await repo.updateEntry(known, quantityG: 120);
+      expect(store.entries['not-stored']!.serverId, 7);
+
+      api.offline = false;
+      api.deltaPages.add(
+        SyncPage(
+          entries: [
+            SyncEntry(
+              entry: _serverEntry(uuid: 'from-server', id: 42),
+              deleted: false,
+            ),
+            SyncEntry(
+              entry: _serverEntry(uuid: 'no-id', id: 0),
+              deleted: false,
+            ),
+          ],
+          nextCursor: 'cursor-1',
+          hasMore: false,
+        ),
+      );
+      await repo.refreshDay(today);
+      expect(store.entries['from-server']!.serverId, 42);
+      expect(store.entries['no-id']!.serverId, isNull);
     });
   });
 }
