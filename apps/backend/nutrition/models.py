@@ -53,9 +53,11 @@ class MealEntry(models.Model):
     deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        # Both the day view (consumed_at__date) and the meal-times stats
-        # (consumed_at__gte window per user) filter a user's rows by time, so a
-        # composite index turns those into range scans. The synced_at index
+        # Both the day view (local-midnight consumed_at range) and the
+        # meal-times stats (consumed_at__gte window per user) filter a user's
+        # rows by time, so a composite index turns those into range scans.
+        # Keep those filters on the bare column: wrapping it (e.g. __date) in a
+        # tz conversion makes the index unusable. The synced_at index
         # serves the delta-sync feed (`?since=` per user).
         indexes = [
             models.Index(
