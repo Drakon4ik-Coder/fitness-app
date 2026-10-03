@@ -17,11 +17,17 @@ class _FakeFoodsApi extends FoodsApiService {
   _FakeFoodsApi() : super(accessToken: 'test-token');
 
   final List<String> typeaheadQueries = [];
+  final List<CancelToken?> tokens = [];
   Completer<List<FoodItem>>? pending;
 
   @override
-  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) {
+  Future<List<FoodItem>> typeahead(
+    String query, {
+    int limit = 10,
+    CancelToken? cancelToken,
+  }) {
     typeaheadQueries.add(query);
+    tokens.add(cancelToken);
     final completer = Completer<List<FoodItem>>();
     pending = completer;
     return completer.future;
@@ -231,6 +237,30 @@ void main() {
       );
       expect(secondToken.isCancelled, isFalse);
       expect(identical(firstToken, secondToken), isFalse);
+
+      controller.dispose();
+    });
+  });
+
+  test('the backend typeahead shares the query token, so a newer keystroke '
+      'aborts it (KAN-118)', () {
+    fakeAsync((async) {
+      final off = _FakeOffClient();
+      final backend = _FakeFoodsApi();
+      final controller = _build(off: off, backend: backend);
+
+      controller.onQueryChanged('apple');
+      async.elapse(LiveSearchController.defaultDebounce);
+      final firstToken = backend.tokens.single!;
+      expect(identical(firstToken, off.tokens.single), isTrue);
+      expect(firstToken.isCancelled, isFalse);
+
+      controller.onQueryChanged('apples');
+      expect(
+        firstToken.isCancelled,
+        isTrue,
+        reason: 'the superseded typeahead request must be aborted',
+      );
 
       controller.dispose();
     });

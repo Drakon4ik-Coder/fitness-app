@@ -85,18 +85,24 @@ class NutritionRepository {
 
     if (!await _store.isDaySeeded(dateKey)) {
       final raw = await _api.fetchDayRaw(date);
-      for (final entry in _entriesFromDayPayload(raw)) {
-        await _mergeServerEntry(entry, deleted: false);
-      }
-      // Written after the entries so a crash in between re-fetches next time
-      // instead of composing a half-seeded day.
-      await _store.writeDayPayload(dateKey, raw);
+      // Parsed once: the same log seeds the entry table and is the return
+      // value (each entry's food carries a heavy raw-source blob — KAN-118).
+      final serverLog = _api.parseDayLog(raw);
+      // One transaction (KAN-120): the seeded marker (day payload) commits
+      // with the day's entries or not at all, so a crash can never leave a
+      // day marked seeded but half-merged — it simply re-fetches next time.
+      await _store.inTransaction((txn) async {
+        for (final entry in serverLog.meals.values.expand((meal) => meal)) {
+          await _mergeServerEntry(txn, entry, deleted: false);
+        }
+        await txn.writeDayPayload(dateKey, raw);
+      });
       if (cursor.isNotEmpty) {
         await _pullDeltas(cursor);
       }
       // First fetch of a day: hand back the server's own view — totals, day
       // grouping and the rich nutrients map all server-computed.
-      return _api.parseDayLog(raw);
+      return serverLog;
     }
 
     // Already-seeded day: a delta pull replaces the full re-fetch. Totals are
@@ -398,23 +404,46 @@ class NutritionRepository {
     var since = cursor;
     var hasMore = true;
     while (hasMore) {
+      // Network first, outside the transaction: the write lock must never be
+      // held across I/O.
       final page = await _api.fetchSyncPage(since: since);
-      for (final syncEntry in page.entries) {
-        await _mergeServerEntry(syncEntry.entry, deleted: syncEntry.deleted);
-      }
+      final next = page.nextCursor;
+      // Defensive: never spin on a cursor that isn't advancing.
+      final advancing = next.isNotEmpty && next != since;
+      // One transaction per page (KAN-120): the page's merges and the cursor
+      // advance commit together, so the cursor can never move past a change
+      // that failed to land locally. Also one journal commit per page rather
+      // than one per entry.
+      await _store.inTransaction((txn) async {
+        for (final syncEntry in page.entries) {
+          await _mergeServerEntry(
+            txn,
+            syncEntry.entry,
+            deleted: syncEntry.deleted,
+          );
+        }
+        if (advancing) {
+          await txn.writeSyncCursor(next);
+        }
+      });
       hasMore = page.hasMore;
-      if (page.nextCursor.isEmpty || page.nextCursor == since) {
-        break; // Defensive: never spin on a cursor that isn't advancing.
+      if (!advancing) {
+        break;
       }
-      since = page.nextCursor;
-      await _store.writeSyncCursor(since);
+      since = next;
     }
   }
 
   /// LWW merge of one server-side entry state into the local table. Local
   /// rows with unsynced changes win over older server states; the queued op
   /// will fight it out server-side and the loser converges on a later pull.
+  ///
+  /// Runs against [store], the caller's transaction-bound view — touching
+  /// `_store` in here would deadlock the open transaction. Holding the
+  /// transaction also makes the read-then-write below atomic against a
+  /// concurrent optimistic local write.
   Future<void> _mergeServerEntry(
+    NutritionLocalStore store,
     NutritionEntry entry, {
     required bool deleted,
   }) async {
@@ -422,7 +451,7 @@ class NutritionRepository {
     if (uuid == null) {
       return; // Pre-sync server rows always carry a uuid; defensive.
     }
-    final local = await _store.readEntry(uuid);
+    final local = await store.readEntry(uuid);
     if (local != null && local.pending) {
       final serverTime = entry.updatedAt;
       if (serverTime == null || !serverTime.isAfter(local.updatedAt)) {
@@ -432,14 +461,14 @@ class NutritionRepository {
       // queued op is left to replay and lose LWW server-side (harmless).
     }
     if (deleted) {
-      await _store.purgeEntry(uuid);
+      await store.purgeEntry(uuid);
       if (local != null && local.pending) {
         // Deleted elsewhere with a newer timestamp: cancel our stale ops.
-        await _store.removeOpsFor(uuid);
+        await store.removeOpsFor(uuid);
       }
       return;
     }
-    await _store.upsertEntry(
+    await store.upsertEntry(
       _storedFromServer(entry, deleted: false, pending: false),
     );
   }
@@ -481,10 +510,6 @@ class NutritionRepository {
       // instead of a server map (same fallback as pre-nutrients payloads).
       nutrients: null,
     );
-  }
-
-  List<NutritionEntry> _entriesFromDayPayload(Map<String, dynamic> raw) {
-    return [for (final meal in _api.parseDayLog(raw).meals.values) ...meal];
   }
 
   double _kcalFor(FoodItem food, double quantityG) =>

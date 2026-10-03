@@ -48,8 +48,11 @@ class _FakeFoodsApi extends FoodsApiService {
   _FakeFoodsApi() : super(accessToken: 'test-token');
 
   @override
-  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
-      const [];
+  Future<List<FoodItem>> typeahead(
+    String query, {
+    int limit = 10,
+    CancelToken? cancelToken,
+  }) async => const [];
 }
 
 /// Rejects every custom-food upsert, forcing a duplicate submit that stages

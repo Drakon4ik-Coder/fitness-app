@@ -371,10 +371,13 @@ int? ciqualCodeFromOffProduct(Map<String, dynamic> product) {
   return null;
 }
 
-// Pulls the Agribalyse/CIQUAL code out of a stored OFF raw-source blob,
+// The three helpers below take the already-decoded raw-source blob: they run
+// for every entry of every /day and /sync payload, and OFF blobs are large, so
+// the caller decodes once and shares it (KAN-118).
+
+// Pulls the Agribalyse/CIQUAL code out of a decoded OFF raw-source blob,
 // whether the product sits at the top level or nested under `product`.
-int? _ciqualCodeFromRaw(String rawSourceJson) {
-  final decoded = _decodeRawSourceJson(rawSourceJson);
+int? _ciqualCodeFromRaw(Object? decoded) {
   if (decoded is! Map) return null;
   final direct = ciqualCodeFromOffProduct(decoded.cast<String, dynamic>());
   if (direct != null) return direct;
@@ -385,10 +388,9 @@ int? _ciqualCodeFromRaw(String rawSourceJson) {
   return null;
 }
 
-// Pulls `categories_tags` out of a stored OFF raw-source blob, whether it
+// Pulls `categories_tags` out of a decoded OFF raw-source blob, whether it
 // sits at the top level or nested under `product`.
-List<String> _categoriesTagsFromRaw(String rawSourceJson) {
-  final decoded = _decodeRawSourceJson(rawSourceJson);
+List<String> _categoriesTagsFromRaw(Object? decoded) {
   if (decoded is! Map) return const [];
   dynamic tags = decoded['categories_tags'];
   if (tags is! List) {
@@ -399,10 +401,9 @@ List<String> _categoriesTagsFromRaw(String rawSourceJson) {
   return tags.whereType<String>().toList();
 }
 
-// Pulls the free-text `serving_size` out of a stored OFF raw-source blob,
+// Pulls the free-text `serving_size` out of a decoded OFF raw-source blob,
 // whether it sits at the top level or nested under `product`.
-String? _servingSizeTextFromRaw(String rawSourceJson) {
-  final decoded = _decodeRawSourceJson(rawSourceJson);
+String? _servingSizeTextFromRaw(Object? decoded) {
   if (decoded is! Map) return null;
   final direct = decoded['serving_size'];
   if (direct is String && direct.trim().isNotEmpty) return direct;
@@ -770,9 +771,12 @@ class FoodItem {
     final barcode = map['barcode']?.toString();
     final rawSource = map['raw_source_json'];
     final nutrimentsRaw = map['nutriments_json'];
-    final rawJson = rawSource is String
-        ? rawSource
-        : jsonEncode(rawSource ?? <String, dynamic>{});
+    // The API sends the blob as a JSON object; decode a string form at most
+    // once and encode only for storage — never round-trip it per helper.
+    final Object rawDecoded = rawSource is String
+        ? _decodeRawSourceJson(rawSource)
+        : rawSource ?? <String, dynamic>{};
+    final rawJson = rawSource is String ? rawSource : jsonEncode(rawDecoded);
     final Map<String, dynamic>? nutrimentsJson =
         nutrimentsRaw is Map<String, dynamic>
         ? nutrimentsRaw
@@ -782,15 +786,15 @@ class FoodItem {
     // The backend has no dedicated piece columns, so re-derive the piece
     // descriptor from the round-tripped raw serving_size text.
     final servingSizeG = parseNullableDouble(map['serving_size_g']);
-    final piece = parsePieceDescriptor(_servingSizeTextFromRaw(rawJson));
+    final piece = parsePieceDescriptor(_servingSizeTextFromRaw(rawDecoded));
     // Likewise the cooked-basis marker: re-derived from the round-tripped
     // categories tags and Agribalyse match rather than stored in a backend
     // column.
     final proteinG100g = parseNullableDouble(map['protein_g_100g']);
     final cookedBasis = detectCookedNutritionBasis(
-      categoriesTags: _categoriesTagsFromRaw(rawJson),
+      categoriesTags: _categoriesTagsFromRaw(rawDecoded),
       proteinG100g: proteinG100g,
-      ciqualCode: _ciqualCodeFromRaw(rawJson),
+      ciqualCode: _ciqualCodeFromRaw(rawDecoded),
     );
     return FoodItem(
       backendId: backendId,

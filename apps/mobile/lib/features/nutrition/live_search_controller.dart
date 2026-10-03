@@ -194,7 +194,9 @@ class LiveSearchController {
 
   Future<void> _runBackend(String query, CancelToken token) async {
     try {
-      final results = await _foodsApi.typeahead(query);
+      // Same token as the OFF/FatSecret legs: a newer keystroke aborts this
+      // request instead of letting it run to completion server-side.
+      final results = await _foodsApi.typeahead(query, cancelToken: token);
       if (_isStale(query, token)) return;
       onBackendResults(results);
     } on ApiException catch (error) {
