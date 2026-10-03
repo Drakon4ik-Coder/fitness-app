@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Shared settings for the Dart mutation run (KAN-130). Mutation targets and
+     their test commands live in the per-target documents next to this file.
+     Run from apps/mobile:
+       dart pub global activate mutation_test 1.8.0
+       dart pub global run mutation_test -b -r mutation/rules.xml mutation/<target>.xml
+-->
+<mutations version="1.0">
+  <exclude>
+    <!-- Comments and log/error text: mutating them can't change behavior. -->
+    <token begin="//" end="\n"/>
+    <regex pattern="/[*].*?[*]/" dotAll="true"/>
+    <regex pattern="logError\(.*?\);" dotAll="true"/>
+    <regex pattern="ApiException\(\s*'.*?'" dotAll="true"/>
+    <!-- Loop headers: a flipped bound can hang the run instead of failing. -->
+    <regex pattern="[\s]for[\s]*\(.*?\)[\s]*\{" dotAll="true"/>
+    <regex pattern="[\s]while[\s]*\(.*?\)[\s]*\{" dotAll="true"/>
+    <!-- Imports and part directives. -->
+    <regex pattern="^import .*?;" dotAll="false"/>
+  </exclude>
+  <!-- Report-only until a baseline exists; see docs/DEVELOPMENT.md. -->
+  <threshold failure="0">
+    <rating over="80" name="A"/>
+    <rating over="60" name="B"/>
+    <rating over="40" name="C"/>
+    <rating over="20" name="D"/>
+    <rating over="0" name="E"/>
+  </threshold>
+</mutations>

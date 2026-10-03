@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Meal-type guess from the time of day and the learned meal windows. -->
+<mutations version="1.0">
+  <files>
+    <file>lib/features/nutrition/meal_suggestion.dart</file>
+  </files>
+  <commands>
+    <command group="suggestion" expected-return="0" timeout="120">flutter test test/meal_suggestion_test.dart</command>
+  </commands>
+</mutations>
