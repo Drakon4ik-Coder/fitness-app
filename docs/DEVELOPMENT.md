@@ -25,7 +25,7 @@ make test
 
 ## Coverage (KAN-125)
 ```
-make coverage-backend   # pytest-cov, branch coverage, floor 92%
+make coverage-backend   # pytest-cov, branch coverage, floor 95%
 make coverage-mobile    # flutter test --coverage, floor 83%
 ```
 CI enforces two gates per stack:

@@ -10,11 +10,16 @@ class AuthInterceptor extends Interceptor {
     required AuthService authService,
     required Future<void> Function() onSessionExpired,
     required String accessToken,
+    Dio? retryClient,
   }) : _storage = storage,
        _authService = authService,
        _onSessionExpired = onSessionExpired,
        _accessToken = accessToken,
-       _retryClient = Dio(BaseOptions(baseUrl: EnvironmentConfig.apiBaseUrl));
+       // Injectable for tests; the default is a bare client so the retry
+       // doesn't re-enter this interceptor.
+       _retryClient =
+           retryClient ??
+           Dio(BaseOptions(baseUrl: EnvironmentConfig.apiBaseUrl));
 
   final AuthStorage _storage;
   final AuthService _authService;

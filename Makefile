@@ -136,7 +136,7 @@ test-mobile:
 coverage-backend:
 	@echo "==> coverage-backend"
 	@cd $(BACKEND_DIR) && poetry run pytest --maxfail=1 --disable-warnings -q \
-		--cov --cov-report=xml --cov-report=term --cov-fail-under=92
+		--cov --cov-report=xml --cov-report=term --cov-fail-under=95
 
 coverage-mobile:
 	@echo "==> coverage-mobile"

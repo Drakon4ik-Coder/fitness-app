@@ -17,6 +17,11 @@ import 'features/main_shell.dart';
 import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
 
+// coverage:ignore-start
+// Process bootstrap: runApp plus optional Sentry init. It runs on every app
+// launch and can't run inside a widget test (it would replace the test's own
+// binding), so it's excluded from the coverage gate (KAN-131). Everything it
+// launches (FitnessApp and down) is covered by the widget tests.
 Future<void> main() async {
   // Crash reporting is opt-in per build (--dart-define=SENTRY_DSN=...) and
   // never enabled for local runs: dev sessions against localhost would only
@@ -54,6 +59,7 @@ Future<void> main() async {
     },
   );
 }
+// coverage:ignore-end
 
 class FitnessApp extends StatelessWidget {
   const FitnessApp({super.key, this.versionService});

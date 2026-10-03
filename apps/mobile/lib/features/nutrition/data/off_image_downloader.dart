@@ -13,16 +13,21 @@ class OffImageResult {
 }
 
 class OffImageDownloader {
-  OffImageDownloader({String? userAgent, OffRateLimiter? rateLimiter})
+  /// [dio] is injectable for tests (constructor DI, CLAUDE.md rule 2).
+  OffImageDownloader({String? userAgent, OffRateLimiter? rateLimiter, Dio? dio})
     : _rateLimiter = rateLimiter ?? OffRateLimiter.shared,
-      _dio = Dio(
-        BaseOptions(
-          headers: {'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent},
-          responseType: ResponseType.bytes,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 20),
-        ),
-      );
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              headers: {
+                'User-Agent': userAgent ?? EnvironmentConfig.offUserAgent,
+              },
+              responseType: ResponseType.bytes,
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 20),
+            ),
+          );
 
   final Dio _dio;
   final OffRateLimiter _rateLimiter;
