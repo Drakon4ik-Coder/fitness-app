@@ -2,6 +2,8 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from foods.images import images_ok as _images_ok
@@ -98,6 +100,62 @@ class FoodItemSerializer(serializers.ModelSerializer):
         return _images_ok(obj)
 
 
+class EntryFoodItemSerializer(FoodItemSerializer):
+    """The food embedded in every meal entry (/day, /sync, entry writes).
+
+    Same fields as FoodItemSerializer, but raw_source_json is the
+    trim_raw_source excerpt rather than the full blob (KAN-122).
+    """
+
+    raw_source_json = serializers.SerializerMethodField()
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_raw_source_json(self, obj: FoodItem) -> dict[str, Any]:
+        return trim_raw_source(obj.raw_source_json)
+
+
+# The only raw_source_json keys the mobile client reads back on the meal-entry
+# path (FoodItem.fromBackendDetail): the serving text drives piece parsing,
+# the category tags and Agribalyse code drive cooked-basis detection. Both
+# sit at the top level or under "product" depending on the source.
+_ENTRY_RAW_KEYS = ("serving_size", "categories_tags")
+_AGRIBALYSE_CODE_KEYS = ("agribalyse_food_code", "code", "agribalyse_proxy_food_code")
+
+# Marks a raw_source_json as an entry-path excerpt, never the full blob. Ingest
+# refuses to store a marked blob over a full one (see FoodItemIngestSerializer).
+RAW_TRIMMED_MARKER = "_trimmed"
+
+
+def trim_raw_source(raw: Any) -> dict[str, Any]:
+    """The entry-path excerpt of a stored raw_source_json (KAN-122).
+
+    Every logged meal used to carry its food's whole OFF/FatSecret blob,
+    including the full nutriments map (already sent as nutriments_json) and
+    the image index, once per entry in every /day and /sync payload and once
+    per entry in the device's entry cache. Shape is preserved (top level plus
+    an optional "product"), so clients read it exactly as before.
+    """
+
+    def pick(blob: Any) -> dict[str, Any]:
+        if not isinstance(blob, dict):
+            return {}
+        out = {key: blob[key] for key in _ENTRY_RAW_KEYS if key in blob}
+        ecoscore = blob.get("ecoscore_data")
+        agribalyse = ecoscore.get("agribalyse") if isinstance(ecoscore, dict) else None
+        if isinstance(agribalyse, dict):
+            codes = {k: agribalyse[k] for k in _AGRIBALYSE_CODE_KEYS if k in agribalyse}
+            if codes:
+                out["ecoscore_data"] = {"agribalyse": codes}
+        return out
+
+    trimmed = pick(raw)
+    product = raw.get("product") if isinstance(raw, dict) else None
+    if isinstance(product, dict):
+        trimmed["product"] = pick(product)
+    trimmed[RAW_TRIMMED_MARKER] = True
+    return trimmed
+
+
 def _absolute_file_url(request: Any | None, field: Any) -> str:
     url = field.url
     if request is None:
@@ -175,6 +233,13 @@ class FoodItemIngestSerializer(serializers.Serializer):
             else:
                 data["image_signature"] = incoming_signature
 
+        # An entry-path excerpt (trim_raw_source) must never replace a full
+        # raw blob: the excerpt drops everything but what the meal views read.
+        # Existing rows keep their raw; a brand-new row still stores what it
+        # was given, since that's all there is.
+        raw = data.get("raw_source_json")
+        keep_existing_raw = isinstance(raw, dict) and raw.get(RAW_TRIMMED_MARKER)
+
         incoming_hash = data.get("content_hash")
         if isinstance(incoming_hash, str):
             incoming_hash = incoming_hash.strip()
@@ -186,12 +251,14 @@ class FoodItemIngestSerializer(serializers.Serializer):
         item: FoodItem | None = None
 
         def apply_changes(target: FoodItem) -> None:
-            protected: tuple[str, ...] = ()
+            protected: tuple[str, ...] = (
+                ("raw_source_json",) if keep_existing_raw else ()
+            )
             if target.community_verified_at is not None:
                 # Community-promoted nutrition outranks whatever OFF says now:
                 # a client re-ingesting stale OFF data may update names and
                 # images, never the verified values (columns or blob).
-                protected = (*NUTRITION_FIELDS, "nutriments_json")
+                protected = (*protected, *NUTRITION_FIELDS, "nutriments_json")
             for field, value in data.items():
                 if field in protected:
                     continue

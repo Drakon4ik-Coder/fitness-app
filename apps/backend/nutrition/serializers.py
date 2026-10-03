@@ -3,7 +3,7 @@ from typing import Any
 from rest_framework import serializers
 
 from foods.models import FoodItem
-from foods.serializers import FoodItemSerializer
+from foods.serializers import EntryFoodItemSerializer
 from nutrition.models import MealEntry
 from nutrition.utils import calculate_macros, serialize_decimal
 
@@ -54,7 +54,8 @@ class MealEntryUpdateSerializer(serializers.ModelSerializer):
 
 
 class MealEntrySerializer(serializers.ModelSerializer):
-    food_item = FoodItemSerializer()
+    # Slim food: raw_source_json trimmed to what the client reads (KAN-122).
+    food_item = EntryFoodItemSerializer()
     kcal = serializers.SerializerMethodField()
 
     class Meta:

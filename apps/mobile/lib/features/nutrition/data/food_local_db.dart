@@ -257,7 +257,10 @@ class FoodLocalDb {
       );
     }
     final rawJson = incoming.rawSourceJson.trim();
-    final hasRawJson = rawJson.isNotEmpty && rawJson != '{}';
+    // A meal entry's food carries only a raw excerpt (KAN-122); it must not
+    // replace a full blob already cached for the same food.
+    final hasRawJson =
+        rawJson.isNotEmpty && rawJson != '{}' && !isTrimmedRawSource(rawJson);
     return existing.copyWith(
       backendId: incoming.backendId ?? existing.backendId,
       source: incoming.source.isNotEmpty ? incoming.source : existing.source,

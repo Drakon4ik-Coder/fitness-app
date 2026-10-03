@@ -1100,6 +1100,113 @@ components:
       description: |-
         * `kcal` - kcal
         * `kj` - kj
+    EntryFoodItem:
+      type: object
+      description: |-
+        The food embedded in every meal entry (/day, /sync, entry writes).
+
+        Same fields as FoodItemSerializer, but raw_source_json is the
+        trim_raw_source excerpt rather than the full blob (KAN-122).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEfeEnum'
+          default: openfoodfacts
+        external_id:
+          type: string
+          maxLength: 128
+        barcode:
+          type: string
+          nullable: true
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 255
+        brands:
+          type: string
+          maxLength: 255
+        image_url:
+          type: string
+          nullable: true
+          readOnly: true
+        images_ok:
+          type: boolean
+          readOnly: true
+        kcal_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        protein_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        carbs_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fat_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        sugars_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        fiber_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        salt_g_100g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        serving_size_g:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
+          nullable: true
+        content_hash:
+          type: string
+          nullable: true
+          maxLength: 128
+        image_signature:
+          type: string
+          nullable: true
+          maxLength: 128
+        raw_source_json:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        nutriments_json:
+          nullable: true
+        overrides_food:
+          type: integer
+          readOnly: true
+          nullable: true
+        community_verified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - community_verified_at
+      - external_id
+      - id
+      - image_url
+      - images_ok
+      - name
+      - overrides_food
+      - raw_source_json
     FoodItem:
       type: object
       properties:
@@ -1392,7 +1499,7 @@ components:
           format: decimal
           pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
         food_item:
-          $ref: '#/components/schemas/FoodItem'
+          $ref: '#/components/schemas/EntryFoodItem'
         kcal:
           type: number
           format: double
@@ -1672,7 +1779,7 @@ components:
           format: decimal
           pattern: ^-?\d{0,6}(?:\.\d{0,2})?$
         food_item:
-          $ref: '#/components/schemas/FoodItem'
+          $ref: '#/components/schemas/EntryFoodItem'
         kcal:
           type: number
           format: double
