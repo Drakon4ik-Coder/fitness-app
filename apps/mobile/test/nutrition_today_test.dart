@@ -12,9 +12,13 @@ import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
 import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart'
     show FoodImage, mealTypeAccent, mealTypeIcon;
+import 'package:fitness_app/features/nutrition/widgets/focus_nutrients_card.dart';
 import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
+import 'package:fitness_app/features/nutrition/widgets/today_meal_cards.dart';
+import 'package:fitness_app/ui_components/ui_components.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'in_memory_nutrition_store.dart';
@@ -1615,4 +1619,187 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  group('today page at 2x text on a 390x844 phone', () {
+    Future<void> pumpTwoEntryDay(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(780, 1688);
+      tester.view.devicePixelRatio = 2.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      final date = _todayKey();
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'date': date,
+                  // 895 eaten against the 2200 default goal leaves a
+                  // four-digit "1305" in the ring, the golden's overflow case.
+                  'totals': {
+                    'kcal': 895,
+                    'protein_g': 57,
+                    'carbs_g': 102,
+                    'fat_g': 31,
+                  },
+                  'meals': {
+                    'breakfast': [
+                      _entryPayload(
+                        date: date,
+                        kcal: 410,
+                        mealType: 'breakfast',
+                      ),
+                    ],
+                    'lunch': [_entryPayload(date: date, kcal: 485, id: 2)],
+                    'dinner': [],
+                    'snacks': [],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: LuminaHealthTheme.dark(),
+          home: NutritionTodayPage(
+            accessToken: 'token',
+            onLogout: () async {},
+            nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+            localStore: InMemoryNutritionStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Finder pageScrollable() => find
+        .descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    testWidgets('the ring center value stays inside the ring', (tester) async {
+      await pumpTwoEntryDay(tester);
+
+      final ring = tester.getRect(find.byType(GlowingProgressRing));
+      final value = tester.getRect(find.text('1305'));
+      // Inner radius = outer radius minus the ring's 12dp stroke. Every corner
+      // of the scaled figure must clear the stroke, not just its width.
+      final innerRadius = ring.width / 2 - 12;
+      for (final corner in [
+        value.topLeft,
+        value.topRight,
+        value.bottomLeft,
+        value.bottomRight,
+      ]) {
+        expect(
+          (corner - ring.center).distance,
+          lessThanOrEqualTo(innerRadius),
+          reason: 'center value corner $corner paints over the ring $ring',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('focus nutrient labels reflow instead of truncating', (
+      tester,
+    ) async {
+      await pumpTwoEntryDay(tester);
+
+      final card = tester.getRect(find.byType(FocusNutrientsCard));
+      for (final label in ['PROTEIN', 'CARBS', 'FAT']) {
+        final finder = find.text(label);
+        expect(finder, findsOneWidget);
+        expect(
+          tester.renderObject<RenderParagraph>(finder).didExceedMaxLines,
+          isFalse,
+          reason: '$label is truncated',
+        );
+        final rect = tester.getRect(finder);
+        expect(rect.left, greaterThanOrEqualTo(card.left));
+        expect(rect.right, lessThanOrEqualTo(card.right));
+      }
+      // Each tile's label and value no longer share a line at this scale.
+      expect(
+        tester.getRect(find.text('57g')).top,
+        greaterThanOrEqualTo(tester.getRect(find.text('PROTEIN')).bottom),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('meal titles are not truncated and the count reads 2 entries', (
+      tester,
+    ) async {
+      await pumpTwoEntryDay(tester);
+
+      await tester.scrollUntilVisible(
+        find.text('2 entries'),
+        200,
+        scrollable: pageScrollable(),
+      );
+      expect(find.text('2 entries'), findsOneWidget);
+
+      for (final title in ['Breakfast', 'Lunch', 'Dinner', 'Snacks']) {
+        final finder = find.text(title);
+        await tester.scrollUntilVisible(
+          finder,
+          200,
+          scrollable: pageScrollable(),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.renderObject<RenderParagraph>(finder).didExceedMaxLines,
+          isFalse,
+          reason: '$title is truncated',
+        );
+        final card = tester.getRect(
+          find.ancestor(of: finder, matching: find.byType(TodayMealCard)),
+        );
+        final rect = tester.getRect(finder);
+        expect(rect.left, greaterThanOrEqualTo(card.left));
+        expect(rect.right, lessThanOrEqualTo(card.right));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('a single-entry day says "1 entry"', (tester) async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: _dayPayload(date: _todayKey(), kcal: 300),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: NutritionTodayPage(
+          accessToken: 'token',
+          onLogout: () async {},
+          nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
+          localStore: InMemoryNutritionStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 entry', skipOffstage: false), findsOneWidget);
+    expect(find.text('1 entries', skipOffstage: false), findsNothing);
+  });
 }

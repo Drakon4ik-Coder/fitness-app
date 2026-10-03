@@ -37,6 +37,17 @@ void main() {
     expect(find.text('4 entries'), findsOneWidget);
   });
 
+  testWidgets('DailyLogsHeader pluralizes its count', (tester) async {
+    await tester.pumpWidget(_host(const DailyLogsHeader(totalEntries: 1)));
+    expect(find.text('1 entry'), findsOneWidget);
+
+    await tester.pumpWidget(_host(const DailyLogsHeader(totalEntries: 2)));
+    expect(find.text('2 entries'), findsOneWidget);
+
+    await tester.pumpWidget(_host(const DailyLogsHeader(totalEntries: 0)));
+    expect(find.text('0 entries'), findsOneWidget);
+  });
+
   group('FocusNutrientsCard status line', () {
     Future<void> pumpTile(WidgetTester tester, FocusSummary summary) {
       return tester.pumpWidget(
