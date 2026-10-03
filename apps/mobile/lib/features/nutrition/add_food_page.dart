@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:math' show max, min;
+import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
 import '../../ui_components/ui_components.dart';
-import '../../ui_system/lumina_health_theme.dart';
 import '../../ui_system/tokens.dart';
 import 'custom_food_page.dart';
 import 'data/api_exceptions.dart';
@@ -24,35 +21,17 @@ import 'data/off_image_downloader.dart';
 import 'data/off_mapper.dart';
 import 'data/off_rate_limiter.dart';
 import 'food_detail_page.dart';
+import 'food_search_results.dart';
 import 'live_search_controller.dart';
 import 'nutrition_scan_page.dart';
+import 'widgets/add_food_log_bar.dart';
+import 'widgets/add_food_search_header.dart';
+import 'widgets/add_food_staging.dart';
 import 'widgets/amount_sheet.dart';
-import 'widgets/nutrient_breakdown_view.dart' show formatNutrientValue;
-import 'widgets/swipe_delete_background.dart';
-
-/// FatSecret's free-tier attribution link (KAN-67 legal requirement).
-const String kFatSecretAttributionUrl = 'https://platform.fatsecret.com';
+import 'widgets/food_result_widgets.dart';
 
 const String _filterRecent = 'Recent';
 const String _filterFavorites = 'Favorites';
-
-List<String> categoryTagsForQuery(String queryLower) {
-  final trimmed = queryLower.trim();
-  if (trimmed.isEmpty || trimmed.contains(' ')) {
-    return const [];
-  }
-  final normalized = trimmed
-      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-      .replaceAll(RegExp(r'^-+|-+$'), '');
-  if (normalized.isEmpty) {
-    return const [];
-  }
-  final tags = <String>{'en:$normalized'};
-  if (!normalized.endsWith('s')) {
-    tags.add('en:${normalized}s');
-  }
-  return tags.toList();
-}
 
 /// One food pre-staged into the page: the item plus the grams to stage it
 /// at. The duplicate-meal flow hands a meal's foods over in this shape, each
@@ -136,13 +115,16 @@ class _AddFoodPageState extends State<AddFoodPage> {
   static const Duration _scanCooldown = Duration(seconds: 3);
 
   // Whole seconds left on each online budget's pause (KAN-96); 0 = free.
-  // Counted down by the once-per-second [_rateLimitTicker] (whose setState is
-  // also what live-updates the banner text) rather than recomputed from a
-  // wall-clock deadline, so widget tests can drive the countdown with pumped
-  // fake time. The two budgets stay separate on purpose: OFF's pause also
-  // gates the barcode-scan and enrich paths, FatSecret's must not.
-  int _offBlockedSeconds = 0;
-  int _fatsecretBlockedSeconds = 0;
+  // Counted down by the once-per-second [_rateLimitTicker] rather than
+  // recomputed from a wall-clock deadline, so widget tests can drive the
+  // countdown with pumped fake time. The two budgets stay separate on purpose:
+  // OFF's pause also gates the barcode-scan and enrich paths, FatSecret's must
+  // not. Held in a notifier only the banner listens to, so a tick rebuilds
+  // that one line instead of this whole page (KAN-124); the page itself
+  // rebuilds only when OFF's blocked state flips.
+  final ValueNotifier<RateLimitCountdown> _rateLimit = ValueNotifier(
+    const RateLimitCountdown(),
+  );
   String? _lastScannedBarcode;
   DateTime? _lastScannedAt;
 
@@ -155,7 +137,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   String? _enrichingKey;
 
   // Track actual items (with their per-item amount) instead of search indices
-  final List<_AddedFood> _addedItems = [];
+  final List<AddedFood> _addedItems = [];
 
   bool _isBackendLoading = false;
   bool _isOffLoading = false;
@@ -181,12 +163,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
     for (final seed in widget.initialItems) {
       final existing = _indexOfAdded(seed.item);
       if (existing >= 0) {
-        _addedItems[existing] = _AddedFood(
+        _addedItems[existing] = AddedFood(
           item: _addedItems[existing].item,
           grams: _addedItems[existing].grams + seed.grams,
         );
       } else {
-        _addedItems.add(_AddedFood(item: seed.item, grams: seed.grams));
+        _addedItems.add(AddedFood(item: seed.item, grams: seed.grams));
       }
     }
     // The controller owns the shared 600ms debounce + per-query CancelToken +
@@ -243,11 +225,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
   void dispose() {
     _liveSearch.dispose();
     _rateLimitTicker?.cancel();
+    _rateLimit.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  bool get _isOffRateLimited => _offBlockedSeconds > 0;
+  bool get _isOffRateLimited => _rateLimit.value.offSeconds > 0;
 
   void _applyOffLimit(Duration retryAfter) =>
       _applyRateLimit(retryAfter, isOff: true);
@@ -262,13 +245,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
   void _applyRateLimit(Duration retryAfter, {required bool isOff}) {
     if (!mounted || retryAfter <= Duration.zero) return;
     final seconds = (retryAfter.inMilliseconds / 1000).ceil();
-    setState(() {
-      if (isOff) {
-        _offBlockedSeconds = seconds;
-      } else {
-        _fatsecretBlockedSeconds = seconds;
-      }
-    });
+    final current = _rateLimit.value;
+    _setRateLimit(
+      isOff
+          ? current.copyWith(offSeconds: seconds)
+          : current.copyWith(fatsecretSeconds: seconds),
+    );
     // One ticker serves both budgets: it live-updates the banner countdown
     // and flips the blocked state (scan button, enrich gate, banner) back
     // the moment a window elapses.
@@ -280,13 +262,23 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
   void _onRateLimitTick() {
     if (!mounted) return;
-    setState(() {
-      if (_offBlockedSeconds > 0) _offBlockedSeconds--;
-      if (_fatsecretBlockedSeconds > 0) _fatsecretBlockedSeconds--;
-    });
-    if (_offBlockedSeconds == 0 && _fatsecretBlockedSeconds == 0) {
+    final next = _rateLimit.value.tick();
+    _setRateLimit(next);
+    if (!next.isActive) {
       _rateLimitTicker?.cancel();
       _rateLimitTicker = null;
+    }
+  }
+
+  /// Publishes [next] to the banner, and rebuilds the page only when OFF's
+  /// blocked state flips — that's all the page itself reads (scan button,
+  /// enrich gate); the per-second countdown text is the banner's own concern.
+  void _setRateLimit(RateLimitCountdown next) {
+    final offFlipped = (next.offSeconds > 0) != _isOffRateLimited;
+    if (offFlipped) {
+      setState(() => _rateLimit.value = next);
+    } else {
+      _rateLimit.value = next;
     }
   }
 
@@ -359,10 +351,10 @@ class _AddFoodPageState extends State<AddFoodPage> {
   }
 
   int _indexOfAdded(FoodItem item) {
-    final key = _resultKey(item);
+    final key = foodResultKey(item);
     if (key == null) return -1;
     for (var i = 0; i < _addedItems.length; i++) {
-      if (_resultKey(_addedItems[i].item) == key) return i;
+      if (foodResultKey(_addedItems[i].item) == key) return i;
     }
     return -1;
   }
@@ -390,14 +382,14 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // amount sheet can offer pieces/servings and the quick-add default is sane.
   // FatSecret's search is the same story (no serving data), but it has its
   // own throttle — never gated on `_isOffRateLimited`, which is OFF's budget.
-  bool _needsEnrich(_FoodResult result) {
-    if (result.origin == _FoodResultOrigin.off) {
+  bool _needsEnrich(FoodResult result) {
+    if (result.origin == FoodResultOrigin.off) {
       return result.item.barcode != null &&
           result.item.barcode!.isNotEmpty &&
           result.item.servingSizeG == null &&
           !_isOffRateLimited;
     }
-    if (result.origin == _FoodResultOrigin.fatsecret) {
+    if (result.origin == FoodResultOrigin.fatsecret) {
       return result.item.servingSizeG == null && widget.fatsecretApi != null;
     }
     return false;
@@ -455,7 +447,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // an accidental swipe, so haptic acknowledgement is enough without a noisy
   // Undo snackbar. OFF results are enriched first (a short fetch) so an
   // unlearned default lands on a whole piece/serving rather than a raw 100 g.
-  Future<void> _onResultTap(_FoodResult result) async {
+  Future<void> _onResultTap(FoodResult result) async {
     FocusScope.of(context).unfocus();
     // Shadowed globals are normally hidden, but this also keeps a stale result
     // tap from staging a global beside its forked personal override.
@@ -468,9 +460,9 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
     var item = result.item;
     final wasFatSecretEnrich =
-        _needsEnrich(result) && result.origin == _FoodResultOrigin.fatsecret;
+        _needsEnrich(result) && result.origin == FoodResultOrigin.fatsecret;
     if (_needsEnrich(result)) {
-      final key = _resultKey(item);
+      final key = foodResultKey(item);
       if (key == null || _enrichingKey != null) return;
       setState(() => _enrichingKey = key);
       item = await _enrich(item);
@@ -503,7 +495,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
 
     unawaited(HapticFeedback.selectionClick());
     setState(() {
-      _addedItems.add(_AddedFood(item: item, grams: _defaultGramsFor(item)));
+      _addedItems.add(AddedFood(item: item, grams: _defaultGramsFor(item)));
     });
   }
 
@@ -532,7 +524,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
     }
     setState(() {
       if (result.grams != null) {
-        _addedItems[liveIndex] = _AddedFood(
+        _addedItems[liveIndex] = AddedFood(
           item: _addedItems[liveIndex].item,
           grams: result.grams!,
         );
@@ -590,11 +582,11 @@ class _AddFoodPageState extends State<AddFoodPage> {
   // a mutation or a direct edit form — overrides are created only via the
   // labeled edit action inside it. Serving-less OFF results enrich first so
   // the page doesn't open on sparse per-100g data.
-  Future<void> _onResultLongPress(_FoodResult result) async {
+  Future<void> _onResultLongPress(FoodResult result) async {
     FocusScope.of(context).unfocus();
     var item = result.item;
     if (_needsEnrich(result)) {
-      final key = _resultKey(item);
+      final key = foodResultKey(item);
       if (key == null || _enrichingKey != null) return;
       setState(() => _enrichingKey = key);
       item = await _enrich(item);
@@ -625,7 +617,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   /// Reflects a saved custom food everywhere it can appear: its own rows in
   /// the results/Added lists and — for overrides — any staged copy of the
   /// global it shadows. A fresh fork not yet in any list is surfaced in the
-  /// local results, standing in for the shadowed global that _buildResults
+  /// local results, standing in for the shadowed global that mergeFoodResults
   /// hides.
   void _applyCustomFoodUpdate(FoodItem stored) {
     bool isSelf(FoodItem candidate) =>
@@ -648,10 +640,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
     setState(() {
       for (var i = 0; i < _addedItems.length; i++) {
         if (matches(_addedItems[i].item)) {
-          _addedItems[i] = _AddedFood(
-            item: stored,
-            grams: _addedItems[i].grams,
-          );
+          _addedItems[i] = AddedFood(item: stored, grams: _addedItems[i].grams);
         }
       }
       _localResults = swap(_localResults);
@@ -701,9 +690,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
     if (stored == null || !mounted) return;
     unawaited(HapticFeedback.selectionClick());
     setState(() {
-      _addedItems.add(
-        _AddedFood(item: stored, grams: _defaultGramsFor(stored)),
-      );
+      _addedItems.add(AddedFood(item: stored, grams: _defaultGramsFor(stored)));
     });
   }
 
@@ -843,7 +830,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
   /// upsert vs global ingest/check), best-effort image upload, persist the
   /// food locally, create the entry (optimistic + offline-tolerant, KAN-28),
   /// and touch the recents ordering.
-  Future<void> _logOneItem(_AddedFood added, DateTime consumedAt) async {
+  Future<void> _logOneItem(AddedFood added, DateTime consumedAt) async {
     FoodItem selected = added.item;
     bool imagesOk = false;
     if (selected.backendId == null) {
@@ -948,135 +935,6 @@ class _AddFoodPageState extends State<AddFoodPage> {
     return 'Recent Foods';
   }
 
-  List<_FoodResult> _buildResults(String query) {
-    final trimmed = query.trim();
-    final results = <_FoodResult>[];
-    final seenKeys = <String>{};
-
-    // Globals shadowed by one of the user's overrides are hidden — the
-    // override row (a custom food, present in local/backend results) stands
-    // in for them. OFF rows carry no backend id, so barcodes match those.
-    final overriddenIds = <int>{};
-    final overriddenBarcodes = <String>{};
-    for (final item in [..._localResults, ..._backendResults]) {
-      if (!item.isOverride) continue;
-      overriddenIds.add(item.overridesBackendId!);
-      final barcode = item.overridesBarcode;
-      if (barcode != null && barcode.isNotEmpty) {
-        overriddenBarcodes.add(barcode);
-      }
-    }
-    bool shadowed(FoodItem item) =>
-        !item.isCustom &&
-        ((item.backendId != null && overriddenIds.contains(item.backendId)) ||
-            (item.barcode != null &&
-                overriddenBarcodes.contains(item.barcode)));
-
-    void addItems(List<FoodItem> items, _FoodResultOrigin origin) {
-      for (final item in items) {
-        if (shadowed(item)) continue;
-        final key = _resultKey(item);
-        if (key == null || seenKeys.contains(key)) continue;
-        seenKeys.add(key);
-        results.add(_FoodResult(item: item, origin: origin));
-      }
-    }
-
-    if (trimmed.isEmpty) {
-      addItems(_localResults, _FoodResultOrigin.local);
-      return results;
-    }
-
-    addItems(_localResults, _FoodResultOrigin.local);
-    addItems(_backendResults, _FoodResultOrigin.backend);
-    addItems(_offResultsForDisplay(), _FoodResultOrigin.off);
-    // No completeness floor here — FatSecret carries no completeness field.
-    addItems(_fatsecretResults, _FoodResultOrigin.fatsecret);
-    final queryLower = trimmed.toLowerCase();
-    results.sort((a, b) {
-      final scoreA = _resultScore(a, queryLower);
-      final scoreB = _resultScore(b, queryLower);
-      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
-      final lengthCompare = a.item.name.length.compareTo(b.item.name.length);
-      if (lengthCompare != 0) return lengthCompare;
-      return a.item.name.compareTo(b.item.name);
-    });
-    return results;
-  }
-
-  // OFF search returns many low-quality duplicates of popular foods, some with
-  // miscoded calories (e.g. a Big Mac stored as 540 kcal/100g). OFF's own
-  // `completeness` score tracks this well, so drop hits below a quality floor —
-  // but never hide everything, so an obscure (only) match still shows.
-  static const double _offCompletenessFloor = 0.5;
-  List<FoodItem> _offResultsForDisplay() {
-    final good = _offResults
-        .where((i) => (i.completeness ?? 0) >= _offCompletenessFloor)
-        .toList();
-    return good.isNotEmpty ? good : _offResults;
-  }
-
-  String? _resultKey(FoodItem item) {
-    if (item.barcode != null && item.barcode!.isNotEmpty) {
-      return 'barcode:${item.barcode}';
-    }
-    // Catalog identity (source, external_id) outranks backendId: a live
-    // FatSecret result carries no backendId while the typeahead/local copy
-    // of the same ingested food does, so keying the latter by backendId
-    // would show the food twice and let both be staged. Source-qualified to
-    // keep FatSecret's externalId space apart from custom foods' UUID
-    // space. Page-lifetime only — never persisted.
-    if (item.externalId.isNotEmpty) {
-      return 'external:${item.source}:${item.externalId}';
-    }
-    if (item.backendId != null) return 'backend:${item.backendId}';
-    return null;
-  }
-
-  int _nameMatchScore(String name, String queryLower) {
-    if (queryLower.isEmpty) return 0;
-    final nameLower = name.toLowerCase();
-    int score = 0;
-    if (nameLower == queryLower) score += 400;
-    if (nameLower.startsWith(queryLower)) score += 300;
-    final wordMatch = RegExp(
-      r'\b' + RegExp.escape(queryLower),
-    ).hasMatch(nameLower);
-    if (wordMatch) {
-      score += 200;
-    } else if (nameLower.contains(queryLower)) {
-      score += 100;
-    }
-    score -= nameLower.length;
-    return score;
-  }
-
-  int _resultScore(_FoodResult result, String queryLower) {
-    int score = _nameMatchScore(result.item.name, queryLower);
-    switch (result.origin) {
-      case _FoodResultOrigin.off:
-        score += 5;
-        break;
-      // Between OFF's +5 and backend's +3, with no completeness bonus below
-      // (FatSecret has no completeness field) — keeps OFF's best-filled
-      // duplicates competitive while restaurant hits still rank by name match.
-      case _FoodResultOrigin.fatsecret:
-        score += 4;
-        break;
-      case _FoodResultOrigin.backend:
-        score += 3;
-        break;
-      case _FoodResultOrigin.local:
-        score += 1;
-        break;
-    }
-    // Break ties toward higher-quality OFF entries so the best-filled duplicate
-    // (correct calories) surfaces above sparser ones. Capped below the name-match
-    // gradations so relevance still dominates.
-    score += ((result.item.completeness ?? 0) * 50).round();
-    return score;
-  }
-
   void _showMealSelector() {
     // Just a simple bottom sheet or dialog to select MealType.
     showModalBottomSheet(
@@ -1113,7 +971,13 @@ class _AddFoodPageState extends State<AddFoodPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final query = _searchController.text;
-    final results = _buildResults(query);
+    final results = mergeFoodResults(
+      query: query,
+      local: _localResults,
+      backend: _backendResults,
+      off: _offResults,
+      fatsecret: _fatsecretResults,
+    );
     final hasQuery = query.trim().isNotEmpty;
     final canSubmit = !_isSubmitting && _addedItems.isNotEmpty;
 
@@ -1177,7 +1041,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
         ),
         child: _addedItems.isEmpty
             ? const SizedBox.shrink()
-            : _LogBar(
+            : AddFoodLogBar(
                 itemCount: _addedItems.length,
                 totalKcal: totalKcal,
                 mealLabel: mealLabel,
@@ -1198,18 +1062,18 @@ class _AddFoodPageState extends State<AddFoodPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _MealTypeSelectorTile(
+                  MealTypeSelectorTile(
                     meal: _selectedMeal,
                     onTap: _showMealSelector,
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  _SummaryBento(
+                  StagedSummaryBento(
                     totalKcal: totalKcal,
                     focusSpecs: _focusSpecs,
                     focusTotals: focusTotals,
                   ),
                   if (_addedItems.isNotEmpty)
-                    _AddedItemsSection(
+                    AddedItemsSection(
                       items: _addedItems,
                       onEdit: _editAddedItem,
                       onInspect: (item) => _openFoodDetail(item),
@@ -1222,20 +1086,14 @@ class _AddFoodPageState extends State<AddFoodPage> {
           // Pinned so refining a query after browsing a long result list
           // never means scrolling all the way back up (KAN-60).
           PinnedHeaderSliver(
-            child: _SearchHeader(
+            child: AddFoodSearchHeader(
               controller: _searchController,
               onScan: _isOffRateLimited ? null : _openScanPage,
               isLoading:
                   _isBackendLoading || _isOffLoading || _isFatSecretLoading,
               message: _message,
               messageTone: _messageTone,
-              // Both budgets share one banner; when both are paused the
-              // longer window is the honest countdown (KAN-96).
-              rateLimitSeconds: max(
-                _offBlockedSeconds,
-                _fatsecretBlockedSeconds,
-              ),
-              scanPaused: _isOffRateLimited,
+              rateLimit: _rateLimit,
             ),
           ),
           SliverPadding(
@@ -1246,7 +1104,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
               0,
             ),
             sliver: SliverToBoxAdapter(
-              child: _ResultsHeader(
+              child: FoodResultsHeader(
                 heading: _resultsHeading(query),
                 // The Recent/Favorites toggle only applies to the no-query
                 // list.
@@ -1267,7 +1125,7 @@ class _AddFoodPageState extends State<AddFoodPage> {
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
               sliver: SliverToBoxAdapter(
-                child: _EmptyResults(
+                child: EmptyFoodResults(
                   query: query.trim(),
                   onCreateCustomFood: _openCustomFoodPage,
                 ),
@@ -1293,12 +1151,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
                 itemCount: results.length,
                 itemBuilder: (context, index) {
                   final item = results[index];
-                  return _FoodCard(
+                  return FoodResultCard(
                     item: item,
                     isAdded: _isAdded(item.item),
                     isEnriching:
                         _enrichingKey != null &&
-                        _resultKey(item.item) == _enrichingKey,
+                        foodResultKey(item.item) == _enrichingKey,
                     onTap: () => _onResultTap(item),
                     onLongPress: () => _onResultLongPress(item),
                   );
@@ -1309,921 +1167,12 @@ class _AddFoodPageState extends State<AddFoodPage> {
           // search-results view, and only once a FatSecret row is actually
           // visible — never over the Recent/Favorites default view.
           if (hasQuery && results.any(_isFatSecretResult))
-            const SliverToBoxAdapter(child: _FatSecretAttributionFooter()),
+            const SliverToBoxAdapter(child: FatSecretAttributionFooter()),
         ],
       ),
     );
   }
 
-  static bool _isFatSecretResult(_FoodResult result) =>
-      result.origin == _FoodResultOrigin.fatsecret;
-}
-
-/// The "ADDED ITEMS" label plus staged tiles, extracted from build() while
-/// restructuring the page into slivers (KAN-60). Tap edits the logged amount;
-/// long-press inspects the food itself (KAN-35) — same model as the results
-/// grid.
-class _AddedItemsSection extends StatelessWidget {
-  const _AddedItemsSection({
-    required this.items,
-    required this.onEdit,
-    required this.onInspect,
-    required this.onRemove,
-  });
-
-  final List<_AddedFood> items;
-  final void Function(int index) onEdit;
-  final void Function(FoodItem item) onInspect;
-  final void Function(int index) onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: AppSpacing.lg),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-          child: Text(
-            'ADDED ITEMS',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              letterSpacing: 2.0,
-              fontWeight: FontWeight.bold,
-              fontSize: 10,
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        for (final (index, added) in items.indexed)
-          _AddedItemTile(
-            added: added,
-            onTap: () => onEdit(index),
-            onLongPress: () => onInspect(added.item),
-            onRemove: () => onRemove(index),
-          ),
-      ],
-    );
-  }
-}
-
-/// The search strip that pins below the app bar while results scroll under it
-/// (KAN-60). Carries the inline banner (errors stay visible next to the field
-/// that caused them) plus the rate-limit countdown notice (KAN-96), and
-/// always reserves the 2px activity strip so the pinned extent doesn't jump
-/// when a live search starts.
-class _SearchHeader extends StatelessWidget {
-  const _SearchHeader({
-    required this.controller,
-    required this.onScan,
-    required this.isLoading,
-    required this.message,
-    required this.messageTone,
-    required this.rateLimitSeconds,
-    required this.scanPaused,
-  });
-
-  final TextEditingController controller;
-  final VoidCallback? onScan;
-  final bool isLoading;
-  final String? message;
-  final InlineBannerTone? messageTone;
-
-  /// Seconds left on the longest paused online budget; 0 hides the notice.
-  final int rateLimitSeconds;
-
-  /// True while OFF's budget is the paused one, i.e. the scan button above
-  /// the notice is greyed out and the copy must say why.
-  final bool scanPaused;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return ColoredBox(
-      color: scheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.md,
-          AppSpacing.sm,
-          AppSpacing.md,
-          AppSpacing.sm,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (message != null) ...[
-              InlineBanner(
-                message: message!,
-                tone: messageTone ?? InlineBannerTone.info,
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-            GlassSearchBar(controller: controller, onScan: onScan),
-            if (rateLimitSeconds > 0) ...[
-              const SizedBox(height: AppSpacing.sm),
-              _RateLimitNotice(
-                secondsLeft: rateLimitSeconds,
-                scanPaused: scanPaused,
-              ),
-            ],
-            const SizedBox(height: AppSpacing.xs),
-            SizedBox(
-              height: 2,
-              child: isLoading
-                  ? LinearProgressIndicator(
-                      minHeight: 2,
-                      color: scheme.primary,
-                      backgroundColor: scheme.surfaceContainer,
-                    )
-                  : null,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Persistent "search paused" notice with a live countdown (KAN-96): while an
-/// online budget is exhausted the user sees why results stopped arriving —
-/// and, for OFF, why the scan button greyed out — instead of silence. The
-/// copy tracks which budget is actually paused: if OFF's window elapses
-/// before FatSecret's, scan re-enables and the text drops the scan mention
-/// on the same tick.
-class _RateLimitNotice extends StatelessWidget {
-  const _RateLimitNotice({required this.secondsLeft, required this.scanPaused});
-
-  final int secondsLeft;
-  final bool scanPaused;
-
-  @override
-  Widget build(BuildContext context) {
-    // "Restaurant search" is the FatSecret leg's product framing (KAN-67);
-    // backend + packaged-food search keep working during its pause.
-    final scope = scanPaused
-        ? 'Online search and barcode scan paused'
-        : 'Restaurant search paused';
-    return InlineBanner(
-      message: '$scope — resuming in ${secondsLeft}s',
-      icon: Icons.hourglass_top,
-    );
-  }
-}
-
-class _MacroSummaryRow extends StatelessWidget {
-  const _MacroSummaryRow({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.progress,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                label.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  letterSpacing: 0,
-                ),
-              ),
-            ),
-            // scaleDown keeps the full amount visible at large text scales;
-            // an ellipsized figure would be useless.
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  value,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        LinearProgressIndicator(
-          value: progress,
-          backgroundColor: Theme.of(context).colorScheme.surfaceBright,
-          color: color,
-          minHeight: 4,
-          borderRadius: BorderRadius.circular(999),
-        ),
-      ],
-    );
-  }
-}
-
-/// The tappable row showing which meal the staged items will be logged to.
-class _MealTypeSelectorTile extends StatelessWidget {
-  const _MealTypeSelectorTile({required this.meal, required this.onTap});
-
-  final MealType meal;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.md,
-        ),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  // The selected meal's own icon + accent (KAN-3) so the
-                  // destination reads at a glance, matching the today page.
-                  Icon(mealTypeIcon(meal), color: mealTypeAccent(meal)),
-                  const SizedBox(width: AppSpacing.md),
-                  Flexible(
-                    child: Text(
-                      meal.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The bento summary pair: total energy of the staged items next to their
-/// focus-nutrient totals (same nutrients the today page tracks).
-class _SummaryBento extends StatelessWidget {
-  const _SummaryBento({
-    required this.totalKcal,
-    required this.focusSpecs,
-    required this.focusTotals,
-  });
-
-  final int totalKcal;
-  final List<NutrientSpec> focusSpecs;
-  final List<double> focusTotals;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    // A min-height instead of a fixed height so large system text scales
-    // grow the cards rather than clipping them; IntrinsicHeight keeps the
-    // two cards equal (KAN-40).
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 140),
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'TOTAL ENERGY',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      letterSpacing: 2.0,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  // The hero figure shrinks to fit rather than overflowing the
-                  // half-width card at large system text scales (KAN-40).
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          totalKcal.toString(),
-                          style: theme.textTheme.displayMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: scheme.primary,
-                            height: 1,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'kcal',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              constraints: const BoxConstraints(minHeight: 140),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  for (var i = 0; i < focusSpecs.length; i++)
-                    _MacroSummaryRow(
-                      label: focusSpecs[i].label,
-                      value: _focusValueText(
-                        focusTotals[i],
-                        focusSpecs[i].unit,
-                      ),
-                      color:
-                          LuminaHealthColors.focusAccents[i %
-                              LuminaHealthColors.focusAccents.length],
-                      progress:
-                          (focusTotals[i] /
-                                  (focusSpecs[i].dailyTarget *
-                                      _mealShareOfDailyTarget))
-                              .clamp(0.0, 1.0),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One staged item in the Added list: thumb plus amount + kcal line. Tap
-/// edits, swipe (endToStart) removes with Undo (KAN-39) — no persistent
-/// remove button, and the editor's "Remove from meal" is the visible path.
-class _AddedItemTile extends StatelessWidget {
-  const _AddedItemTile({
-    required this.added,
-    required this.onTap,
-    required this.onLongPress,
-    required this.onRemove,
-  });
-
-  final _AddedFood added;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final grams = added.grams;
-    final kcal = ((added.item.kcal100g ?? 0) * grams / 100).round();
-    final amountLabel = describeAmount(grams, added.item);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-      child: Dismissible(
-        key: ObjectKey(added),
-        // endToStart only, so the swipe never fights the Android back
-        // gesture on the left edge.
-        direction: DismissDirection.endToStart,
-        background: SwipeDeleteBackground(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-        ),
-        onDismissed: (_) => onRemove(),
-        // The swipe gesture is invisible to screen readers; expose the
-        // removal as an explicit accessibility action instead.
-        child: Semantics(
-          customSemanticsActions: {
-            CustomSemanticsAction(label: 'Remove ${added.item.name}'): onRemove,
-          },
-          child: Material(
-            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              onTap: onTap,
-              onLongPress: onLongPress,
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    FoodThumb(
-                      url: added.item.imageUrl?.trim().isNotEmpty == true
-                          ? added.item.imageUrl!.trim()
-                          : null,
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            added.item.name,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            '$amountLabel • $kcal kcal',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The results-section heading plus the Recent/Favorites toggle (shown only
-/// when browsing without a query — pass a null [toggleLabel] to hide it).
-class _ResultsHeader extends StatelessWidget {
-  const _ResultsHeader({
-    required this.heading,
-    required this.toggleLabel,
-    required this.onToggleFilter,
-  });
-
-  final String heading;
-  final String? toggleLabel;
-  final VoidCallback onToggleFilter;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Text(
-              heading.toUpperCase(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                letterSpacing: 2.0,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          if (toggleLabel != null)
-            TextButton(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-              ),
-              onPressed: onToggleFilter,
-              child: Text(
-                toggleLabel!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Empty results state: nudges toward search/scan when browsing, or toward a
-/// respelling/scan/custom food when a query found nothing.
-class _EmptyResults extends StatelessWidget {
-  const _EmptyResults({required this.query, required this.onCreateCustomFood});
-
-  final String query;
-  final VoidCallback onCreateCustomFood;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final hasQuery = query.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
-      child: Center(
-        child: Column(
-          children: [
-            Icon(
-              hasQuery ? Icons.search_off : Icons.restaurant_menu,
-              size: 40,
-              color: scheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              hasQuery
-                  ? 'No foods found for "$query"'
-                  : 'Search for a food or scan a barcode',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            if (hasQuery) ...[
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Try a different spelling or scan the package.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                ),
-              ),
-            ],
-            const SizedBox(height: AppSpacing.md),
-            OutlinedButton.icon(
-              onPressed: onCreateCustomFood,
-              icon: const Icon(Icons.add),
-              label: const Text('Create custom food'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Compact amount + unit for the summary rows ("32g", "120 mg").
-String _focusValueText(double value, String unit) =>
-    '${formatNutrientValue(value)}${unit == 'g' ? 'g' : ' $unit'}';
-
-// Fraction of a nutrient's daily target treated as "one meal's worth", giving
-// the summary bars a meaningful scale. Uses each focus nutrient's (possibly
-// personalized) daily target, so the bars track the user's own goals.
-const double _mealShareOfDailyTarget = 0.3;
-
-enum _FoodResultOrigin { local, backend, off, fatsecret }
-
-class _FoodResult {
-  const _FoodResult({required this.item, required this.origin});
-
-  final FoodItem item;
-  final _FoodResultOrigin origin;
-}
-
-/// A food the user has chosen to log, paired with the amount (grams) to log.
-class _AddedFood {
-  const _AddedFood({required this.item, required this.grams});
-
-  final FoodItem item;
-  final double grams;
-}
-
-class _FoodCard extends StatelessWidget {
-  const _FoodCard({
-    required this.item,
-    required this.onTap,
-    this.onLongPress,
-    this.isAdded = false,
-    this.isEnriching = false,
-  });
-
-  final _FoodResult item;
-  final VoidCallback onTap;
-
-  /// Long-press action — opens the read-first food detail page (KAN-35).
-  final VoidCallback? onLongPress;
-  final bool isAdded;
-  final bool isEnriching;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final radius = BorderRadius.circular(AppRadius.lg * 1.5);
-
-    final imageUrl = item.item.imageUrl?.trim().isNotEmpty == true
-        ? item.item.imageUrl!.trim()
-        : null;
-
-    return Semantics(
-      button: true,
-      label: isAdded
-          ? '${item.item.name}, added. Edit amount'
-          : 'Add ${item.item.name}',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: radius,
-          onTap: isEnriching ? null : onTap,
-          onLongPress: isEnriching ? null : onLongPress,
-          child: Ink(
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerLow,
-              borderRadius: radius,
-              border: Border.all(
-                color: isAdded ? scheme.primary : Colors.transparent,
-                width: isAdded ? 2 : 1,
-              ),
-            ),
-            child: ClipRRect(
-              borderRadius: radius,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Image / placeholder / retry layer.
-                  FoodImage(url: imageUrl),
-                  // Bottom gradient keeps the white name text legible over both
-                  // real photos and the placeholder.
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.8),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (isEnriching)
-                    Positioned.fill(
-                      child: ColoredBox(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        child: Center(
-                          child: SizedBox(
-                            width: 26,
-                            height: 26,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: scheme.onPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (isAdded)
-                    Positioned(
-                      top: AppSpacing.sm,
-                      right: AppSpacing.sm,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.check,
-                          size: 14,
-                          color: scheme.onPrimary,
-                        ),
-                      ),
-                    ),
-                  // The user's own foods are marked so it's clear these
-                  // values are theirs, not the shared catalog's.
-                  if (item.item.isCustom)
-                    Positioned(
-                      top: AppSpacing.sm,
-                      left: AppSpacing.sm,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: scheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          item.item.isOverride ? 'Edited by you' : 'Yours',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSecondaryContainer,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  Positioned(
-                    left: AppSpacing.sm,
-                    right: AppSpacing.sm,
-                    bottom: AppSpacing.sm,
-                    child: Text(
-                      item.item.name,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Free-tier attribution FatSecret's platform terms require (KAN-67).
-/// Extracted per the size-discipline rule; muted labelSmall/onSurfaceVariant
-/// styling so it reads as a footnote, not another result.
-class _FatSecretAttributionFooter extends StatelessWidget {
-  const _FatSecretAttributionFooter();
-
-  Future<void> _open() {
-    return url_launcher.launchUrl(
-      Uri.parse(kFatSecretAttributionUrl),
-      mode: url_launcher.LaunchMode.externalApplication,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-      child: Center(
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _open,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.sm,
-                vertical: AppSpacing.xs,
-              ),
-              child: Text(
-                'Powered by FatSecret',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Persistent bottom action bar — the single primary CTA for committing the
-/// meal. Surfaces the live item count + total calories so the user knows
-/// exactly what they are logging, and shows an inline spinner while submitting.
-class _LogBar extends StatelessWidget {
-  const _LogBar({
-    required this.itemCount,
-    required this.totalKcal,
-    required this.mealLabel,
-    required this.isSubmitting,
-    required this.onSubmit,
-  });
-
-  final int itemCount;
-  final int totalKcal;
-  final String mealLabel;
-  final bool isSubmitting;
-  final VoidCallback? onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final itemLabel = itemCount == 1 ? '1 item' : '$itemCount items';
-
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
-        border: Border(
-          top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4)),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.sm,
-            AppSpacing.md,
-            AppSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      itemLabel,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '$totalKcal kcal total',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Flexible(
-                child: FilledButton(
-                  onPressed: isSubmitting ? null : onSubmit,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
-                    disabledBackgroundColor: scheme.primary.withValues(
-                      alpha: 0.5,
-                    ),
-                    minimumSize: const Size(0, 52),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.xl,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                  ),
-                  child: isSubmitting
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: scheme.onPrimary,
-                          ),
-                        )
-                      : Text(
-                          'Log to $mealLabel',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: scheme.onPrimary,
-                          ),
-                        ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  static bool _isFatSecretResult(FoodResult result) =>
+      result.origin == FoodResultOrigin.fatsecret;
 }
