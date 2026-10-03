@@ -100,6 +100,10 @@ jobs:
           poetry run pytest --ds=config.settings.test --maxfail=1
           --disable-warnings -q --cov --cov-report=xml --cov-report=term
           --cov-fail-under=95
+      # One weak module can hide behind a high total; this floors each file.
+      - name: Per-file coverage floor
+        if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
+        run: poetry run python scripts/coverage_per_file.py 80
       # New/changed lines must be tested even when the total barely moves —
       # the guard that matters during refactors.
       - name: Diff coverage (changed lines)

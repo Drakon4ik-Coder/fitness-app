@@ -25,11 +25,12 @@ make test
 
 ## Coverage (KAN-125)
 ```
-make coverage-backend   # pytest-cov, branch coverage, floor 95%
-make coverage-mobile    # flutter test --coverage, floor 95%
+make coverage-backend   # pytest-cov, branch coverage, floor 95%, 80% per file
+make coverage-mobile    # flutter test --coverage, floor 95%, 80% per file
 ```
-CI enforces two gates per stack:
-- **Overall floor**: `--cov-fail-under` (backend) / `tool/coverage.dart check --min` (mobile). The floors are a ratchet: raise them when coverage grows, never lower them to make a PR pass.
+CI enforces three gates per stack:
+- **Overall floor (95%)**: `--cov-fail-under` (backend) / `tool/coverage.dart check --min` (mobile). The floors are a ratchet: raise them when coverage grows, never lower them to make a PR pass.
+- **Per-file floor (80%)**: `scripts/coverage_per_file.py` (backend) / `tool/coverage.dart check --min-file` (mobile). Stops one weak file from hiding behind a high total. Fix a failing file with tests; there is no exemption list.
 - **Diff coverage on PRs**: `diff-cover` requires 95% of the PR's changed lines to be covered. This is the guard that matters during refactors, where the overall number barely moves.
 
 Mobile runs `dart run tool/coverage.dart helper` first. It generates a gitignored test that imports every `lib/` file, so an untested file counts as 0% instead of disappearing from the report. Backend excludes tests, migrations and the asgi/wsgi/local/prod settings modules (`[tool.coverage.run]` in `pyproject.toml`).

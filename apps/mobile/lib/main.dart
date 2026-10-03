@@ -81,16 +81,34 @@ class FitnessApp extends StatelessWidget {
   }
 }
 
+/// Builds the signed-in shell; injectable so tests can stand in for
+/// [MainShell], which opens the on-device databases.
+typedef ShellBuilder =
+    Widget Function(
+      String accessToken,
+      Future<void> Function() onLogout,
+      AuthInterceptor? authInterceptor,
+    );
+
 class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
+  const AuthGate({
+    super.key,
+    this.authStorage,
+    this.authService,
+    this.shellBuilder,
+  });
+
+  final AuthStorage? authStorage;
+  final AuthService? authService;
+  final ShellBuilder? shellBuilder;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
 }
 
 class _AuthGateState extends State<AuthGate> {
-  final AuthStorage _authStorage = AuthStorage();
-  final AuthService _authService = AuthService();
+  late final AuthStorage _authStorage = widget.authStorage ?? AuthStorage();
+  late final AuthService _authService = widget.authService ?? AuthService();
 
   bool _isLoading = true;
   String? _accessToken;
@@ -208,11 +226,17 @@ class _AuthGateState extends State<AuthGate> {
     return PolicyConsentGate(
       accessToken: _accessToken!,
       authService: _authService,
-      child: MainShell(
-        accessToken: _accessToken!,
-        onLogout: _handleLogout,
-        authInterceptor: _authInterceptor,
-      ),
+      child:
+          widget.shellBuilder?.call(
+            _accessToken!,
+            _handleLogout,
+            _authInterceptor,
+          ) ??
+          MainShell(
+            accessToken: _accessToken!,
+            onLogout: _handleLogout,
+            authInterceptor: _authInterceptor,
+          ),
     );
   }
 }

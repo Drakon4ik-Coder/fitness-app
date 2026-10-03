@@ -65,7 +65,7 @@ jobs:
       # make a PR pass.
       - name: Coverage floor
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
-        run: dart run tool/coverage.dart check --min 95
+        run: dart run tool/coverage.dart check --min 95 --min-file 80
       # New/changed lines must be tested even when the total barely moves —
       # the guard that matters during refactors. lcov paths are package-
       # relative; diff-cover needs them repo-relative to match the git diff.
