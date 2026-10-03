@@ -85,6 +85,15 @@ jobs:
       - name: Type check (mypy)
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: poetry run mypy .
+      # Tests run on SQLite, so Postgres-only migrations (e.g. the KAN-121
+      # pg_trgm indexes) would otherwise never execute before deploy. This
+      # catches SQL/syntax and ordering errors on a fresh Postgres 16. It does
+      # NOT prove deploy-time success: it runs as the superuser (so extension
+      # privileges aren't tested) against an empty catalog (so index-build
+      # behavior on real data isn't either).
+      - name: Migrate (Postgres)
+        if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
+        run: poetry run python manage.py migrate --noinput
       - name: Test
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: poetry run pytest --ds=config.settings.test --maxfail=1 --disable-warnings -q
