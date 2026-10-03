@@ -4,3 +4,8 @@ apps/backend/.python-version
 apps/backend/media
 .codex-runs/
 .claude/settings.local.json
+
+# Coverage output (KAN-125).
+.coverage
+coverage.xml
+htmlcov/

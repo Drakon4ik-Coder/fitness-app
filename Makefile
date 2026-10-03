@@ -7,7 +7,8 @@ APP_ID := uk.drakon4ik.symbio.dev
 .PHONY: up migrate shell clean-db clean-mobile-db test test-docker build-prod \
 	fmt lint check check-backend check-mobile fmt-backend fmt-mobile \
 	lint-backend lint-mobile typecheck-backend test-backend test-mobile \
-	backend-contract backend-install dev-phone dev-local
+	backend-contract backend-install dev-phone dev-local \
+	coverage-backend coverage-mobile
 
 rebuild-backend:
 	docker compose build --no-cache --pull backend
@@ -129,3 +130,17 @@ test-mobile:
 	@echo "==> test-mobile"
 	@cd $(MOBILE_DIR) && flutter pub get
 	@cd $(MOBILE_DIR) && flutter test
+
+# Coverage with the same floors CI enforces (KAN-125). Reports land in
+# apps/backend/coverage.xml and apps/mobile/coverage/lcov.info.
+coverage-backend:
+	@echo "==> coverage-backend"
+	@cd $(BACKEND_DIR) && poetry run pytest --maxfail=1 --disable-warnings -q \
+		--cov --cov-report=xml --cov-report=term --cov-fail-under=92
+
+coverage-mobile:
+	@echo "==> coverage-mobile"
+	@cd $(MOBILE_DIR) && flutter pub get
+	@cd $(MOBILE_DIR) && dart run tool/coverage.dart helper
+	@cd $(MOBILE_DIR) && flutter test --coverage
+	@cd $(MOBILE_DIR) && dart run tool/coverage.dart check --min 83
