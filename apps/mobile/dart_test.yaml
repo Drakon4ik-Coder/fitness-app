@@ -1,0 +1,4 @@
+tags:
+  # Screenshot tests (KAN-129). Rendered on Linux in CI; see
+  # test/goldens/screens_golden_test.dart for how to regenerate them.
+  golden:
