@@ -74,6 +74,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.1
   flutter_native_splash: ^2.4.1
+  sqflite_common_ffi: ^2.4.0+3
 
 # App icon generation config. Run: dart run flutter_launcher_icons
 flutter_launcher_icons:

@@ -129,4 +129,13 @@ void main() {
     expect(find.text('Mystery'), findsOneWidget);
     expect(find.textContaining('140 mg'), findsOneWidget);
   });
+
+  testWidgets('a day with no foods shows the empty state', (tester) async {
+    await _openSheet(tester, entries: const []);
+    expect(find.text('No source data'), findsOneWidget);
+    expect(
+      find.text("None of today's foods report Vitamin C."),
+      findsOneWidget,
+    );
+  });
 }

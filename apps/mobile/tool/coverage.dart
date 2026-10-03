@@ -6,9 +6,10 @@
 //       without this an untested file silently drops out of the denominator
 //       and the percentage overstates reality.
 //
-//   dart run tool/coverage.dart check --min <percent> [lcov.info]
-//       Fails (exit 1) when total line coverage is below the floor, and
-//       lists the least-covered files.
+//   dart run tool/coverage.dart check --min <percent> [--min-file <percent>] [lcov.info]
+//       Fails (exit 1) when total line coverage is below --min, or when any
+//       single file is below --min-file, and lists the least-covered files.
+//       The per-file floor stops one weak file hiding behind a high total.
 import 'dart:io';
 
 const _helperPath = 'test/coverage_helper_test.dart';
@@ -29,7 +30,8 @@ void main(List<String> args) {
 Never _usage() {
   stderr.writeln(
     'usage: dart run tool/coverage.dart helper\n'
-    '       dart run tool/coverage.dart check --min <percent> [lcov.info]',
+    '       dart run tool/coverage.dart check --min <percent> '
+    '[--min-file <percent>] [lcov.info]',
   );
   exit(64);
 }
@@ -59,16 +61,29 @@ void _writeHelper() {
   stdout.writeln('Wrote $_helperPath (${libFiles.length} libraries).');
 }
 
-void _check(List<String> args) {
-  final minIndex = args.indexOf('--min');
-  if (minIndex == -1 || minIndex + 1 >= args.length) _usage();
-  final min = double.tryParse(args[minIndex + 1]);
+/// Removes `flag <percent>` from [args] and returns the percentage, or null
+/// when the flag is absent and optional.
+double? _takePercent(List<String> args, String flag, {required bool required}) {
+  final index = args.indexOf(flag);
+  if (index == -1) {
+    if (required) _usage();
+    return null;
+  }
+  if (index + 1 >= args.length) _usage();
+  final value = double.tryParse(args[index + 1]);
   // NaN or out-of-range would make every comparison pass: fail closed.
-  if (min == null || !min.isFinite || min < 0 || min > 100) {
-    stderr.writeln('--min must be a percentage between 0 and 100.');
+  if (value == null || !value.isFinite || value < 0 || value > 100) {
+    stderr.writeln('$flag must be a percentage between 0 and 100.');
     exit(64);
   }
-  final rest = [...args]..removeRange(minIndex, minIndex + 2);
+  args.removeRange(index, index + 2);
+  return value;
+}
+
+void _check(List<String> args) {
+  final rest = [...args];
+  final min = _takePercent(rest, '--min', required: true)!;
+  final minFile = _takePercent(rest, '--min-file', required: false);
   final lcov = File(rest.isEmpty ? _defaultLcov : rest.first);
   if (!lcov.existsSync()) {
     stderr.writeln('No coverage report at ${lcov.path}.');
@@ -113,8 +128,25 @@ void _check(List<String> args) {
     '($totalHit/$totalFound lines, ${perFile.length} files); '
     'floor ${min.toStringAsFixed(2)}%.',
   );
+  final belowFileFloor = minFile == null
+      ? const <MapEntry<String, (int, int)>>[]
+      : weakest
+            .where((entry) => 100 * entry.value.$1 / entry.value.$2 < minFile)
+            .toList();
+  if (minFile != null) {
+    stdout.writeln('Per-file floor ${minFile.toStringAsFixed(2)}%.');
+  }
+  for (final entry in belowFileFloor) {
+    final (fileHit, fileFound) = entry.value;
+    stderr.writeln(
+      'Below the per-file floor: ${entry.key} '
+      '${(100 * fileHit / fileFound).toStringAsFixed(1)}% '
+      '($fileHit/$fileFound)',
+    );
+  }
   if (percent < min) {
     stderr.writeln('Coverage is below the floor.');
     exit(1);
   }
+  if (belowFileFloor.isNotEmpty) exit(1);
 }

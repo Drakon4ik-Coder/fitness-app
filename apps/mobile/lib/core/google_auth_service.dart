@@ -5,11 +5,16 @@ import 'auth_service.dart';
 import 'environment.dart';
 
 class GoogleAuthService {
+  /// [signIn] is injectable for tests; the plugin's singleton otherwise.
+  GoogleAuthService({GoogleSignIn? signIn})
+    : _signIn = signIn ?? GoogleSignIn.instance;
+
+  final GoogleSignIn _signIn;
   bool _initialized = false;
 
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
-    await GoogleSignIn.instance.initialize(
+    await _signIn.initialize(
       serverClientId: EnvironmentConfig.googleServerClientId,
     );
     _initialized = true;
@@ -20,7 +25,7 @@ class GoogleAuthService {
   Future<String?> signInAndGetToken() async {
     await _ensureInitialized();
     try {
-      final account = await GoogleSignIn.instance.authenticate(
+      final account = await _signIn.authenticate(
         scopeHint: const ['email', 'profile'],
       );
       final idToken = account.authentication.idToken;

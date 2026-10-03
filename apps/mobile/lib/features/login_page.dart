@@ -16,11 +16,13 @@ class LoginPage extends StatefulWidget {
     required this.authService,
     required this.authStorage,
     required this.onLoggedIn,
+    this.googleAuth,
   });
 
   final AuthService authService;
   final AuthStorage authStorage;
   final VoidCallback onLoggedIn;
+  final GoogleAuthService? googleAuth;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -30,7 +32,8 @@ class _LoginPageState extends State<LoginPage> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final GoogleAuthService _googleAuth = GoogleAuthService();
+  late final GoogleAuthService _googleAuth =
+      widget.googleAuth ?? GoogleAuthService();
 
   bool _isLoading = false;
   bool _isResending = false;

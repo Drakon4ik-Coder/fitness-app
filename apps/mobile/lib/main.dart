@@ -17,6 +17,11 @@ import 'features/main_shell.dart';
 import 'ui_components/ui_components.dart';
 import 'ui_system/lumina_health_theme.dart';
 
+// coverage:ignore-start
+// Process bootstrap: runApp plus optional Sentry init. It runs on every app
+// launch and can't run inside a widget test (it would replace the test's own
+// binding), so it's excluded from the coverage gate (KAN-131). Everything it
+// launches (FitnessApp and down) is covered by the widget tests.
 Future<void> main() async {
   // Crash reporting is opt-in per build (--dart-define=SENTRY_DSN=...) and
   // never enabled for local runs: dev sessions against localhost would only
@@ -54,6 +59,7 @@ Future<void> main() async {
     },
   );
 }
+// coverage:ignore-end
 
 class FitnessApp extends StatelessWidget {
   const FitnessApp({super.key, this.versionService});
@@ -75,16 +81,34 @@ class FitnessApp extends StatelessWidget {
   }
 }
 
+/// Builds the signed-in shell; injectable so tests can stand in for
+/// [MainShell], which opens the on-device databases.
+typedef ShellBuilder =
+    Widget Function(
+      String accessToken,
+      Future<void> Function() onLogout,
+      AuthInterceptor? authInterceptor,
+    );
+
 class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
+  const AuthGate({
+    super.key,
+    this.authStorage,
+    this.authService,
+    this.shellBuilder,
+  });
+
+  final AuthStorage? authStorage;
+  final AuthService? authService;
+  final ShellBuilder? shellBuilder;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
 }
 
 class _AuthGateState extends State<AuthGate> {
-  final AuthStorage _authStorage = AuthStorage();
-  final AuthService _authService = AuthService();
+  late final AuthStorage _authStorage = widget.authStorage ?? AuthStorage();
+  late final AuthService _authService = widget.authService ?? AuthService();
 
   bool _isLoading = true;
   String? _accessToken;
@@ -202,11 +226,17 @@ class _AuthGateState extends State<AuthGate> {
     return PolicyConsentGate(
       accessToken: _accessToken!,
       authService: _authService,
-      child: MainShell(
-        accessToken: _accessToken!,
-        onLogout: _handleLogout,
-        authInterceptor: _authInterceptor,
-      ),
+      child:
+          widget.shellBuilder?.call(
+            _accessToken!,
+            _handleLogout,
+            _authInterceptor,
+          ) ??
+          MainShell(
+            accessToken: _accessToken!,
+            onLogout: _handleLogout,
+            authInterceptor: _authInterceptor,
+          ),
     );
   }
 }

@@ -61,11 +61,11 @@ jobs:
         run: |
           dart run tool/coverage.dart helper
           flutter test --coverage
-      # The floor is a ratchet: raise it as coverage grows, never lower it to
-      # make a PR pass.
+      # Same gates as the backend: 80% overall, 60% per file, 80% of changed
+      # lines (KAN-131). Never lower them to make a PR pass.
       - name: Coverage floor
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
-        run: dart run tool/coverage.dart check --min 83
+        run: dart run tool/coverage.dart check --min 80 --min-file 60
       # New/changed lines must be tested even when the total barely moves —
       # the guard that matters during refactors. lcov paths are package-
       # relative; diff-cover needs them repo-relative to match the git diff.

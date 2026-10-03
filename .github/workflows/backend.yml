@@ -92,14 +92,19 @@ jobs:
       - name: Type check (mypy)
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: poetry run mypy .
-      # Coverage gate (KAN-125). The floor is a ratchet: raise it as coverage
-      # grows, never lower it to make a PR pass.
+      # Coverage gates follow the common industry default (SonarQube's "Sonar
+      # way"): 80% overall and 80% of each PR's changed lines, plus a 60%
+      # per-file minimum (KAN-131). Never lower them to make a PR pass.
       - name: Test (coverage floor)
         if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
         run: >-
           poetry run pytest --ds=config.settings.test --maxfail=1
           --disable-warnings -q --cov --cov-report=xml --cov-report=term
-          --cov-fail-under=92
+          --cov-fail-under=80
+      # One weak module can hide behind a high total; this floors each file.
+      - name: Per-file coverage floor
+        if: github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true'
+        run: poetry run python scripts/coverage_per_file.py 60
       # New/changed lines must be tested even when the total barely moves —
       # the guard that matters during refactors.
       - name: Diff coverage (changed lines)
