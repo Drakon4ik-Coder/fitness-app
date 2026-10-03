@@ -1,0 +1,16 @@
+name: Weekly drift check
+# Re-runs both CI workflows against main every Monday to catch drift in
+# unpinned tooling: the Flutter stable channel, the Python base image, and
+# ruff/mypy releases. It's a separate workflow so that GitHub's 60-day
+# inactivity auto-disable of scheduled workflows can only switch off this
+# weekly run, never PR CI (KAN-125).
+on:
+  schedule:
+    - cron: "0 2 * * 1" # Mon 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  backend:
+    uses: ./.github/workflows/backend.yml
+  mobile:
+    uses: ./.github/workflows/mobile.yml

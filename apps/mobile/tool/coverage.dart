@@ -62,7 +62,12 @@ void _writeHelper() {
 void _check(List<String> args) {
   final minIndex = args.indexOf('--min');
   if (minIndex == -1 || minIndex + 1 >= args.length) _usage();
-  final min = double.tryParse(args[minIndex + 1]) ?? _usage();
+  final min = double.tryParse(args[minIndex + 1]);
+  // NaN or out-of-range would make every comparison pass: fail closed.
+  if (min == null || !min.isFinite || min < 0 || min > 100) {
+    stderr.writeln('--min must be a percentage between 0 and 100.');
+    exit(64);
+  }
   final rest = [...args]..removeRange(minIndex, minIndex + 2);
   final lcov = File(rest.isEmpty ? _defaultLcov : rest.first);
   if (!lcov.existsSync()) {

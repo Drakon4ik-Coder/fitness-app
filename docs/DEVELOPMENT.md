@@ -37,7 +37,7 @@ Mobile runs `dart run tool/coverage.dart helper` first. It generates a gitignore
 To check diff coverage locally against develop:
 ```
 cd apps/backend && poetry run pytest --cov --cov-report=xml && cd ../..
-pipx run diff-cover apps/backend/coverage.xml --compare-branch=origin/develop
+pipx run diff-cover apps/backend/coverage.xml --compare-branch=origin/develop --fail-under=80
 ```
 
 ## Common Fixes

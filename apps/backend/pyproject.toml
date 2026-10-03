@@ -55,6 +55,7 @@ omit = [
     "config/wsgi.py",
     "config/settings/local.py",
     "config/settings/prod.py",
+    "config/settings/test.py",
 ]
 
 [tool.coverage.report]

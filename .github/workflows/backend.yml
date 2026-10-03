@@ -3,8 +3,12 @@ on:
   pull_request:
   push:
     branches: [main]
-  schedule:
-    - cron: "0 2 * * 1"  # weekly (Mon 02:00 UTC) — catches unpinned tooling/base-image drift
+  # The weekly drift run lives in weekly-drift.yml and calls this workflow.
+  # GitHub auto-disables a workflow that has a schedule trigger after 60 days
+  # without repository activity, and that took PR CI down with it from
+  # 19 Jul to 3 Oct 2026. Keeping the schedule elsewhere means only the
+  # weekly run can be disabled, never PR CI.
+  workflow_call:
   workflow_dispatch:
 
 jobs:

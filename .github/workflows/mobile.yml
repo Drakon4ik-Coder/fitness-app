@@ -7,8 +7,9 @@ on:
       - 'apps/mobile/**'
       - 'contracts/**'
       - '.github/workflows/mobile.yml'
-  schedule:
-    - cron: "0 3 * * 1"  # weekly (Mon 03:00 UTC) — catches Flutter stable channel drift
+  # Weekly drift run: see weekly-drift.yml (and backend.yml) for why the
+  # schedule lives in its own workflow.
+  workflow_call:
   workflow_dispatch:
 
 jobs:
