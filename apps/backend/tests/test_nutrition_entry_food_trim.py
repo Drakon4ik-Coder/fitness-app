@@ -1,12 +1,12 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from accounts.models import User
 from foods.models import FoodItem
 from foods.serializers import RAW_TRIMMED_MARKER, trim_raw_source
 from nutrition.models import MealEntry
@@ -35,8 +35,8 @@ _OFF_RAW = {
 }
 
 
-def _auth_client(email: str = "trim@example.com") -> tuple[APIClient, object]:
-    user = get_user_model().objects.create_user(
+def _auth_client(email: str = "trim@example.com") -> tuple[APIClient, User]:
+    user = User.objects.create_user(
         email=email, password="Str0ngPass!word", email_verified=True
     )
     client = APIClient()
@@ -110,9 +110,7 @@ def test_day_and_sync_payloads_carry_the_trimmed_blob() -> None:
 
     cursor = client.get("/api/v1/nutrition/entries/sync").data["next_cursor"]
     stale = cursor.split("|")[0]
-    since = (
-        f"{(timezone.datetime.fromisoformat(stale) - timedelta(days=1)).isoformat()}|0"
-    )
+    since = f"{(datetime.fromisoformat(stale) - timedelta(days=1)).isoformat()}|0"
     page = client.get("/api/v1/nutrition/entries/sync", {"since": since})
     assert page.status_code == 200
     assert page.data["entries"][0]["food_item"]["raw_source_json"] == trim_raw_source(
