@@ -1,15 +1,24 @@
 from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
 from decimal import Decimal
 
 import pytest
 from django.core.cache import cache
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import User
 from foods.models import FoodItem
 from nutrition.models import MealEntry
 from nutrition.utils import summarize_meal_time
+
+
+def _days_ago_midnight_utc(days: int = 10) -> datetime:
+    # Seed relative to "now", never a fixed date: compute_meal_times only sees
+    # the last MEAL_TIMES_LOOKBACK_DAYS, so absolute dates silently age out of
+    # the window and the tests start failing on their own (KAN-116).
+    return (timezone.now() - timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +72,7 @@ def _log(user: User, food: FoodItem, meal: str, when: datetime) -> None:
 def test_meal_times_learns_typical_hour() -> None:
     client, user = _auth_client()
     food = _food()
-    base = datetime(2026, 6, 1, 0, 0, tzinfo=dt_timezone.utc)
+    base = _days_ago_midnight_utc()
 
     # Five lunches clustered around 13:00 (12:30, 13:00, 13:00, 13:30, 14:00).
     for day, hour, minute in [
@@ -97,7 +106,7 @@ def test_meal_times_learns_typical_hour() -> None:
 def test_meal_times_ignores_sparse_meals() -> None:
     client, user = _auth_client("sparse@example.com")
     food = _food()
-    base = datetime(2026, 6, 1, 8, 0, tzinfo=dt_timezone.utc)
+    base = _days_ago_midnight_utc() + timedelta(hours=8)
 
     # Only three breakfasts — below the MIN_MEAL_SAMPLES threshold.
     for day in range(3):
@@ -117,7 +126,7 @@ def test_meal_times_converts_to_user_timezone() -> None:
     food = _food()
 
     # Five lunches logged at 04:00 UTC == 13:00 in Tokyo.
-    base = datetime(2026, 6, 1, 4, 0, tzinfo=dt_timezone.utc)
+    base = _days_ago_midnight_utc() + timedelta(hours=4)
     for day in range(5):
         _log(user, food, MealEntry.MEAL_LUNCH, base + timedelta(days=day))
 
