@@ -31,7 +31,9 @@ compares them against the PNGs in `test/goldens/images/`. They run as part of
 
 - **Where they're authoritative:** Linux, which is what CI runs. Up to 0.5% of
   pixels may differ (anti-aliasing noise); a moved, resized or recolored widget
-  changes far more and fails.
+  changes far more and fails. Other platforms render text slightly differently
+  (Windows is ~1.3% off), so local runs there allow 5%: still enough to catch a
+  broken layout, while CI catches the subtle changes.
 - **When one fails in CI:** download the `golden-failures` artifact from the run.
   It holds the expected, actual and diff images.
 - **After an intended UI change:** add the `update-goldens` label to the PR. The
