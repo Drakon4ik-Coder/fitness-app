@@ -92,8 +92,10 @@ Agents pattern-match. These are the patterns to match:
 > enrich / scan flows into a plain controller class (the
 > `LiveSearchController` pattern).
 
-**Problem.** `features/nutrition/add_food_page.dart` is **1,676 lines** and
-`nutrition_today_page.dart` is **1,365 lines**. Worst offenders inside them:
+**Problem (as found in the July 2026 audit; the line numbers below are from
+that snapshot and are stale; see the progress notes above for current
+sizes).** `features/nutrition/add_food_page.dart` was **1,676 lines** and
+`nutrition_today_page.dart` **1,365 lines**. Worst offenders inside them:
 
 - `add_food_page.dart` `build()` — lines ~904–1340 (~435 lines)
 - `add_food_page.dart` `_submitItems()` — lines ~665–872 (~207 lines,

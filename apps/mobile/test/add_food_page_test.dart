@@ -16,6 +16,7 @@ import 'package:fitness_app/features/nutrition/data/off_client.dart';
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/food_detail_page.dart';
 import 'package:fitness_app/features/nutrition/live_search_controller.dart';
+import 'package:fitness_app/features/nutrition/widgets/add_food_search_header.dart';
 import 'package:fitness_app/ui_system/lumina_health_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1449,6 +1450,49 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       expect(find.textContaining('paused'), findsNothing);
       expect(scanButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('countdown ticks rebuild only the banner; the page rebuilds '
+        'once, when the OFF block lifts (KAN-124)', (
+      WidgetTester tester,
+    ) async {
+      final off = _FakeOffClient(
+        fetchProductError: OffRateLimitException(const Duration(seconds: 3)),
+      );
+      await pumpAddFoodPage(
+        tester,
+        localDb: _FakeLocalDb(),
+        repository: _offlineRepository(InMemoryNutritionStore()),
+        offClient: off,
+        scanBarcode: (_) async => '777',
+      );
+      await tester.tap(find.byTooltip('Scan barcode'));
+      await tester.pumpAndSettle();
+
+      // The page builds a fresh header widget every time it rebuilds, so its
+      // identity is a page-rebuild probe.
+      AddFoodSearchHeader header() =>
+          tester.widget<AddFoodSearchHeader>(find.byType(AddFoodSearchHeader));
+      final beforeTick = header();
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        find.text('Online search and barcode scan paused — resuming in 2s'),
+        findsOneWidget,
+      );
+      expect(
+        identical(header(), beforeTick),
+        isTrue,
+        reason: 'a 1 Hz tick must not rebuild the whole page',
+      );
+
+      await tester.pump(const Duration(seconds: 2));
+      expect(scanButton(tester).onPressed, isNotNull);
+      expect(
+        identical(header(), beforeTick),
+        isFalse,
+        reason: 'the OFF block lifting must rebuild the page (scan re-enables)',
+      );
     });
 
     testWidgets('an OFF throttle during debounced live search raises the '
