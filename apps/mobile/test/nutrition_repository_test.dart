@@ -520,20 +520,19 @@ void main() {
       expect(store.cursor, 'cursor-2');
     });
 
-    test('a page that fails mid-merge commits nothing and keeps the cursor '
-        '(KAN-120)', () async {
+    test('a page that fails mid-merge commits nothing, keeps the cursor, and '
+        'lands in full on the next pull (KAN-120)', () async {
       await seedToday();
       store.failUpsertFor.add('p2');
-      api.deltaPages.add(
-        SyncPage(
-          entries: [
-            SyncEntry(entry: _serverEntry(uuid: 'p1'), deleted: false),
-            SyncEntry(entry: _serverEntry(uuid: 'p2'), deleted: false),
-          ],
-          nextCursor: 'cursor-1',
-          hasMore: false,
-        ),
+      SyncPage page() => SyncPage(
+        entries: [
+          SyncEntry(entry: _serverEntry(uuid: 'p1'), deleted: false),
+          SyncEntry(entry: _serverEntry(uuid: 'p2'), deleted: false),
+        ],
+        nextCursor: 'cursor-1',
+        hasMore: false,
       );
+      api.deltaPages.add(page());
 
       await expectLater(repo.refreshDay(today), throwsStateError);
 
@@ -541,6 +540,38 @@ void main() {
       // and the page's earlier merges roll back with it.
       expect(store.cursor, 'cursor-0');
       expect(store.entries.containsKey('p1'), isFalse);
+
+      // The pinned cursor is what makes this recoverable: the server re-sends
+      // the same page from cursor-0, and this time it lands whole.
+      store.failUpsertFor.clear();
+      api.deltaPages.add(page());
+      await repo.refreshDay(today);
+      expect(store.entries.keys, containsAll(['p1', 'p2']));
+      expect(store.cursor, 'cursor-1');
+    });
+
+    test('the in-memory fake fails where the real store would deadlock '
+        '(KAN-120)', () async {
+      // Guards the guard: a repository change that touches the outer store
+      // inside a transaction must fail here rather than hang on device.
+      await expectLater(
+        store.inTransaction((_) => store.readSyncCursor()),
+        throwsStateError,
+      );
+      await expectLater(
+        store.inTransaction((_) => store.inTransaction((_) async {})),
+        throwsStateError,
+      );
+      // The handed store works, and nested transactions on it join.
+      final value = await store.inTransaction(
+        (txn) => txn.inTransaction((inner) async {
+          await inner.writeSyncCursor('joined');
+          return inner.readSyncCursor();
+        }),
+      );
+      expect(value, 'joined');
+      // Calls outside any transaction are unaffected.
+      expect(await store.readSyncCursor(), 'joined');
     });
 
     test('a first-day seed that fails mid-merge leaves the day unseeded '
