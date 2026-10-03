@@ -505,4 +505,40 @@ void main() {
     expect(find.text('Units'), findsOneWidget);
     expect(find.text('Save changes'), findsNothing);
   });
+
+  testWidgets('log out asks first and only logs out on confirm', (
+    tester,
+  ) async {
+    enlargeView(tester);
+    var logouts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: LuminaHealthTheme.dark(),
+        home: AccountPage(
+          accessToken: 'token',
+          preferencesApi: PreferencesApiService(
+            accessToken: 'token',
+            dio: authStub(),
+          ),
+          authService: AuthService(dio: authStub()),
+          onLogout: () async => logouts++,
+          initialPreferences: const UserPreferences(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Log out'));
+    await tester.pumpAndSettle();
+    expect(find.text('Log out?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(logouts, 0);
+
+    await tester.tap(find.text('Log out'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log out').last);
+    await tester.pumpAndSettle();
+    expect(logouts, 1);
+  });
 }

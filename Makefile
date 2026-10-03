@@ -143,4 +143,4 @@ coverage-mobile:
 	@cd $(MOBILE_DIR) && flutter pub get
 	@cd $(MOBILE_DIR) && dart run tool/coverage.dart helper
 	@cd $(MOBILE_DIR) && flutter test --coverage
-	@cd $(MOBILE_DIR) && dart run tool/coverage.dart check --min 83
+	@cd $(MOBILE_DIR) && dart run tool/coverage.dart check --min 95

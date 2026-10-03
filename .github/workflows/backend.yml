@@ -107,7 +107,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: >-
           pipx run diff-cover==10.6.0 apps/backend/coverage.xml
-          --compare-branch=origin/${{ github.base_ref }} --fail-under=80
+          --compare-branch=origin/${{ github.base_ref }} --fail-under=95
       - name: Upload coverage report
         if: always() && (github.event_name != 'pull_request' || steps.changes.outputs.backend == 'true')
         uses: actions/upload-artifact@v4

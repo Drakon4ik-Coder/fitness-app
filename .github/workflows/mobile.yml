@@ -65,7 +65,7 @@ jobs:
       # make a PR pass.
       - name: Coverage floor
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
-        run: dart run tool/coverage.dart check --min 83
+        run: dart run tool/coverage.dart check --min 95
       # New/changed lines must be tested even when the total barely moves —
       # the guard that matters during refactors. lcov paths are package-
       # relative; diff-cover needs them repo-relative to match the git diff.
@@ -74,7 +74,7 @@ jobs:
         run: |
           sed 's|^SF:lib/|SF:apps/mobile/lib/|' coverage/lcov.info > coverage/lcov.repo.info
           cd ../..
-          pipx run diff-cover==10.6.0 apps/mobile/coverage/lcov.repo.info --compare-branch=origin/${{ github.base_ref }} --fail-under=80
+          pipx run diff-cover==10.6.0 apps/mobile/coverage/lcov.repo.info --compare-branch=origin/${{ github.base_ref }} --fail-under=95
       - name: Upload coverage report
         if: always() && (github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true')
         uses: actions/upload-artifact@v4
