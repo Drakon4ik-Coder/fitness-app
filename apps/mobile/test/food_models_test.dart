@@ -320,4 +320,57 @@ void main() {
     });
     expect(unverified.isCommunityVerified, isFalse);
   });
+
+  group('trimmed raw excerpts (KAN-122)', () {
+    test('isTrimmedRawSource recognizes only the backend marker', () {
+      expect(isTrimmedRawSource('{"_trimmed": true}'), isTrue);
+      expect(isTrimmedRawSource('{"product": {}}'), isFalse);
+      expect(isTrimmedRawSource('{"_trimmed": "yes"}'), isFalse);
+      expect(isTrimmedRawSource('not json'), isFalse);
+      expect(isTrimmedRawSource(''), isFalse);
+    });
+
+    test('fromBackendDetail derives the same pieces and cooked basis from the '
+        'excerpt as from the full blob', () {
+      final product = <String, dynamic>{
+        'serving_size': '2 eggs (100 g)',
+        'categories_tags': ['en:meats', 'en:beef'],
+        'ecoscore_data': {
+          'agribalyse': {'agribalyse_food_code': '6250', 'co2_total': 4.1},
+        },
+      };
+      final full = <String, dynamic>{
+        'product': {
+          ...product,
+          'nutriments': {for (var i = 0; i < 50; i++) 'n$i': i},
+          'images': {'front_en': {}},
+        },
+      };
+      final trimmed = <String, dynamic>{
+        'product': {
+          'serving_size': product['serving_size'],
+          'categories_tags': product['categories_tags'],
+          'ecoscore_data': {
+            'agribalyse': {'agribalyse_food_code': '6250'},
+          },
+        },
+        '_trimmed': true,
+      };
+      FoodItem detail(Map<String, dynamic> raw) =>
+          FoodItem.fromBackendDetail(<String, dynamic>{
+            'id': 7,
+            'name': 'Lean Beef Steak Mince',
+            'protein_g_100g': 29,
+            'raw_source_json': raw,
+          });
+
+      final fromFull = detail(full);
+      final fromTrimmed = detail(trimmed);
+      expect(fromTrimmed.gramsPerPiece, isNotNull);
+      expect(fromTrimmed.gramsPerPiece, fromFull.gramsPerPiece);
+      expect(fromTrimmed.pieceUnit, fromFull.pieceUnit);
+      expect(fromTrimmed.isCookedBasis, isTrue);
+      expect(fromTrimmed.isCookedBasis, fromFull.isCookedBasis);
+    });
+  });
 }

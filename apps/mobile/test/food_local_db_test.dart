@@ -170,4 +170,19 @@ void main() {
     expect(merged.gramsPerPiece, 110);
     expect(merged.pieceUnit, 'burger');
   });
+
+  test('merge never lets a meal-entry raw excerpt replace a full blob '
+      '(KAN-122)', () {
+    final existing = _fatsecretFood(
+      rawSourceJson:
+          '{"food": {"food_id": "12345"}, "serving_size": "1 burger"}',
+    );
+    final incoming = _fatsecretFood(
+      rawSourceJson: '{"serving_size": "1 burger", "_trimmed": true}',
+    );
+
+    final merged = db.mergeFood(existing, incoming);
+
+    expect(merged.rawSourceJson, existing.rawSourceJson);
+  });
 }

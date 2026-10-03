@@ -127,6 +127,19 @@ String _normalizeHashNumber(double? value) {
       .replaceFirst(RegExp(r'(\.\d*[1-9])0+$'), r'$1');
 }
 
+/// Key the backend sets on the raw_source_json excerpt it embeds in meal
+/// entries (KAN-122): only the serving text, category tags and Agribalyse
+/// code survive, which is all [FoodItem.fromBackendDetail] reads. An excerpt
+/// must never replace a full blob (see [isTrimmedRawSource]).
+const String rawSourceTrimmedMarker = '_trimmed';
+
+/// Whether [rawSourceJson] is a backend entry excerpt rather than a full
+/// source blob.
+bool isTrimmedRawSource(String rawSourceJson) {
+  final decoded = _decodeRawSourceJson(rawSourceJson);
+  return decoded is Map && decoded[rawSourceTrimmedMarker] == true;
+}
+
 Object _decodeRawSourceJson(String rawSourceJson) {
   final trimmed = rawSourceJson.trim();
   if (trimmed.isEmpty) {
