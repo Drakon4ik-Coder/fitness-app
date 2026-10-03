@@ -85,8 +85,11 @@ class _FakeFoodsApi extends FoodsApiService {
   final List<FoodItem> typeaheadResults;
 
   @override
-  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
-      typeaheadResults;
+  Future<List<FoodItem>> typeahead(
+    String query, {
+    int limit = 10,
+    CancelToken? cancelToken,
+  }) async => typeaheadResults;
 
   @override
   Future<FoodItem> upsertCustomFood(FoodItem item) async =>
