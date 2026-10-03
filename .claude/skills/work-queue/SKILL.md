@@ -163,7 +163,9 @@ For each completed ticket:
    authorization to open PRs — the usual "don't open PRs unless asked" rule
    is satisfied by the user invoking it):
    `gh pr create --base develop --title "<one-liner> (KAN-<n>)" --body ...`
-   Body: what changed and why, how it was tested, link to the Jira ticket.
+   Body: `## TL;DR`, `## Problem` (with the Jira ticket link), `## Solution`
+   (what changed and why, how it was tested), per
+   `.github/pull_request_template.md`.
 2. `jira issue move KAN-<n> "In Review"` and
    `jira issue comment add KAN-<n> "PR: <url>"`.
 3. **Never** merge the PR, never push to `develop` or `main`, never delete
