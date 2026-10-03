@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Offline sync core (KAN-28): merge, LWW, outbox replay, cursor. -->
+<mutations version="1.0">
+  <files>
+    <file>lib/features/nutrition/data/nutrition_repository.dart</file>
+  </files>
+  <commands>
+    <command group="repository" expected-return="0" timeout="180">flutter test test/nutrition_repository_test.dart</command>
+  </commands>
+</mutations>
