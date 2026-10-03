@@ -14,6 +14,7 @@ import 'package:fitness_app/features/nutrition/data/nutrition_repository.dart';
 import 'package:fitness_app/features/nutrition/data/off_client.dart';
 import 'package:fitness_app/features/nutrition/data/off_rate_limiter.dart';
 import 'package:fitness_app/features/nutrition/data/user_preferences.dart';
+import 'package:fitness_app/features/nutrition/live_search_controller.dart';
 import 'package:fitness_app/features/nutrition/nutrition_today_page.dart';
 import 'package:fitness_app/features/nutrition/widgets/amount_sheet.dart';
 import 'package:fitness_app/features/nutrition/widgets/meal_detail_sheet.dart';
@@ -98,18 +99,38 @@ class _FakeLocalDb extends FoodLocalDb {
 
   @override
   Future<List<FoodItem>> fetchFavorites({int limit = 20}) async => const [];
-}
-
-class _FakeFoodsApi extends FoodsApiService {
-  _FakeFoodsApi() : super(accessToken: 'token');
 
   @override
-  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
+  Future<List<FoodItem>> searchFoods(String query, {int limit = 20}) async =>
       const [];
 }
 
+class _FakeFoodsApi extends FoodsApiService {
+  _FakeFoodsApi({this.results = const []}) : super(accessToken: 'token');
+
+  final List<FoodItem> results;
+
+  @override
+  Future<List<FoodItem>> typeahead(String query, {int limit = 10}) async =>
+      results;
+}
+
 class _FakeOffClient extends OffClient {
-  _FakeOffClient() : super(dio: Dio(), rateLimiter: OffRateLimiter());
+  _FakeOffClient({this.searchError})
+    : super(dio: Dio(), rateLimiter: OffRateLimiter());
+
+  final Object? searchError;
+
+  @override
+  Future<List<OffProductResponse>> searchProducts(
+    String query, {
+    int pageSize = 10,
+    String? categoryTag,
+    CancelToken? cancelToken,
+  }) async {
+    if (searchError != null) throw searchError!;
+    return const [];
+  }
 }
 
 Map<String, dynamic> _entryJson(
@@ -185,12 +206,16 @@ Dio _dayDio(Map<String, List<Map<String, dynamic>>> Function(String) meals) {
   return dio;
 }
 
-Widget _todayPage(Dio dio, {UserPreferences? preferences}) => _app(
+Widget _todayPage(
+  Dio dio, {
+  UserPreferences? preferences,
+  InMemoryNutritionStore? store,
+}) => _app(
   NutritionTodayPage(
     accessToken: 'token',
     onLogout: () async {},
     nutritionApi: NutritionApiService(accessToken: 'token', dio: dio),
-    localStore: InMemoryNutritionStore(),
+    localStore: store ?? InMemoryNutritionStore(),
     localDb: _FakeLocalDb(),
     foodsApi: _FakeFoodsApi(),
     offClient: _FakeOffClient(),
@@ -198,15 +223,27 @@ Widget _todayPage(Dio dio, {UserPreferences? preferences}) => _app(
   ),
 );
 
-Widget _addFoodPage({List<StagedFood> initialItems = const []}) => _app(
+Future<void> _search(WidgetTester tester, String query) async {
+  await tester.enterText(find.byType(TextField), query);
+  await tester.pump(
+    LiveSearchController.defaultDebounce + const Duration(milliseconds: 50),
+  );
+  await tester.pumpAndSettle();
+}
+
+Widget _addFoodPage({
+  List<StagedFood> initialItems = const [],
+  List<FoodItem> searchResults = const [],
+  Object? offSearchError,
+}) => _app(
   AddFoodPage(
     localDb: _FakeLocalDb(recents: [_oats, _banana, _yogurt, _egg]),
-    foodsApi: _FakeFoodsApi(),
+    foodsApi: _FakeFoodsApi(results: searchResults),
     repository: NutritionRepository(
       api: NutritionApiService(accessToken: 'token', dio: _dayDio((_) => {})),
       store: InMemoryNutritionStore(),
     ),
-    offClient: _FakeOffClient(),
+    offClient: _FakeOffClient(searchError: offSearchError),
     onLogout: () async {},
     selectedDate: DateUtils.dateOnly(DateTime.now()),
     initialMeal: MealType.breakfast,
@@ -306,6 +343,97 @@ void main() {
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('images/amount_sheet.png'),
+    );
+  });
+
+  testWidgets('today: pending-sync chip', (tester) async {
+    _phone(tester);
+    final store = InMemoryNutritionStore();
+    // Two offline edits still queued (KAN-56).
+    for (final uuid in ['golden-1', 'golden-2']) {
+      await store.enqueueOp(
+        kind: 'update',
+        entryUuid: uuid,
+        payload: const {'quantity_g': 90},
+        queuedAt: DateTime.utc(2026, 1, 1),
+      );
+    }
+    final dio = _dayDio(
+      (date) => {
+        'breakfast': [_entryJson(1, 'breakfast', _oats, 80, date)],
+      },
+    );
+    // Replay fails offline, so the ops stay queued and the chip shows.
+    dio.interceptors.insert(
+      0,
+      InterceptorsWrapper(
+        onRequest: (options, handler) => options.method == 'PATCH'
+            ? handler.reject(
+                DioException.connectionError(
+                  requestOptions: options,
+                  reason: 'offline',
+                ),
+              )
+            : handler.next(options),
+      ),
+    );
+    await tester.pumpWidget(_todayPage(dio, store: store));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pendingSyncChip')), findsOneWidget);
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/today_pending_sync.png'),
+    );
+  });
+
+  testWidgets('today: max text scale (KAN-40)', (tester) async {
+    _phone(tester);
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
+    await pumpLoggedDay(tester);
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/today_text_scale_2x.png'),
+    );
+  });
+
+  testWidgets('add food: search results', (tester) async {
+    _phone(tester);
+    await tester.pumpWidget(
+      _addFoodPage(
+        searchResults: [
+          _food('Greek yogurt, plain', kcal: 97, protein: 9, carbs: 4, fat: 5),
+          _food(
+            'Greek yogurt, honey',
+            kcal: 120,
+            protein: 7,
+            carbs: 15,
+            fat: 4,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _search(tester, 'greek');
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/add_food_search.png'),
+    );
+  });
+
+  testWidgets('add food: rate-limit banner', (tester) async {
+    _phone(tester);
+    await tester.pumpWidget(
+      _addFoodPage(
+        offSearchError: OffRateLimitException(const Duration(seconds: 30)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _search(tester, 'oat');
+    expect(find.textContaining('resuming in 30s'), findsOneWidget);
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/add_food_rate_limited.png'),
     );
   });
 
