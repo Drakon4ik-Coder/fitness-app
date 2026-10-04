@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import date, datetime, time, timedelta, tzinfo
 from decimal import Decimal
 from typing import cast
 from uuid import UUID
@@ -52,6 +52,18 @@ def _user_zone(user: object) -> tzinfo:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
         return _UTC
+
+
+def _local_day_bounds(day: date, zone: tzinfo) -> tuple[datetime, datetime]:
+    """The ``[start, end)`` instants of ``day``'s local calendar day in ``zone``.
+
+    zoneinfo resolves a midnight that falls in a DST gap or fold to the
+    instant the local day actually begins, so 23- and 25-hour days come out
+    right without special-casing.
+    """
+    start = datetime.combine(day, time.min, tzinfo=zone)
+    end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=zone)
+    return start, end
 
 
 def _clamp_mutation_time(client_time: datetime | None) -> datetime:
@@ -285,23 +297,33 @@ class NutritionDayView(APIView):
                     {"detail": "Invalid date format. Use YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            # The day's bounds reach one day past the date and get converted
+            # to UTC, which overflows datetime at either end of its range.
+            if target_date in (date.min, date.max):
+                return Response(
+                    {"detail": "Date out of range."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
             target_date = timezone.localdate(timezone=zone)
 
-        # consumed_at is true UTC; the __date lookup uses the active timezone, so
-        # grouping happens on the user's local calendar day, not UTC's.
-        with timezone.override(zone):
-            entries = list(
-                MealEntry.objects.filter(
-                    user=user,
-                    consumed_at__date=target_date,
-                    # Tombstoned entries stay in the table for delta sync but
-                    # are gone as far as the day log is concerned.
-                    deleted_at__isnull=True,
-                )
-                .select_related("food_item")
-                .order_by("consumed_at")
+        # consumed_at is true UTC; group on the user's local calendar day by
+        # bounding it with that day's local midnights. An explicit instant range
+        # (not a __date lookup, which wraps the column in a tz conversion) lets
+        # meal_entry_user_time_idx serve this as a range scan (KAN-117).
+        day_start, day_end = _local_day_bounds(target_date, zone)
+        entries = list(
+            MealEntry.objects.filter(
+                user=user,
+                consumed_at__gte=day_start,
+                consumed_at__lt=day_end,
+                # Tombstoned entries stay in the table for delta sync but
+                # are gone as far as the day log is concerned.
+                deleted_at__isnull=True,
             )
+            .select_related("food_item")
+            .order_by("consumed_at")
+        )
 
         meals: dict[str, list[MealEntry]] = {
             MealEntry.MEAL_BREAKFAST: [],
