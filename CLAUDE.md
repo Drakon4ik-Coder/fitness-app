@@ -60,6 +60,10 @@ Mobile deps: `cd apps/mobile && flutter pub get`.
 
 - **Commits:** one-line messages, on feature branches (`features/...`). Do
   not open PRs unless asked.
+- **PR descriptions:** three sections, in order: `## TL;DR`, `## Problem`,
+  `## Solution` (testing and merge notes go under Solution). The template is
+  `.github/pull_request_template.md`; `gh pr create --body` bypasses it, so
+  follow the structure by hand.
 - **Docs stay true:** a PR that changes structure, endpoints, or conventions
   updates `docs/ARCHITECTURE.md` (and this file if a rule changes) in the
   same PR.
