@@ -7,8 +7,9 @@ on:
       - 'apps/mobile/**'
       - 'contracts/**'
       - '.github/workflows/mobile.yml'
-  schedule:
-    - cron: "0 3 * * 1"  # weekly (Mon 03:00 UTC) — catches Flutter stable channel drift
+  # Weekly drift run: see weekly-drift.yml (and backend.yml) for why the
+  # schedule lives in its own workflow.
+  workflow_call:
   workflow_dispatch:
 
 jobs:
@@ -19,6 +20,9 @@ jobs:
         working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so diff-cover can find the PR's merge base (KAN-125).
+          fetch-depth: 0
       - uses: dorny/paths-filter@v3
         id: changes
         if: github.event_name == 'pull_request'
@@ -50,6 +54,31 @@ jobs:
       - name: Analyze
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
         run: dart analyze
-      - name: Test
+      # Coverage gate (KAN-125). The helper imports every lib/ file so an
+      # untested file counts as 0% instead of vanishing from the report.
+      - name: Test (with coverage)
         if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
-        run: flutter test
+        run: |
+          dart run tool/coverage.dart helper
+          flutter test --coverage
+      # The floor is a ratchet: raise it as coverage grows, never lower it to
+      # make a PR pass.
+      - name: Coverage floor
+        if: github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true'
+        run: dart run tool/coverage.dart check --min 83
+      # New/changed lines must be tested even when the total barely moves —
+      # the guard that matters during refactors. lcov paths are package-
+      # relative; diff-cover needs them repo-relative to match the git diff.
+      - name: Diff coverage (changed lines)
+        if: github.event_name == 'pull_request' && steps.changes.outputs.mobile == 'true'
+        run: |
+          sed 's|^SF:lib/|SF:apps/mobile/lib/|' coverage/lcov.info > coverage/lcov.repo.info
+          cd ../..
+          pipx run diff-cover==10.6.0 apps/mobile/coverage/lcov.repo.info --compare-branch=origin/${{ github.base_ref }} --fail-under=80
+      - name: Upload coverage report
+        if: always() && (github.event_name != 'pull_request' || steps.changes.outputs.mobile == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-coverage
+          path: apps/mobile/coverage/lcov.info
+          if-no-files-found: ignore
