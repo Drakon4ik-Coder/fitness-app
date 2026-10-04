@@ -467,7 +467,6 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final itemLabel = itemCount == 1 ? '1 item' : '$itemCount items';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -488,6 +487,10 @@ class _Header extends StatelessWidget {
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: AppSpacing.md),
+          // The label column is the row's only flexible child: a kcal total
+          // sharing the row as a second flex child took half the free width
+          // and ellipsized "Breakfast" at 390pt next to the two actions, so
+          // the total rides on the subtitle line instead.
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -501,45 +504,8 @@ class _Header extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text(
-                  itemLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
+                _HeaderSubtitle(itemCount: itemCount, totalKcal: totalKcal),
               ],
-            ),
-          ),
-          // scaleDown keeps the full figure visible when a large text scale
-          // (or a four-digit total next to two header actions) outgrows a
-          // narrow sheet — an ellipsized kcal would be useless, and a rigid
-          // one starves the label column into a per-character wrap that
-          // overflows the whole sheet vertically (KAN-40).
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    '$totalKcal',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: scheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'kcal',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
           if (moving)
@@ -571,6 +537,65 @@ class _Header extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// "N items" plus the meal's kcal total under the header label. A [Wrap]
+/// rather than a [Row]: at large text scales the total drops to its own line
+/// instead of ellipsizing (a cut-off kcal figure is useless) or overflowing
+/// the sheet (KAN-40).
+class _HeaderSubtitle extends StatelessWidget {
+  const _HeaderSubtitle({required this.itemCount, required this.totalKcal});
+
+  final int itemCount;
+  final int totalKcal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final itemLabel = itemCount == 1 ? '1 item' : '$itemCount items';
+
+    return Wrap(
+      spacing: AppSpacing.md,
+      crossAxisAlignment: WrapCrossAlignment.end,
+      children: [
+        Text(
+          itemLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        // Even alone on its line a four-digit total can outgrow a 320dp
+        // sheet at max text scale; scaling it down keeps every digit.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                '$totalKcal',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: scheme.primary,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                'kcal',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
