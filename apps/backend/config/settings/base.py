@@ -220,6 +220,10 @@ SPECTACULAR_SETTINGS = {
     "VERSION": APP_VERSION,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
     "SERVE_AUTHENTICATION": [],
+    # Pinned rather than auto-detected: drf-spectacular derives the prefix with
+    # os.path.commonpath, which returns "\api" on Windows and renames every
+    # operationId, so `make backend-contract` there drifted from CI's export.
+    "SCHEMA_PATH_PREFIX": "/api",
 }
 
 SENTRY_DSN = env("SENTRY_DSN", default="").strip() or None
