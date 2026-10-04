@@ -102,6 +102,23 @@ Version-drift note: the sidecar's `pg_dump` major version must match the
 other (`ops/db-backup/Dockerfile`) — a mismatch fails the nightly run loudly
 rather than producing dumps.
 
+## Shared cache (Redis)
+
+`docker-compose.prod.yml` runs a `redis:7-alpine` sidecar, and the backend
+gets `REDIS_URL=redis://redis:6379/0` (KAN-119). It's a pure cache: no
+persistence, a 64 MB cap with LRU eviction, and nothing in it needs backing
+up. It holds DRF rate-limit counters, the learned meal-times cache and the
+FatSecret OAuth token. Without it, each gunicorn worker kept its own copy:
+rate limits were effectively ×3 and reset on every deploy.
+
+If Redis goes down, the backend keeps serving (`config.cache.ResilientRedisCache`
+treats it as cache misses and logs `Redis cache … failed` warnings). While it
+is down, rate limits aren't enforced and account-deletion requests are
+refused. Restart with `docker compose -f docker-compose.prod.yml restart redis`.
+
+Staging (Render) has no Redis and falls back to the per-process cache. Add a
+Render Key Value instance and set `REDIS_URL` there to match prod.
+
 ## Uptime monitoring
 
 `/health/` (`config/urls.py`) is a shallow liveness endpoint — it proves

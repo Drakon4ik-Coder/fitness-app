@@ -113,6 +113,7 @@ flutter run --flavor local --dart-define=API_BASE_URL=http://localhost:8080
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | Yes (prod) | Development default is in `config/settings/base.py`. |
 | `DATABASE_URL` | Yes | Compose uses `postgres://postgres:postgres@db:5432/fitness`. |
+| `REDIS_URL` | No (prod: yes) | Shared cache for throttles and cached values across gunicorn workers. Both compose files set it; unset falls back to a per-process cache. |
 | `DB_CONN_MAX_AGE` | No | Seconds a worker keeps its DB connection (default `60`; `0` = close per request). |
 | `EMAIL_TIMEOUT` | No | SMTP socket timeout in seconds (default `10`). |
 | `DEBUG` | No | Defaults to `true` in `.env.example`. |

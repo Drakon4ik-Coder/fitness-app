@@ -11,6 +11,9 @@ DATABASES = {
     }
 }
 
+# Tests never talk to Redis, even if a developer's .env sets REDIS_URL.
+CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
 # Speed up tests
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
