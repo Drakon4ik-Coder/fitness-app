@@ -166,4 +166,34 @@ void main() {
       expect(atEight, MealType.breakfast);
     });
   });
+
+  // Boundaries a mutation run showed were unpinned (KAN-130).
+  group('window edges', () {
+    test('a window includes its edge (breakfast 8:00 ± 2h)', () {
+      final meal = suggestMealType(
+        now: DateTime(2026, 6, 28, 10),
+        mealsLogged: const {},
+      );
+      expect(meal, MealType.breakfast);
+    });
+
+    test('minutes count: 10:30 is past breakfast and before lunch', () {
+      final meal = suggestMealType(
+        now: DateTime(2026, 6, 28, 10, 30),
+        mealsLogged: const {},
+      );
+      expect(meal, MealType.snacks);
+    });
+
+    test('a meal exactly two hours ago still counts as recent', () {
+      final now = DateTime(2026, 6, 28, 14);
+      final meal = suggestMealType(
+        now: now,
+        mealsLogged: {
+          'lunch': [_entry('lunch', DateTime(2026, 6, 28, 12))],
+        },
+      );
+      expect(meal, MealType.snacks);
+    });
+  });
 }

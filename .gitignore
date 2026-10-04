@@ -4,3 +4,7 @@ apps/backend/.python-version
 apps/backend/media
 .codex-runs/
 .claude/settings.local.json
+
+# Mutation testing output (KAN-130)
+apps/backend/mutants/
+apps/mobile/mutation-test-report/

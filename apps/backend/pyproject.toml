@@ -71,3 +71,22 @@ ignore_missing_imports = true
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"
+
+# Mutation testing (KAN-130). CI only: mutmut needs fork(), which Windows
+# lacks. See .github/workflows/mutation.yml. Every Django app is copied so the
+# project imports; only the sync/day logic is mutated, and only the nutrition
+# tests run against each mutant.
+[tool.mutmut]
+source_paths = ["accounts", "config", "foods", "nutrients", "nutrition", "preferences"]
+only_mutate = ["nutrition/views.py", "nutrition/utils.py"]
+also_copy = ["tests", "manage.py", "pytest.ini"]
+mutate_only_covered_lines = true
+pytest_add_cli_args_test_selection = [
+    "tests/test_nutrition_day_log.py",
+    "tests/test_nutrition_day_timezone.py",
+    "tests/test_nutrition_entry_edit.py",
+    "tests/test_nutrition_meal_times.py",
+    "tests/test_nutrition_meal_times_cache.py",
+    "tests/test_nutrition_nutrients.py",
+    "tests/test_nutrition_sync.py",
+]

@@ -1,0 +1,88 @@
+name: Mutation tests
+# Mutation testing (KAN-130): flips operators and constants in the sync, day
+# and meal-suggestion logic and checks that some test fails. Too slow for
+# every PR, so it runs when a PR carries the `mutation` label (again on each
+# push while the label stays), weekly, or by hand. Report-only for now: the
+# score and every surviving mutant land in the job summary and artifacts.
+on:
+  pull_request:
+    types: [labeled, synchronize]
+  schedule:
+    - cron: "0 4 * * 0"  # Sundays 04:00 UTC
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'mutation') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'mutation'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/backend
+    env:
+      DJANGO_SECRET_KEY: ci-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install deps
+        run: |
+          pip install poetry
+          poetry install --no-interaction --no-root --sync
+          # Not a dev dependency: mutmut needs fork(), so it can't run on the
+          # Windows dev machines, only here.
+          poetry run pip install mutmut==3.8.0
+      - name: Run mutmut
+        run: poetry run mutmut run
+      - name: Report
+        if: always()
+        run: poetry run python scripts/mutation_report.py >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-mutation-report
+          path: |
+            apps/backend/mutants/report.md
+            apps/backend/mutants/mutmut-cicd-stats.json
+          if-no-files-found: ignore
+
+  mobile:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'mutation') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'mutation'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Install deps
+        run: |
+          flutter pub get
+          dart pub global activate mutation_test 1.8.0
+      - name: Run mutation_test
+        run: >-
+          dart pub global run mutation_test -b -f all -o mutation-test-report
+          -r mutation/rules.xml
+          mutation/meal_suggestion.xml mutation/nutrition_repository.xml
+      - name: Report
+        if: always()
+        run: |
+          echo "## Mobile mutation score (mutation_test)" >> "$GITHUB_STEP_SUMMARY"
+          cat mutation-test-report/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-mutation-report
+          path: apps/mobile/mutation-test-report/
+          if-no-files-found: ignore
